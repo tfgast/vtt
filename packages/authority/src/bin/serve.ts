@@ -8,7 +8,12 @@
  *
  *   vtt-serve <file> [--port n] [--token=t] [--allow-origin o]…
  *             [--ui-dir dir | --no-ui] [--no-autosave] [--print-session]
- *             [--force-unlock]
+ *             [--force-unlock] [--empty]
+ *
+ * A missing table file is created stocked with the example templates (the
+ * GM binder on `gm_board`, DESIGN.md §4.7, §7 New tables and ownership;
+ * M5-D19); with `--empty` it is created with no objects. `--empty` has no
+ * effect on an existing file.
  *
  * HTTP (PROTOCOL.md §1; M4-D1): the table-image routes (`POST /assets`,
  * `GET /assets/<path>`) and then the built UI (`GET /`, `/index.html`,
@@ -39,10 +44,12 @@ import {
   createAssetHttpHandler,
   createUiHttpHandler,
   type HttpHandler,
+  newTableSnapshot,
   type RunningServer,
   removeSessionFile,
   removeTableLock,
   startServer,
+  stockedTableSnapshot,
   TableHost,
   TableIdentityError,
   TableLockedError,
@@ -50,7 +57,7 @@ import {
 } from "../index";
 
 const USAGE =
-  "usage: vtt-serve <file> [--port n] [--token=t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock]";
+  "usage: vtt-serve <file> [--port n] [--token=t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock] [--empty]";
 
 /** The default UI build directory: `packages/ui/dist`, resolved from this module's location. */
 const DEFAULT_UI_DIR = fileURLToPath(new URL("../../../ui/dist", import.meta.url));
@@ -68,6 +75,7 @@ const OPTIONS = {
   autosave: { type: "boolean", default: true },
   "print-session": { type: "boolean", default: false },
   "force-unlock": { type: "boolean", default: false },
+  empty: { type: "boolean", default: false },
 } as const;
 
 interface ServeArgs {
@@ -80,6 +88,8 @@ interface ServeArgs {
   autosave: boolean;
   printSession: boolean;
   forceUnlock: boolean;
+  /** Create a missing file with no objects instead of the stocked GM binder. */
+  empty: boolean;
 }
 
 class UsageError extends Error {}
@@ -126,6 +136,7 @@ function parse(argv: string[]): ServeArgs {
     autosave: values.autosave,
     printSession: values["print-session"],
     forceUnlock: values["force-unlock"],
+    empty: values.empty,
   };
 }
 
@@ -239,6 +250,7 @@ async function main(argv: string[]): Promise<never> {
   try {
     host = await TableHost.open(args.file, {
       createIfMissing: true,
+      newTable: args.empty ? newTableSnapshot : stockedTableSnapshot,
       ...(args.autosave ? {} : { autosave: false as const }),
     });
   } catch (err) {

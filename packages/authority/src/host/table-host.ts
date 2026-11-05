@@ -13,6 +13,7 @@
  * assets: an imported path is listed in the file's assets from the next save).
  */
 /// <reference types="node" />
+import type { Snapshot } from "@vtt/schema";
 import { type DiceSource, RandomDiceSource } from "../engine/dice";
 import { Table } from "../engine/table";
 import { type LoadedTable, loadTable, nodeFs, type PersistFs, saveTable } from "../persist/io";
@@ -74,8 +75,14 @@ export const systemClock: HostClock = {
 };
 
 export interface OpenTableOptions {
-  /** Create a new table (one GM board) when the file is missing, and save it at once. */
+  /** Create a new table (`newTable`) when the file is missing, and save it at once. */
   createIfMissing?: boolean;
+  /**
+   * The snapshot of a table created for a missing file (DESIGN.md §7, New
+   * tables and ownership; M5-D19). Default `newTableSnapshot`: one GM board,
+   * no objects. `vtt-serve` passes `stockedTableSnapshot` unless `--empty`.
+   */
+  newTable?: () => Snapshot;
   /** Default: a RandomDiceSource seeded from `crypto.getRandomValues`. */
   dice?: DiceSource;
   /** Autosave timings (missing fields take the defaults), or false for no autosave and no retries. */
@@ -176,7 +183,7 @@ export class TableHost {
    * Opens the table file at `path`: takes the lock on its canonical path
    * (a TableLockedError propagates unchanged; a lock is never taken over),
    * loads the file or, when it is missing and `createIfMissing`, creates a
-   * new table and saves it at once, then reads or creates the identity
+   * new table from `newTable` and saves it at once, then reads or creates the identity
    * file. Any failure after the lock is held releases it before the error
    * propagates.
    */
@@ -199,7 +206,7 @@ export class TableHost {
 
       let store: DocumentStore;
       if (loaded === null) {
-        store = DocumentStore.fromSnapshot(newTableSnapshot());
+        store = DocumentStore.fromSnapshot((options.newTable ?? newTableSnapshot)());
         const result = await saveTable(canonical, store, [], fs);
         if (!result.ok) {
           throw new Error(
