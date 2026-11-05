@@ -25,13 +25,8 @@ export class DocState {
   revision: number;
   #nextSeq: number;
   readonly #objects = new Map<ObjectId, TableObject>();
-  readonly #boards = new Map<BoardId, Board>();
-  /**
-   * Every board id seen, live or removed, in document order. A removed board
-   * keeps its slot, so re-creating it (a rewind or a user undo of its
-   * removal) puts it back where it was.
-   */
-  readonly #boardOrder: BoardId[] = [];
+  /** The live boards, in document order. */
+  readonly #boards: Board[] = [];
   readonly #retired: ObjectId[] = [];
   readonly #retiredSet = new Set<ObjectId>();
   readonly #containerOf = new Map<ObjectId, ObjectId>();
@@ -85,15 +80,17 @@ export class DocState {
   }
 
   getBoard(id: BoardId): Board | undefined {
-    return this.#boards.get(id);
+    return this.#boards.find((b) => b.id === id);
+  }
+
+  /** The index of board `id` in document order, or -1. */
+  boardIndex(id: BoardId): number {
+    return this.#boards.findIndex((b) => b.id === id);
   }
 
   /** The live boards, in document order, as copies. */
   boards(): Board[] {
-    return this.#boardOrder.flatMap((id) => {
-      const b = this.#boards.get(id);
-      return b === undefined ? [] : [{ ...b }];
-    });
+    return this.#boards.map((b) => ({ ...b }));
   }
 
   /**
@@ -163,7 +160,7 @@ export class DocState {
 
   /** Whether `id` is taken for the document's lifetime: a live board, a live object, or retired. */
   isReserved(id: string): boolean {
-    return this.#objects.has(id) || this.#boards.has(id) || this.#retiredSet.has(id);
+    return this.#objects.has(id) || this.boardIndex(id) >= 0 || this.#retiredSet.has(id);
   }
 
   isRetired(id: string): boolean {
@@ -226,14 +223,27 @@ export class DocState {
     c.contents = [...contents];
   }
 
-  /** Adds or replaces a board, keeping a known board's slot. */
+  /** Replaces a live board in place, or appends a new one. */
   putBoard(b: Board): void {
-    if (!this.#boardOrder.includes(b.id)) this.#boardOrder.push(b.id);
-    this.#boards.set(b.id, { ...b });
+    const i = this.boardIndex(b.id);
+    if (i >= 0) this.#boards[i] = { ...b };
+    else this.#boards.push({ ...b });
   }
 
+  /** Inserts a new board at `index` of the board order. */
+  insertBoardAt(b: Board, index: number): void {
+    if (this.boardIndex(b.id) >= 0) throw new Error(`board "${b.id}" is live`);
+    if (!Number.isInteger(index) || index < 0 || index > this.#boards.length) {
+      throw new Error(`board index ${index} out of range`);
+    }
+    this.#boards.splice(index, 0, { ...b });
+  }
+
+  /** Removes a board, leaving no trace in the board order. */
   deleteBoard(id: BoardId): void {
-    if (!this.#boards.delete(id)) throw new Error(`no board "${id}"`);
+    const i = this.boardIndex(id);
+    if (i < 0) throw new Error(`no board "${id}"`);
+    this.#boards.splice(i, 1);
   }
 
   setNextSeq(seq: number): void {

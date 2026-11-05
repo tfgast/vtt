@@ -5,6 +5,7 @@
  */
 import { type CellKey, cellKey } from "@vtt/formula";
 import {
+  type Board,
   type BoardEffect,
   type CreateEffect,
   type Effect,
@@ -147,11 +148,14 @@ export function retireEffect(state: DocState, ids: readonly ObjectId[]): RetireE
 /**
  * The exact reversal of an effect, for rewind (DESIGN.md §7). Internal: never
  * persisted, and not an Effect. Most reversals are themselves effects;
- * `unallocate` restores `next_seq` to `seq_before` and `unretire` removes
- * exactly the ids a retire added, which no persisted effect may do.
+ * `unallocate` restores `next_seq` to `seq_before`, `unretire` removes
+ * exactly the ids a retire added, and `restore_board` re-inserts a removed
+ * board at its former index in `boards`, none of which a persisted effect
+ * may do. The inverse of a board creation is a plain board removal.
  */
 export type HistoricalInverse =
   | { type: "effect"; effect: Effect }
+  | { type: "restore_board"; board: Board; index: number }
   | { type: "unallocate"; seq_before: number; seq_after: number }
   | { type: "unretire"; ids: ObjectId[] };
 
@@ -175,8 +179,19 @@ function swapped(e: Effect): Effect {
   }
 }
 
-export function historicalInverse(e: Effect): HistoricalInverse {
+/**
+ * The exact reversal of `e`, given `stateBefore`, the document just before
+ * `e` applied (a board removal needs the board's index in it).
+ */
+export function historicalInverse(e: Effect, stateBefore: DocState): HistoricalInverse {
   switch (e.type) {
+    case "board":
+      if (e.before !== null && e.after === null) {
+        const index = stateBefore.boardIndex(e.before.id);
+        if (index < 0) throw new Error(`no board "${e.before.id}"`);
+        return { type: "restore_board", board: { ...e.before }, index };
+      }
+      return { type: "effect", effect: clone(swapped(e)) };
     case "allocate":
       return { type: "unallocate", seq_before: e.seq_before, seq_after: e.seq_after };
     case "retire":
@@ -199,6 +214,9 @@ export function applyHistoricalInverse(state: DocState, inv: HistoricalInverse):
       return;
     case "unretire":
       state.removeRetired(inv.ids);
+      return;
+    case "restore_board":
+      state.insertBoardAt(inv.board, inv.index);
       return;
   }
 }

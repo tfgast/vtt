@@ -156,18 +156,20 @@ describe("DocState", () => {
 describe("historical inverses", () => {
   test.each(EXAMPLES)("rewinding %s restores the state exactly", (_, effect) => {
     const s = state();
+    const inverse = historicalInverse(effect, s);
     applyEffect(s, effect);
     expect(s.toSnapshot()).not.toEqual(table());
-    applyHistoricalInverse(s, historicalInverse(effect));
+    applyHistoricalInverse(s, inverse);
     expect(s.toSnapshot()).toEqual(table());
   });
 
   test("allocate moves next_seq and its rewind restores seq_before", () => {
     const s = state();
     const allocate: Effect = { type: "allocate", ids: ["die_5"], seq_before: 5, seq_after: 6 };
+    const inverse = historicalInverse(allocate, s);
     applyEffect(s, allocate);
     expect(s.nextSeq).toBe(6);
-    applyHistoricalInverse(s, historicalInverse(allocate));
+    applyHistoricalInverse(s, inverse);
     expect(s.nextSeq).toBe(5);
   });
 
@@ -175,9 +177,10 @@ describe("historical inverses", () => {
     const s = state();
     const retire = must(retireEffect(s, ["old", "goblin", "goblin"]));
     expect(retire).toEqual({ type: "retire", ids: ["goblin"] });
+    const inverse = historicalInverse(retire, s);
     applyEffect(s, retire);
     expect(s.toSnapshot().retired_ids).toEqual(["old", "goblin"]);
-    applyHistoricalInverse(s, historicalInverse(retire));
+    applyHistoricalInverse(s, inverse);
     expect(s.toSnapshot().retired_ids).toEqual(["old"]);
   });
 
@@ -185,13 +188,27 @@ describe("historical inverses", () => {
     expect(() => applyEffect(state(), { type: "retire", ids: ["old"] })).toThrow();
   });
 
-  test("board removal rewinds into the board's original place", () => {
+  test("board removal rewinds into the board's index, also after a snapshot round-trip", () => {
     const s = state();
     const removal: Effect = { type: "board", before: { id: "map", name: "Map" }, after: null };
+    const inverse = historicalInverse(removal, s);
     applyEffect(s, removal);
-    applyEffect(s, { type: "board", before: null, after: { id: "attic" } });
-    applyHistoricalInverse(s, historicalInverse(removal));
-    expect(s.toSnapshot().boards.map((b) => b.id)).toEqual(["map", "shelf", "attic"]);
+    const reloaded = DocState.fromSnapshot(s.toSnapshot());
+    applyHistoricalInverse(reloaded, inverse);
+    expect(reloaded.toSnapshot().boards.map((b) => b.id)).toEqual(["map", "shelf"]);
+    expect(reloaded.toSnapshot()).toEqual(table());
+  });
+
+  test("a rewound board creation leaves nothing behind in the board order", () => {
+    const s = state();
+    const creation: Effect = { type: "board", before: null, after: { id: "attic" } };
+    const inverse = historicalInverse(creation, s);
+    applyEffect(s, creation);
+    applyHistoricalInverse(s, inverse);
+    expect(s.toSnapshot()).toEqual(table());
+    applyEffect(s, { type: "board", before: null, after: { id: "cellar" } });
+    applyEffect(s, { type: "board", before: null, after: { id: "roof" } });
+    expect(s.toSnapshot().boards.map((b) => b.id)).toEqual(["map", "shelf", "cellar", "roof"]);
   });
 });
 
@@ -260,12 +277,19 @@ describe("user undo", () => {
     expect(s.isReserved("attic")).toBe(true);
   });
 
-  test("undoing a board removal re-creates it; a rename is renamed back", () => {
+  test("undoing a board removal re-creates it at the end; a rename is renamed back", () => {
     const removed = undoAfter(E.boardRemoval);
     expect(removed.undo).toEqual([
       { type: "board", before: null, after: { id: "map", name: "Map" } },
     ]);
-    expect(removed.s.toSnapshot()).toEqual(table());
+    // User undo re-creates by appending; only rewind restores the board's index.
+    expect(removed.s.toSnapshot()).toEqual({
+      ...table(),
+      boards: [
+        { id: "shelf", name: "Shelf" },
+        { id: "map", name: "Map" },
+      ],
+    });
     const renamed = undoAfter(E.boardRename);
     expect(renamed.undo).toEqual([
       { type: "board", before: { id: "map", name: "World" }, after: { id: "map", name: "Map" } },
