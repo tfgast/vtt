@@ -1,0 +1,181 @@
+/**
+ * The inspector's object header (vtt-3l6.12; DESIGN.md §4.1 flags and tags;
+ * PROTOCOL.md §5 `set_template_flag`, `set_character_flag`, `set_tag`, §6):
+ * the name and id (with a copy button); the `is_template` and
+ * `is_character` toggles; `is_zone`, read-only; the tags as chips with add
+ * and remove; and the shape control. Each command carries the revision
+ * captured at the click. Read-only (view-as) shows the same without edits.
+ */
+import type { ObjectView } from "@vtt/protocol";
+import type { ObjectId } from "@vtt/schema";
+import { type CSSProperties, type FormEvent, useState } from "react";
+import type { TableSession } from "../session/table-session";
+import { inspectorRefLabel, useInspectorWrites } from "./CellRow";
+import { ShapeControl } from "./ShapeControl";
+
+export interface ObjectHeaderProps {
+  object: ObjectId;
+  /** The current viewer's view of `object`. */
+  view: ObjectView;
+  session: TableSession;
+  /** View-as: nothing editable. */
+  readOnly?: boolean;
+}
+
+/** The view's `name` when it is non-empty text, else null. */
+export function viewName(view: ObjectView): string | null {
+  const v = view.cells.name?.value;
+  return v?.type === "text" && v.value !== "" ? v.value : null;
+}
+
+/** The view's tags (text items of `tag`), in order. */
+export function viewTags(view: ObjectView): string[] {
+  const v = view.cells.tag?.value;
+  if (v?.type !== "list") return [];
+  const tags: string[] = [];
+  for (const item of v.items) if (item.type === "text") tags.push(item.value);
+  return tags;
+}
+
+/** Whether the view's `is_zone` is true. */
+export function viewIsZone(view: ObjectView): boolean {
+  const v = view.cells.is_zone?.value;
+  return v?.type === "boolean" && v.value;
+}
+
+const ROW_STYLE: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "0.5em",
+};
+const CHIP_STYLE: CSSProperties = {
+  listStyle: "none",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.2em",
+  padding: "0 0.4em",
+  borderRadius: "0.8em",
+  background: "rgba(127, 127, 127, 0.2)",
+};
+const CHIP_BUTTON_STYLE: CSSProperties = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  cursor: "pointer",
+  font: "inherit",
+};
+
+export function ObjectHeader({ object, view, session, readOnly = false }: ObjectHeaderProps) {
+  const port = useInspectorWrites(session);
+  const [tag, setTag] = useState("");
+  const name = viewName(view);
+  const tags = viewTags(view);
+  const label = () => inspectorRefLabel(session)(object) ?? object;
+
+  const setFlag = (flag: "template" | "character", value: boolean) => {
+    const baseRevision = session.getSnapshot().revision;
+    const what = flag === "template" ? "template" : "character";
+    void port.write(
+      [
+        flag === "template"
+          ? { type: "set_template_flag", object, value }
+          : { type: "set_character_flag", object, value },
+      ],
+      { baseRevision, label: `${value ? "Make" : "Unmake"} ${label()} a ${what}` },
+    );
+  };
+
+  const writeTags = (next: string[], text: string, baseRevision: number) => {
+    void port.write([{ type: "set_tag", object, tags: next }], { baseRevision, label: text });
+  };
+
+  const addTag = (event: FormEvent) => {
+    event.preventDefault();
+    const baseRevision = session.getSnapshot().revision;
+    const added = tag.trim();
+    setTag("");
+    if (added === "" || tags.includes(added)) return;
+    writeTags([...tags, added], `Tag ${label()} ${added}`, baseRevision);
+  };
+
+  const removeTag = (removed: string) => {
+    const baseRevision = session.getSnapshot().revision;
+    writeTags(
+      tags.filter((t) => t !== removed),
+      `Untag ${label()} ${removed}`,
+      baseRevision,
+    );
+  };
+
+  const copyId = () => {
+    void navigator.clipboard?.writeText(object).catch(() => undefined);
+  };
+
+  return (
+    <section aria-label="Object">
+      <h3 style={{ margin: 0 }}>{name ?? object}</h3>
+      <div style={ROW_STYLE}>
+        <code>{object}</code>
+        <button type="button" aria-label="Copy id" title="Copy id" onClick={copyId}>
+          Copy
+        </button>
+      </div>
+      <div style={ROW_STYLE}>
+        <label>
+          <input
+            type="checkbox"
+            checked={view.is_template}
+            disabled={readOnly}
+            onChange={(e) => setFlag("template", e.target.checked)}
+          />{" "}
+          Template
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={view.is_character}
+            disabled={readOnly}
+            onChange={(e) => setFlag("character", e.target.checked)}
+          />{" "}
+          Character
+        </label>
+        <label>
+          <input type="checkbox" checked={viewIsZone(view)} disabled readOnly /> Zone
+        </label>
+      </div>
+      <div style={ROW_STYLE}>
+        <ul aria-label="Tags" style={{ ...ROW_STYLE, margin: 0, padding: 0 }}>
+          {tags.map((t) => (
+            <li key={t} data-tag={t} style={CHIP_STYLE}>
+              {t}
+              {!readOnly && (
+                <button
+                  type="button"
+                  aria-label={`Remove tag ${t}`}
+                  title={`Remove tag ${t}`}
+                  style={CHIP_BUTTON_STYLE}
+                  onClick={() => removeTag(t)}
+                >
+                  ×
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {!readOnly && (
+          <form onSubmit={addTag}>
+            <input
+              aria-label="New tag"
+              placeholder="Add tag"
+              size={10}
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+            />
+          </form>
+        )}
+      </div>
+      <ShapeControl object={object} view={view} session={session} readOnly={readOnly} />
+    </section>
+  );
+}
