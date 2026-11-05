@@ -1,5 +1,5 @@
 import { createEngine } from "@vtt/formula";
-import { bool, EMPTY, num, type RollValue, ref } from "@vtt/schema";
+import { bool, EMPTY, num, type RollValue, ref, text } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { doc } from "./support/engine-doc";
 import { MemoryHost } from "./support/memory-host";
@@ -126,5 +126,69 @@ describe("engine.evaluate", () => {
     expect(engine.evaluate("a", { thisId: "o" })).toEqual(num(1));
     expect(engine.evaluate("empty", { thisId: "o" })).toEqual(EMPTY);
     expect(engine.evaluate("a", { thisId: "gone" })).toMatchObject({ code: "#REF" });
+  });
+});
+
+describe("engine.evaluate without an object", () => {
+  const host = () =>
+    MemoryHost.fromSetup({
+      boards: [{ id: "table" }],
+      characters: [],
+      objects: [
+        {
+          id: "goblin1",
+          placement: { board: "table", position: [0, 0] },
+          cells: { name: text("Goblin"), max_hp: num(27) },
+        },
+        {
+          id: "orc1",
+          placement: { board: "table", position: [3, 4] },
+          cells: { name: text("Orc"), max_hp: num(40) },
+        },
+      ],
+    });
+
+  test("`this` is #REF: no object in scope", () => {
+    const engine = createEngine(host());
+    const r = engine.evaluate("this", {});
+    expect(r).toEqual({ type: "error", code: "#REF", message: "no object in scope" });
+    expect(engine.evaluate("this.max_hp", {})).toMatchObject({ code: "#REF" });
+  });
+
+  test("a bare cell name is #NAME", () => {
+    const engine = createEngine(host());
+    const r = engine.evaluate("max_hp", {});
+    expect(r).toMatchObject({ type: "error", code: "#NAME" });
+    expect(r).not.toHaveProperty("origin");
+  });
+
+  test("literals, obj(), objects(), and spatial functions on explicit refs work", () => {
+    const engine = createEngine(host());
+    expect(engine.evaluate("1 + 2", {})).toEqual(num(3));
+    expect(engine.evaluate('obj("Goblin").max_hp', {})).toEqual(num(27));
+    expect(engine.evaluate("sum(objects(true).max_hp)", {})).toEqual(num(67));
+    expect(engine.evaluate("objects(max_hp > 30)", {})).toEqual({
+      type: "list",
+      items: [ref("orc1")],
+    });
+    expect(engine.evaluate('distance(obj("Goblin"), obj("Orc"))', {})).toEqual(num(5));
+  });
+
+  test("works on a document with no boards (and so no objects)", () => {
+    const engine = createEngine(MemoryHost.fromSetup({ boards: [], characters: [], objects: [] }));
+    expect(engine.evaluate("1 + 2", {})).toEqual(num(3));
+    expect(engine.evaluate("len(objects(true))", {})).toEqual(num(0));
+    expect(engine.evaluate("this", {})).toMatchObject({ code: "#REF" });
+    expect(engine.evaluate("hp", {})).toMatchObject({ code: "#NAME" });
+  });
+
+  test("still budgeted and keeps no dependency entry", () => {
+    const h = doc({ o: { cells: { name: text("O"), a: 1, x: "=a + 1" } } });
+    const engine = createEngine(h);
+    expect(engine.evaluate('obj("O").x * 10', {})).toEqual(num(20));
+    expect(engine.stats().evaluations).toBe(1);
+    expect(engine.dependenciesOf("o", "x")).toEqual([{ type: "cell", object: "o", cell: "a" }]);
+    expect(engine.evaluate('obj("O").x * 10', {})).toEqual(num(20));
+    expect(engine.stats().evaluations).toBe(1);
   });
 });
