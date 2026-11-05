@@ -113,7 +113,7 @@ Notes:
 - **Errors are expectations, never values.** There is no error encoding; a
   cell that should hold `#REF` is asserted with a `cell_error` expectation
   (section 7). The codes are `#CYCLE`, `#NAME`, `#TYPE`, `#REF`, `#DIV0`,
-  `#LIMIT`.
+  `#LIMIT`, `#SYNTAX`.
 
 ## 3. Table setup
 
@@ -227,9 +227,9 @@ are unique per object. Spawned copies carry their template's actions.
 
 Source text (formulas, `when`, action steps) is opaque to this package. The
 validator checks it is a non-empty string and nothing more; parsing belongs to
-M1. A formula that fails to parse is an engine-side failure, which a scenario
-may assert as a `cell_error` only once the language defines a parse-error
-code; until then fixtures contain only well-formed source.
+M1. A formula that fails to parse is an engine-side failure: the cell
+evaluates to `#SYNTAX` (FORMULAS §2.3), which a scenario asserts as a
+`cell_error`.
 
 ## 5. The dice script
 
@@ -333,7 +333,7 @@ step. One discriminated union on `type`:
 | `type` | Fields | Holds when |
 |---|---|---|
 | `cell` | `object, cell, value` | The cell's current value (literal, formula result, or override) equals `value`, as the GM sees it. Numbers compare exactly; roll results compare all fields; lists elementwise. |
-| `cell_error` | `object, cell, code` | The cell evaluates to that error. |
+| `cell_error` | `object, cell, code` | The cell evaluates to that error: one of `#CYCLE`, `#NAME`, `#TYPE`, `#REF`, `#DIV0`, `#LIMIT`, `#SYNTAX` (FORMULAS §2.3). |
 | `override` | `object, cell, overridden` | The cell does (`true`) or does not (`false`) carry the override marker. |
 | `action` | `object, action, enabled` | The action's `when` is true (or absent) for `enabled: true`; false or an error for `enabled: false`. |
 | `rejected` | `reason` | This step was refused for this reason, and the document and log are unchanged. Step-level only; at most one per step. |
@@ -647,3 +647,9 @@ Scenario: [`re-hiding-room.json`](../packages/fixtures/scenarios/re-hiding-room.
 
 Replay expectations (M2) and face layout and show-when (M5) extend this format
 by adding variants and optional fields; existing scenarios stay valid.
+
+Recorded extensions:
+
+- **`#SYNTAX` error code** (M1). `ErrorCodeSchema` accepts `#SYNTAX` for
+  `cell_error`, `when_error`, and `step_error`: the source does not parse
+  (FORMULAS §2.3). Additive; no scenario changed.
