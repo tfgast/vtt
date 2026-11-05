@@ -10,7 +10,7 @@
  * banner and the inspector panel (tabs Inspector, Objects and Log); the
  * status bar at the bottom; notices floating above it; the keyboard and
  * gesture help (vtt-nb8.8) over everything while open (`?` or the toolbar's
- * "?" button toggles it, Esc closes it).
+ * "?" button toggles it, Esc closes it), the rest of the app `inert` then.
  *
  * Wiring (one of each per mounted app):
  * - one `FaceStateStore` (vtt-1xv.14) and one `RuntimeInputs` shared by the
@@ -384,46 +384,48 @@ function Shell(props: AppProps & { ui: UiStore }) {
   );
 
   return (
-    <div style={ROOT_STYLE}>
-      {composition === null ? (
-        <header />
-      ) : (
-        <Toolbar registry={composition.registry} onHelp={toggleHelp} />
-      )}
-      <div style={MAIN_STYLE}>
-        <main style={BOARD_COLUMN_STYLE}>
-          <BoardTabs />
-          <FormulaBar session={session} ui={ui} />
-          <div style={CANVAS_AREA_STYLE}>
+    <>
+      <div style={ROOT_STYLE} inert={helpOpen}>
+        {composition === null ? (
+          <header />
+        ) : (
+          <Toolbar registry={composition.registry} onHelp={toggleHelp} />
+        )}
+        <div style={MAIN_STYLE}>
+          <main style={BOARD_COLUMN_STYLE}>
+            <BoardTabs />
+            <FormulaBar session={session} ui={ui} />
+            <div style={CANVAS_AREA_STYLE}>
+              {composition === null ? null : (
+                <CanvasPane
+                  runtime={composition.runtime}
+                  registry={composition.registry}
+                  faceState={faceState}
+                  createRenderer={props.createRenderer ?? appCreateRenderer}
+                />
+              )}
+            </div>
+          </main>
+          <div style={INSPECTOR_STYLE}>
             {composition === null ? null : (
-              <CanvasPane
-                runtime={composition.runtime}
-                registry={composition.registry}
-                faceState={faceState}
-                createRenderer={props.createRenderer ?? appCreateRenderer}
-              />
+              <EditTemplateBanner policy={composition.policy} style={BANNER_STYLE} />
             )}
+            <Inspector
+              session={session}
+              ui={ui}
+              onEditFormula={(cell) => requestFormulaBarFocus(ui, cell)}
+              {...(composition === null
+                ? {}
+                : { policy: composition.policy, runtime: composition.runtime })}
+            />
           </div>
-        </main>
-        <div style={INSPECTOR_STYLE}>
-          {composition === null ? null : (
-            <EditTemplateBanner policy={composition.policy} style={BANNER_STYLE} />
-          )}
-          <Inspector
-            session={session}
-            ui={ui}
-            onEditFormula={(cell) => requestFormulaBarFocus(ui, cell)}
-            {...(composition === null
-              ? {}
-              : { policy: composition.policy, runtime: composition.runtime })}
-          />
         </div>
+        <StatusBar />
+        <Notices />
+        <input ref={fileInput} type="file" hidden aria-hidden="true" tabIndex={-1} />
       </div>
-      <StatusBar />
-      <Notices />
       {helpOpen ? <HelpPanel onClose={closeHelp} /> : null}
-      <input ref={fileInput} type="file" hidden aria-hidden="true" tabIndex={-1} />
-    </div>
+    </>
   );
 }
 

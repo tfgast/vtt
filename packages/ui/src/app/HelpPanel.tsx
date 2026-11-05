@@ -3,8 +3,10 @@
  * §4.7; M6 plan Q12): a dialog listing `KEY_BINDINGS` (the table the
  * keybindings dispatch from), then `HELP_GESTURES`. The app opens it with
  * `?` and the toolbar's "?" button; Esc and its close button close it.
+ * It is modal: Tab and Shift+Tab wrap within it, and the app renders the
+ * rest of itself `inert` while it is open.
  */
-import { type CSSProperties, useEffect, useId, useRef } from "react";
+import { type CSSProperties, type KeyboardEvent, useEffect, useId, useRef } from "react";
 import { HELP_GESTURES } from "./help-content";
 import { KEY_BINDINGS } from "./keybindings";
 
@@ -44,6 +46,21 @@ const GESTURE_CELL_STYLE: CSSProperties = { ...KEY_CELL_STYLE, whiteSpace: "norm
 const CELL_STYLE: CSSProperties = { padding: "2px 0", verticalAlign: "top" };
 const CAPTION_STYLE: CSSProperties = { textAlign: "left", fontWeight: 600, padding: "8px 0 4px" };
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Keeps Tab and Shift+Tab inside `container`, wrapping at either end. */
+function containTab(e: KeyboardEvent<HTMLElement>, container: HTMLElement): void {
+  if (e.key !== "Tab") return;
+  const focusable = [...container.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  e.preventDefault();
+  if (focusable.length === 0) return;
+  const at = focusable.indexOf(document.activeElement as HTMLElement);
+  const step = e.shiftKey ? -1 : 1;
+  const next = at === -1 ? (e.shiftKey ? focusable.length - 1 : 0) : at + step;
+  focusable[(next + focusable.length) % focusable.length]?.focus();
+}
+
 export interface HelpPanelProps {
   onClose(): void;
 }
@@ -57,7 +74,7 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
   useEffect(() => {
     const opener = document.activeElement;
     closeRef.current?.focus();
-    const onKeyDown = (e: KeyboardEvent) => {
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       e.preventDefault();
       onCloseRef.current();
@@ -76,7 +93,13 @@ export function HelpPanel({ onClose }: HelpPanelProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} style={DIALOG_STYLE}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        style={DIALOG_STYLE}
+        onKeyDown={(e) => containTab(e, e.currentTarget)}
+      >
         <div style={HEADER_STYLE}>
           <h2 id={titleId} style={{ margin: 0, fontSize: "1.1em" }}>
             Keyboard and gesture help

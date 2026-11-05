@@ -175,6 +175,33 @@ describe("the help dialog in the app", () => {
     expect(helpDialog()).toBeNull();
   });
 
+  test("while open, Tab and Shift+Tab stay in the dialog, the app is inert, and Esc still closes it", async () => {
+    const authority = await startAuthority();
+    await renderApp(authority);
+    const user = userEvent.setup();
+    const opener = screen.getByRole("button", { name: "Keyboard and gesture help" });
+    await user.click(opener);
+    const dialog = helpDialog() as HTMLElement;
+    const toolbar = screen.getByRole("toolbar", { hidden: true, name: "Tools" });
+    expect(toolbar.closest("[inert]")).not.toBeNull();
+    expect(dialog.closest("[inert]")).toBeNull();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    for (let i = 0; i < 4; i++) {
+      await user.tab();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    }
+    for (let i = 0; i < 4; i++) {
+      await user.tab({ shift: true });
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    }
+
+    await user.keyboard("{Escape}");
+    expect(helpDialog()).toBeNull();
+    expect(document.querySelector("[inert]")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
   test("? typed in the formula bar is text, not help", async () => {
     const authority = await startAuthority();
     const gm = await authority.client("gm");
