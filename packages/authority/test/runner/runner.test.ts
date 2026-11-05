@@ -230,7 +230,9 @@ describe.each([
       run(valid({ dice: [roll14, roll14], steps: [setDamage(5), setDamage(6)] })),
     );
     expect(err).toBeInstanceOf(ScenarioError);
-    expect(err.message).toBe('"Synthetic": after step 1: 2 scripted dice entries unused');
+    expect(err.message).toBe(
+      '"Synthetic": after step 1, expect dice script exhausted: 2 scripted dice entries unused',
+    );
   });
 
   test("acting on a removed object is a scenario error", () => {

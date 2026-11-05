@@ -242,7 +242,9 @@ describe.each([
       const s = scenario([invoke("Roll")], { dice: [roll14, roll14] });
       const err = thrown(() => run(s));
       expect(err).toBeInstanceOf(ScenarioError);
-      expect(err.message).toBe('"Synthetic": after step 0: 1 scripted dice entry unused');
+      expect(err.message).toBe(
+        '"Synthetic": after step 0, expect dice script exhausted: 1 scripted dice entry unused',
+      );
     });
   });
 
