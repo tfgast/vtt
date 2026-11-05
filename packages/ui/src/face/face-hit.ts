@@ -229,62 +229,85 @@ export function faceHitAt(scene: FaceScene, point: Point, camera: Camera): FaceH
   return null;
 }
 
-/**
- * Where a drop at `p` lands in `drawing` of `object` (not dragged): an
- * editor element, nested ones included, else the innermost contents
- * element containing the point (index from the row under it, or the end).
- */
-function dropInDrawing(
-  drawing: FaceDrawing,
-  p: Point,
-  object: ObjectId,
-  toBoard: Affine,
+/** A drawing searched for drops: whose it is, its frame → board, and the point in its frame. */
+interface DropLevel {
+  drawing: FaceDrawing;
+  object: ObjectId;
+  toBoard: Affine;
+  p: Point;
+}
+
+/** The shown contents primitive of `level` containing its point, topmost first, or undefined. */
+function contentsUnder(level: DropLevel, camera: Camera): ContentsPrimitive | undefined {
+  const prims = level.drawing.primitives;
+  for (let i = prims.length - 1; i >= 0; i--) {
+    const c = prims[i] as FacePrimitive;
+    if (c.kind === "contents" && inRect(level.p, c.rect) && shown(c, level.toBoard, camera)) {
+      return c;
+    }
+  }
+  return undefined;
+}
+
+/** The drawing of the (non-dragged) row of `c` under `level`'s point, as a level, or null. */
+function rowUnder(
+  c: ContentsPrimitive,
+  level: DropLevel,
+  dragged: ReadonlySet<ObjectId>,
+): DropLevel | null {
+  const q = elementLocal(c, level.p);
+  const e = c.entries.find((x) => inRect(q, x.row));
+  if (e === undefined || e.id === null || e.drawing === null || dragged.has(e.id)) return null;
+  const t = entryTransform(c, e);
+  return {
+    drawing: e.drawing,
+    object: e.id,
+    toBoard: compose(level.toBoard, t),
+    p: apply(invert(t), level.p),
+  };
+}
+
+/** An editor element under the point in `level`'s drawing or, through its list's clip, a nested one. */
+function editorIn(
+  level: DropLevel,
   camera: Camera,
   dragged: ReadonlySet<ObjectId>,
 ): DropTarget | null {
-  const prims = drawing.primitives;
+  const prims = level.drawing.primitives;
   for (let i = prims.length - 1; i >= 0; i--) {
     const prim = prims[i] as FacePrimitive;
     if (prim.kind !== "editor" || prim.element === null) continue;
-    if (inRect(p, prim.rect) && shown(prim, toBoard, camera)) {
-      return { kind: "editor", object, element: prim.element };
+    if (inRect(level.p, prim.rect) && shown(prim, level.toBoard, camera)) {
+      return { kind: "editor", object: level.object, element: prim.element };
     }
   }
-  for (let i = prims.length - 1; i >= 0; i--) {
-    const c = prims[i] as FacePrimitive;
-    if (c.kind !== "contents" || !inRect(p, c.rect) || !shown(c, toBoard, camera)) continue;
-    const q = elementLocal(c, p);
-    const e = c.entries.find((x) => inRect(q, x.row));
-    if (e !== undefined && e.id !== null && e.drawing !== null && !dragged.has(e.id)) {
-      const t = entryTransform(c, e);
-      const inner = dropInDrawing(
-        e.drawing,
-        apply(invert(t), p),
-        e.id,
-        compose(toBoard, t),
-        camera,
-        dragged,
-      );
-      if (inner !== null) return inner;
-    }
-    return {
-      kind: "contents",
-      container: object,
-      element: c.element,
-      index: insertionIndex(c, q[1]),
-    };
-  }
-  return null;
+  const c = contentsUnder(level, camera);
+  const row = c === undefined ? null : rowUnder(c, level, dragged);
+  return row === null ? null : editorIn(row, camera, dragged);
+}
+
+/** The innermost contents element under the point in `level`'s drawing, with its insertion index. */
+function contentsIn(
+  level: DropLevel,
+  camera: Camera,
+  dragged: ReadonlySet<ObjectId>,
+): DropTarget | null {
+  const c = contentsUnder(level, camera);
+  if (c === undefined) return null;
+  const row = rowUnder(c, level, dragged);
+  const inner = row === null ? null : contentsIn(row, camera, dragged);
+  if (inner !== null) return inner;
+  const index = insertionIndex(c, elementLocal(c, level.p)[1]);
+  return { kind: "contents", container: level.object, element: c.element, index };
 }
 
 /**
  * Where dropping `dragged` at board point `point` lands (DESIGN.md §4.6
- * Gestures): an editor element under the point on any object but the
- * dragged ones (nested included), else the innermost contents element of
- * such an object containing the point (at the row's index: before the row
- * on its upper half, after it on its lower half; or the end), else the
- * board. The dragged objects are transparent; otherwise the topmost object
- * under the point decides, so a token lying over a list hides it. Covers
+ * Gestures; M5 plan review r3 finding 2), searching every object under the
+ * point but the dragged ones, topmost first: an editor element under the
+ * point (nested included), else the innermost contents element containing
+ * it (at the row's index: before the row on its upper half, after it on its
+ * lower half; or the end), else the board. Bodies hide neither; covers
  * block both.
  */
 export function dropTargetAt(
@@ -295,16 +318,20 @@ export function dropTargetAt(
 ): DropTarget {
   if (isCovered(scene, point)) return { kind: "board" };
   const skip = new Set(dragged);
+  const levels: DropLevel[] = [];
   for (const item of candidates(scene, point, camera)) {
-    if (skip.has(item.id)) continue;
     const drawing = scene.faces.get(item.id);
-    if (drawing !== undefined) {
-      const toBoard = toBoardOf(scene, item);
-      const local = apply(invert(toBoard), point);
-      const target = dropInDrawing(drawing, local, item.id, toBoard, camera, skip);
-      if (target !== null) return target;
-    }
-    if (hitItem(scene, item, point, camera) !== null) return { kind: "board" };
+    if (skip.has(item.id) || drawing === undefined) continue;
+    const toBoard = toBoardOf(scene, item);
+    levels.push({ drawing, object: item.id, toBoard, p: apply(invert(toBoard), point) });
+  }
+  for (const level of levels) {
+    const editor = editorIn(level, camera, skip);
+    if (editor !== null) return editor;
+  }
+  for (const level of levels) {
+    const contents = contentsIn(level, camera, skip);
+    if (contents !== null) return contents;
   }
   return { kind: "board" };
 }
