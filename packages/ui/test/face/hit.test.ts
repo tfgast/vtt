@@ -542,18 +542,45 @@ describe("dropTargetAt", () => {
     });
   });
 
-  test("the topmost object under the point decides; a dragged one is transparent", () => {
+  test("precedence across overlapping objects: editors, then contents, then the board; bodies do not hide them", () => {
     const binder = mk("binder", { at: [0, 0], z: 0, contents: ["a", "b"] });
     const a = mk("a", { shape: rect(2, 3), container: "binder" });
     const b = mk("b", { shape: rect(2, 3), container: "binder" });
     const token = mk("token", { shape: circle(0.5), at: [2, 1], z: 5 });
-    const s = scene([binder, a, b, token]);
-    // The token lies over row a.
-    expect(dropTargetAt(s, [2, 1], CAMERA, ["x"])).toEqual({ kind: "board" });
+    const targetFace: FaceView = { elements: [editor("target", [-1, -1.5, 2, 0.5], 0)] };
+    // An editor under another object's body.
+    const card = mk("card", { shape: rect(2, 3), at: [10, 0], z: 1, face: targetFace });
+    const cover = mk("over", { shape: circle(0.5), at: [10, -1.25], z: 5 });
+    // An editor on a lower object under an upper object's contents element.
+    const card2 = mk("card2", { shape: rect(2, 3), at: [20, 0], z: 1, face: targetFace });
+    const upper = mk("upper", { at: [20, -2.3], z: 5, contents: ["u0"] });
+    const u0 = mk("u0", { shape: rect(2, 3), container: "upper" });
+    const s = scene([binder, a, b, token, card, cover, card2, upper, u0]);
+
+    // Contents under a token's body: the list, at the row's index.
+    expect(dropTargetAt(s, [2, 1], CAMERA, ["x"])).toEqual({
+      kind: "contents",
+      container: "binder",
+      element: DEFAULT_CONTENTS_ELEMENT,
+      index: 1,
+    });
     expect(dropTargetAt(s, [2, 0.8], CAMERA, ["token"])).toMatchObject({
       kind: "contents",
       container: "binder",
       index: 0,
+    });
+    // An editor under a body.
+    expect(dropTargetAt(s, [10, -1.25], CAMERA, ["x"])).toEqual({
+      kind: "editor",
+      object: "card",
+      element: 0,
+    });
+    // An editor under an upper object's list beats the list.
+    expect(faceHitAt(s, [20, -1.25], CAMERA)?.target).toMatchObject({ type: "entry", id: "u0" });
+    expect(dropTargetAt(s, [20, -1.25], CAMERA, ["x"])).toEqual({
+      kind: "editor",
+      object: "card2",
+      element: 0,
     });
     // A dragged entry over its own row: its container's list.
     expect(dropTargetAt(s, [-2, 0.8], CAMERA, ["a"])).toMatchObject({
