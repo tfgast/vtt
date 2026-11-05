@@ -14,7 +14,9 @@
  *   `log {limit: 1}` response. Page 1 is `log {before: boundary, limit: 50,
  *   effects: true}`; page k+1 uses `before` = the lowest index page k
  *   returned; the chain ends when a page returns fewer than 50 groups or
- *   reaches `first_index`.
+ *   reaches `first_index`. A page that comes back empty stays as an end
+ *   marker, so an invalidation rechecks it (rebuilt as soon as its
+ *   predecessors are fresh, since it shows nothing to be seen in view).
  * - **The bridge**: groups at or above the boundary that later leave the
  *   window (new groups push the oldest out) are kept, so the list stays
  *   gap-free between the window and page 1. They are taken from the last
@@ -125,7 +127,10 @@ interface Held {
 interface Page {
   /** The exclusive upper index it was requested with. */
   readonly before: number;
-  /** Newest first, never empty. */
+  /**
+   * Newest first. Empty only for the last page: an end marker, kept so an
+   * invalidation can recheck it (a reveal may make older groups visible).
+   */
   readonly groups: readonly GroupView[];
   fresh: boolean;
   /** The client revision the page was requested at. */
@@ -160,7 +165,8 @@ const lowestIndex = (groups: Iterable<number>): number | undefined => {
   return low;
 };
 
-const lastIndex = (page: Page): number => (page.groups.at(-1) as GroupView).index;
+/** The lowest index a page returned; for an empty page (an end marker), its `before`. */
+const lastIndex = (page: Page): number => page.groups.at(-1)?.index ?? page.before;
 
 class Log implements LogSession {
   readonly #session: TableSession;
@@ -473,7 +479,10 @@ class Log implements LogSession {
         step = await this.#fetchBridge(chain, held, chain.boundary);
       } else {
         const stale = chain.pages.findIndex((p) => !p.fresh);
-        if (stale >= 0 && (stale < chain.wanted || chain.more > 0)) {
+        // An empty page (the end marker) renders nothing to be seen in view: it is
+        // rechecked as soon as its predecessors are fresh.
+        const marker = stale >= 0 && chain.pages[stale]?.groups.length === 0;
+        if (stale >= 0 && (stale < chain.wanted || chain.more > 0 || marker)) {
           step = await this.#fetchPage(chain, held, stale);
         } else if (stale < 0 && chain.more > 0 && !chain.ended) {
           step = await this.#fetchPage(chain, held, chain.pages.length);
@@ -577,11 +586,6 @@ class Log implements LogSession {
     if (!this.#current(tag, chain)) return "dropped";
     const groups = result.groups;
     const ended = groups.length < LOG_PAGE_SIZE || groups.at(-1)?.index === result.first_index;
-    if (groups.length === 0) {
-      chain.pages.splice(k);
-      chain.ended = true;
-      return "applied";
-    }
     chain.pages[k] = { before, groups, fresh: true, revision: tag.revision };
     if (ended) {
       chain.pages.splice(k + 1);

@@ -15,7 +15,7 @@
  *   never resent; a refusal or an unknown outcome is a notice. Undone
  *   groups are struck through.
  * - "Load older" pages older groups. Stale older pages are rebuilt as they
- *   are rendered in view: reported by an `IntersectionObserver` when the
+ *   are rendered in view (any of their rows): reported by an `IntersectionObserver` when the
  *   platform has one, else on the next render.
  *
  * DOM contract (for composition and drivers): the list is `role="list"`
@@ -102,6 +102,16 @@ interface Row {
 
 const sameViewer = (a: Viewer, b: Viewer) =>
   a.type === b.type && (a.type === "gm" || (b.type === "character" && a.id === b.id));
+
+/** The highest older page among `rows` (their `data-log-page`), 0 for none. */
+function maxPage(rows: Iterable<HTMLElement>): number {
+  let max = 0;
+  for (const el of rows) {
+    const page = Number(el.dataset.logPage ?? 0);
+    if (page > max) max = page;
+  }
+  return max;
+}
 
 export function LogPanel({ session, ui, log: injected }: LogPanelProps) {
   const [owned, setOwned] = useState<LogSession | null>(null);
@@ -203,61 +213,61 @@ function LogView({ session, ui, log }: { session: TableSession; ui: UiStore; log
     notices.push({ level: "info", text: `${name} no longer exists or is hidden.` });
   };
 
-  // Stale pages are rebuilt as they are rendered in view.
-  const anchors = useRef(new Map<number, HTMLElement>());
-  const inView = useRef(new Set<number>());
-  // The observer (when the platform has one) and stable ref callbacks per page reporting to it.
+  // Stale pages are rebuilt as they are rendered in view. With an observer, every
+  // row is observed, so a page counts as in view while any of its rows is (also a
+  // row in the middle of a long page); a row's page is read when it is needed, as
+  // a rebuild may move it.
+  const visibleRows = useRef(new Set<HTMLElement>());
   const tracker = useMemo(() => {
     const refs = new Map<number, (el: HTMLElement | null) => void>();
-    if (typeof IntersectionObserver === "undefined") return { observer: null, refs };
+    const rows = new Map<number, HTMLElement>();
+    if (typeof IntersectionObserver === "undefined") return { observer: null, refs, rows };
     const observer = new IntersectionObserver((records) => {
       for (const record of records) {
-        const page = Number((record.target as HTMLElement).dataset.logPage);
-        if (record.isIntersecting) inView.current.add(page);
-        else inView.current.delete(page);
+        const el = record.target as HTMLElement;
+        if (record.isIntersecting) visibleRows.current.add(el);
+        else visibleRows.current.delete(el);
       }
-      const max = Math.max(0, ...inView.current);
+      const max = maxPage(visibleRows.current);
       if (max > 0) log.showPage(max);
     });
-    return { observer, refs };
+    return { observer, refs, rows };
   }, [log]);
   const observer = tracker.observer;
-  useEffect(() => () => observer?.disconnect(), [observer]);
+  useEffect(
+    () => () => {
+      observer?.disconnect();
+      visibleRows.current.clear();
+    },
+    [observer],
+  );
   useEffect(() => {
-    const shown = observer === null ? [...anchors.current.keys()] : [...inView.current];
-    const max = Math.max(0, ...shown);
+    const max =
+      observer === null
+        ? Math.max(0, ...rows.map((row) => row.entry.page ?? 0))
+        : maxPage(visibleRows.current);
     if (max > 0) log.showPage(max);
   });
-  const anchor = (page: number) => {
-    let ref = tracker.refs.get(page);
+  const rowRef = (index: number) => {
+    let ref = tracker.refs.get(index);
     if (ref === undefined) {
       ref = (el: HTMLElement | null) => {
-        const old = anchors.current.get(page);
+        const old = tracker.rows.get(index);
         if (old === el) return;
         if (old !== undefined) {
           observer?.unobserve(old);
-          anchors.current.delete(page);
-          inView.current.delete(page);
+          tracker.rows.delete(index);
+          visibleRows.current.delete(old);
         }
         if (el !== null) {
-          anchors.current.set(page, el);
+          tracker.rows.set(index, el);
           observer?.observe(el);
         }
       };
-      tracker.refs.set(page, ref);
+      tracker.refs.set(index, ref);
     }
     return ref;
   };
-
-  const firstOfPage = new Set<number>();
-  const seenPages = new Set<number>();
-  for (const row of rows) {
-    const page = row.entry.page;
-    if (page !== null && !seenPages.has(page)) {
-      seenPages.add(page);
-      firstOfPage.add(row.entry.group.index);
-    }
-  }
 
   return (
     <section
@@ -306,11 +316,10 @@ function LogView({ session, ui, log }: { session: TableSession; ui: UiStore; log
           const { entry, description } = row;
           const group = entry.group;
           const page = entry.page;
-          const first = page !== null && firstOfPage.has(group.index);
           return (
             <li
               key={group.index}
-              ref={first ? anchor(page) : undefined}
+              ref={rowRef(group.index)}
               aria-label={description.header}
               data-log-index={group.index}
               {...(page === null ? {} : { "data-log-page": page })}
