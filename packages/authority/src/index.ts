@@ -5,6 +5,8 @@ export * from "./host/identity";
 export * from "./host/lock";
 export * from "./host/new-table";
 export * from "./host/table-host";
+export * from "./mcp/gate";
+export * from "./mcp/server";
 export * from "./persist/index";
 export * from "./protocol/commands";
 export * from "./protocol/conflicts";

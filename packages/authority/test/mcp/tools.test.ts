@@ -137,7 +137,7 @@ describe("tool list", () => {
       expect(tool, spec.name).toBeDefined();
       expect(tool?.inputSchema.additionalProperties, spec.name).toBe(false);
       const { $schema: _, ...expected } = z.toJSONSchema(spec.input, { io: "input" });
-      const { $schema: __, ...actual } = tool?.inputSchema ?? {};
+      const { $schema: __, ...actual } = (tool?.inputSchema ?? {}) as Record<string, unknown>;
       expect(actual, spec.name).toEqual(expected);
       expect(tool?.description, spec.name).toBe(spec.description);
     }
@@ -360,9 +360,13 @@ describe("happy paths and errors, one per tool", () => {
     const nothing = failed(await h.call("undo", { target: { type: "latest" } }));
     expect(nothing).toEqual({ status: "rejected", rejection: { type: "nothing_to_undo" } });
     ok(await h.call("transact", { base_revision: 3, ops: [setHp(9)] }));
-    const undone = ok(await h.call("undo", { target: { type: "mine" }, expect_index: 0 }));
-    expect(undone).toMatchObject({ status: "committed", revision: 5 });
-    ok(await h.call("undo", { target: { type: "group", index: 1 }, label: "redo" }));
+    ok(await h.call("transact", { base_revision: 4, ops: [setHp(8)] }));
+    const undone = ok(await h.call("undo", { target: { type: "mine" }, expect_index: 1 }));
+    expect(undone).toMatchObject({ status: "committed", revision: 6, index: 2 });
+    const changed = failed(await h.call("undo", { target: { type: "latest" }, expect_index: 1 }));
+    expect(changed.rejection).toEqual({ type: "undo_target_changed", expected: 1, actual: 0 });
+    const grouped = ok(await h.call("undo", { target: { type: "group", index: 0 }, label: "u0" }));
+    expect(grouped).toMatchObject({ status: "committed", revision: 7 });
   });
 
   test("save", async () => {

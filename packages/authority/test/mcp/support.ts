@@ -118,13 +118,13 @@ export class SocketControl {
   /** @internal Returns true when the frame must not be delivered (the socket was dropped). */
   onFrame(socket: ControlledSocket, data: unknown): boolean {
     if (!this.#dropOnCommit) return false;
-    let type: unknown;
+    let frame: { type?: unknown; event?: unknown };
     try {
-      type = (JSON.parse(String(data)) as { type?: unknown }).type;
+      frame = JSON.parse(String(data)) as typeof frame;
     } catch {
       return false;
     }
-    if (type !== "commit") return false;
+    if (frame.type !== "event" || frame.event !== "commit") return false;
     this.#dropOnCommit = false;
     socket.drop();
     return true;
