@@ -25,7 +25,7 @@ import {
   TableLoadError,
   TableLockedError,
 } from "@vtt/authority";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { playedStore, scene, setHp, textOf } from "../persist/helpers";
 
 let dir: string;
@@ -324,6 +324,7 @@ describe("TableHost.save", () => {
   test("a throwing listener does not break saving", async () => {
     await writeScene();
     const host = await open(path);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     host.onSave(() => {
       throw new Error("listener bug");
     });
@@ -335,6 +336,8 @@ describe("TableHost.save", () => {
     setHp(host.table.store, 2);
     expect(await host.save()).toMatchObject({ status: "saved", revision: 2 });
     expect(events).toHaveLength(1);
+    expect(logged).toHaveBeenCalledTimes(2);
+    logged.mockRestore();
   });
 });
 
