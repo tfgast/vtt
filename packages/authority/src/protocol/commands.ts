@@ -1,6 +1,6 @@
 /**
- * Command execution (PROTOCOL.md §3–§6; DESIGN.md §5.2, §7; M3-D6, D7, D8):
- * the transport-free `transact` and `undo`. A `transact` is structurally
+ * Command execution (PROTOCOL.md §3–§6; DESIGN.md §5.2, §7; M3-D6, D7, D8;
+ * M5-D1): the transport-free `transact`, `undo` and `invoke`. A `transact` is structurally
  * validated, looked up for deduplication, validated against the document,
  * checked for stale writes, and run as one transaction (one group, one undo
  * unit) whose ops map one to one onto the M2 primitives, with batch-local
@@ -10,6 +10,7 @@ import {
   type InputCellContent,
   type InputValue,
   type InputViewers,
+  type InvokeParams,
   LIMITS,
   type ObjRef,
   ProtocolFailure,
@@ -17,6 +18,7 @@ import {
   type TransactParams,
   type UndoParams,
   type Destination as WireDestination,
+  type InvokeResult as WireInvokeResult,
   type ObjectInit as WireObjectInit,
   type WireOp,
   type TransactResult as WireTransactResult,
@@ -33,6 +35,9 @@ import {
 } from "@vtt/schema";
 import type { DiceSource } from "../engine/dice";
 import { transactWithDice } from "../engine/dice";
+import { createExecutor, type Executor } from "../engine/invoke";
+import { placementHandlers } from "../engine/steps-place";
+import { coreHandlers } from "../engine/steps-value";
 import type { Table } from "../engine/table";
 import {
   addBoard,
@@ -82,16 +87,29 @@ export interface CommandContext {
   client: string;
   dice: DiceSource;
   txns: TxnCache;
+  /** The action executor `invoke` runs; default {@link COMMAND_EXECUTOR}. */
+  executor?: Executor;
 }
+
+/**
+ * The executor every `invoke` runs unless its context names another: created
+ * once, with the value steps and the placement steps (vtt-1xv.8, vtt-1xv.9).
+ */
+export const COMMAND_EXECUTOR: Executor = createExecutor({
+  handlers: [...coreHandlers, ...placementHandlers],
+});
+
+/** A stored command outcome: a `transact` or an `invoke` result (one store, PROTOCOL.md §6). */
+export type StoredResult = WireTransactResult | WireInvokeResult;
 
 export type TxnLookup =
   | { type: "miss" }
-  | { type: "hit"; result: WireTransactResult }
+  | { type: "hit"; result: StoredResult }
   | { type: "mismatch" };
 
 interface TxnEntry {
   fingerprint: string;
-  result: WireTransactResult;
+  result: StoredResult;
 }
 
 /**
@@ -118,7 +136,7 @@ export class TxnCache {
     return { type: "hit", result: structuredClone(entry.result) };
   }
 
-  store(client: string, txnId: string, fingerprint: string, result: WireTransactResult): void {
+  store(client: string, txnId: string, fingerprint: string, result: StoredResult): void {
     let entries = this.#clients.get(client);
     if (entries === undefined) {
       entries = new Map();
@@ -151,6 +169,16 @@ function sortedJson(v: unknown): string {
 export function txnFingerprint(params: TransactParams): string {
   const { retry: _retry, ...rest } = params;
   return sortedJson(rest);
+}
+
+/**
+ * An `invoke`'s deduplication fingerprint: the canonical JSON of
+ * `{method: "invoke", params}` with `params` except `retry` (§6), so a
+ * `txn_id` reused across `transact` and `invoke` never matches.
+ */
+export function invokeFingerprint(params: InvokeParams): string {
+  const { retry: _retry, ...rest } = params;
+  return sortedJson({ method: "invoke", params: rest });
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +389,41 @@ export function defaultLabel(ops: readonly WireOp[]): string {
  * shape and op count are the params schema's.
  */
 export function validateOpsStatic(params: TransactParams, kind: CommandKind): void {
+  validateCommandStatic(params, kind);
+  const introduced = new Set<string>();
+  params.ops.forEach((op, i) => {
+    for (const r of opRefs(op)) {
+      if (isBinding(r) && !introduced.has(r)) {
+        badRequest(`op ${i} uses ${r} before it is introduced`);
+      }
+    }
+    if (op.type === "spawn") {
+      for (const id of Object.keys(op.owned ?? {})) {
+        if (!isValidId(id)) badRequest(`op ${i}: owned key "${id}" is not a plain id`);
+      }
+    }
+    for (const name of opIntroductions(op)) {
+      if (introduced.has(name)) badRequest(`op ${i} introduces ${name} again`);
+      introduced.add(name);
+    }
+  });
+}
+
+/** The fields `transact` and `invoke` share, for their common checks. */
+interface CommandFields {
+  base_revision: number;
+  txn_id?: string;
+  retry?: true;
+  label?: string;
+  actor?: { type: "character"; id: ObjectId };
+}
+
+/**
+ * The structural checks `transact` and `invoke` share (PROTOCOL.md §6 step
+ * 1): `retry` only with `txn_id`, `label` at most 200 characters, `actor`
+ * only on a non-agent connection, as `{type:"character", id}`.
+ */
+function validateCommandStatic(params: CommandFields, kind: CommandKind): void {
   if (params.retry !== undefined && params.txn_id === undefined) {
     badRequest("retry requires txn_id");
   }
@@ -381,23 +444,6 @@ export function validateOpsStatic(params: TransactParams, kind: CommandKind): vo
       badRequest('actor must be {type: "character", id}');
     }
   }
-  const introduced = new Set<string>();
-  params.ops.forEach((op, i) => {
-    for (const r of opRefs(op)) {
-      if (isBinding(r) && !introduced.has(r)) {
-        badRequest(`op ${i} uses ${r} before it is introduced`);
-      }
-    }
-    if (op.type === "spawn") {
-      for (const id of Object.keys(op.owned ?? {})) {
-        if (!isValidId(id)) badRequest(`op ${i}: owned key "${id}" is not a plain id`);
-      }
-    }
-    for (const name of opIntroductions(op)) {
-      if (introduced.has(name)) badRequest(`op ${i} introduces ${name} again`);
-      introduced.add(name);
-    }
-  });
 }
 
 /**
@@ -406,7 +452,10 @@ export function validateOpsStatic(params: TransactParams, kind: CommandKind): vo
  * existing object whose `is_character` is true. Throws
  * `ProtocolFailure("bad_request")`.
  */
-export function validateAgainstDocument(table: Table, params: TransactParams): void {
+export function validateAgainstDocument(
+  table: Table,
+  params: Pick<CommandFields, "base_revision" | "actor">,
+): void {
   const base = params.base_revision;
   const current = table.store.revision;
   if (!Number.isInteger(base) || base < 0 || base > current) {
@@ -692,7 +741,8 @@ export function executeTransact(ctx: CommandContext, params: TransactParams): Wi
   const fingerprint = txnId === undefined ? undefined : txnFingerprint(params);
   if (txnId !== undefined && fingerprint !== undefined) {
     const found = ctx.txns.lookup(ctx.client, txnId, fingerprint);
-    if (found.type === "hit") return found.result;
+    // A transact fingerprint never equals an invoke one (§6), so a hit is a transact result.
+    if (found.type === "hit") return found.result as WireTransactResult;
     if (found.type === "mismatch") return rejected({ type: "invalid", message: REUSED });
     if (params.retry === true) {
       throw new ProtocolFailure("retry_unknown", `txn_id "${txnId}" is not retained`);
@@ -742,4 +792,132 @@ export function executeUndo(ctx: CommandContext, params: UndoParams): WireTransa
     copies: [],
     bindings: {},
   };
+}
+
+// ---------------------------------------------------------------------------
+// invoke
+
+const invokeRejected = (
+  rejection: ProtocolRejection | Rejection,
+  step?: number,
+): WireInvokeResult =>
+  step === undefined
+    ? { status: "rejected", rejection: rejection as ProtocolRejection }
+    : { status: "rejected", rejection: rejection as ProtocolRejection, step };
+
+/**
+ * PROTOCOL.md §6's `invoke` order after validation and a deduplication miss:
+ * floor, declared keys `obj:<object>` and `actions:<object>` against the
+ * groups after `base_revision`, then one transaction the command opens
+ * itself, inside which the executor's `runAction` runs the action (its
+ * `when` at the current revision) and, when `base_revision` < current, the
+ * touched keys of its effects are checked. A refusal or a stale write throws
+ * inside the transaction function, so nothing commits, no listener runs and
+ * the dice source is reset.
+ */
+function executeInvokeChecked(ctx: CommandContext, params: InvokeParams): WireInvokeResult {
+  const store = ctx.table.store;
+  const base = params.base_revision;
+  const current = store.revision;
+  const floor = historyFloor(store.history, current);
+  if (base < floor) {
+    return invokeRejected({
+      type: "stale_write",
+      base_revision: base,
+      revision: current,
+      floor,
+      truncated: true,
+      conflicts: [],
+    });
+  }
+  const stale = base < current;
+  if (stale) {
+    const declared = staleConflicts(store.history, base, [
+      `obj:${params.object}`,
+      `actions:${params.object}`,
+    ]);
+    if (declared !== null) return invokeRejected(declared);
+  }
+
+  const executor = ctx.executor ?? COMMAND_EXECUTOR;
+  const { object, action } = params;
+  const actor: Actor = params.actor ?? ctx.actor;
+  const label = params.label ?? action;
+  let step: number | undefined;
+  let created: ObjectId[] = [];
+  try {
+    const result = transactWithDice(
+      ctx.table,
+      actor,
+      { kind: "action", label, origin: { object, action } },
+      ctx.dice,
+      (tx) => {
+        const outcome = executor.runAction(
+          tx,
+          { table: ctx.table, dice: ctx.dice },
+          params.table === undefined
+            ? { object, action }
+            : {
+                object,
+                action,
+                tableDestination: {
+                  board: params.table.board,
+                  position: [params.table.position[0], params.table.position[1]],
+                },
+              },
+        );
+        if (!outcome.ok) {
+          step = outcome.step;
+          throw new Rejected(outcome.rejection);
+        }
+        created = outcome.created;
+        if (stale) {
+          const touched = union(tx.effects().flatMap(touchedKeys));
+          const conflict = staleConflicts(store.history, base, touched);
+          if (conflict !== null) throw new StaleWriteError(conflict);
+        }
+      },
+    );
+    if (!result.ok) return invokeRejected(result.rejection, step);
+    return {
+      status: "committed",
+      revision: result.group.revision,
+      index: result.group.index,
+      created,
+    };
+  } catch (err) {
+    if (err instanceof StaleWriteError) return invokeRejected(err.rejection);
+    throw err;
+  }
+}
+
+/**
+ * Executes an `invoke` (PROTOCOL.md §4, §6; M5-D1) in §6's order:
+ * structural validation, deduplication (the store shared with `transact`,
+ * keyed by client instance and `txn_id`, fingerprinted by
+ * {@link invokeFingerprint}), state validation, floor, declared keys, then
+ * the action in one transaction. Protocol failures (`bad_request`,
+ * `retry_unknown`) throw `ProtocolFailure`; command outcomes are returned
+ * and, with a `txn_id`, stored. An unknown object or action is rejected
+ * `invalid`; an object removed since `base_revision` is `stale_write`.
+ */
+export function executeInvoke(ctx: CommandContext, params: InvokeParams): WireInvokeResult {
+  validateCommandStatic(params, ctx.kind);
+  const txnId = params.txn_id;
+  const fingerprint = txnId === undefined ? undefined : invokeFingerprint(params);
+  if (txnId !== undefined && fingerprint !== undefined) {
+    const found = ctx.txns.lookup(ctx.client, txnId, fingerprint);
+    // The fingerprint names the method, so a hit is an invoke result.
+    if (found.type === "hit") return found.result as WireInvokeResult;
+    if (found.type === "mismatch") return invokeRejected({ type: "invalid", message: REUSED });
+    if (params.retry === true) {
+      throw new ProtocolFailure("retry_unknown", `txn_id "${txnId}" is not retained`);
+    }
+  }
+  validateAgainstDocument(ctx.table, params);
+  const result = executeInvokeChecked(ctx, params);
+  if (txnId !== undefined && fingerprint !== undefined) {
+    ctx.txns.store(ctx.client, txnId, fingerprint, result);
+  }
+  return result;
 }

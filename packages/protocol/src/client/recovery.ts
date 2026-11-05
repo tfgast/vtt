@@ -6,9 +6,22 @@
  * `abortSocket`, and a subscription's `rebind`, `markRecovering`, `fail`.
  * Browser-safe: web-platform globals only.
  */
-import type { ClientState, ProtocolClient, Subscription, Timers, TransactOptions } from "../client";
+import type {
+  ClientState,
+  InvokeOptions,
+  ProtocolClient,
+  Subscription,
+  Timers,
+  TransactOptions,
+} from "../client";
 import { ProtocolFailure } from "../messages";
-import type { SubscribeResult, TransactParams, TransactResult } from "../methods";
+import type {
+  InvokeParams,
+  InvokeResult,
+  SubscribeResult,
+  TransactParams,
+  TransactResult,
+} from "../methods";
 import type { WireOp } from "../ops";
 import { CLOSE_CODES } from "../version";
 
@@ -37,7 +50,7 @@ export type RecoveryOptions = {
   timers?: Timers;
 };
 
-/** `details.reason` of the `uncertain` errors `transactWithRetry` produces (§6). */
+/** `details.reason` of the `uncertain` errors `transactWithRetry` and `invokeWithRetry` produce (§6). */
 export type UncertainReason =
   | "timeout"
   | "not_ready"
@@ -47,11 +60,14 @@ export type UncertainReason =
   | "unauthorized"
   | "wrong_table";
 
-export type TransactWithRetryOptions = TransactOptions & {
+/** The resend policy of `transactWithRetry` and `invokeWithRetry`. */
+export type WriteRetryOptions = {
   /** How long to wait for the client to be ready again before resending. */
   retry: { timeoutMs: number };
   timers?: Timers;
 };
+
+export type TransactWithRetryOptions = TransactOptions & WriteRetryOptions;
 
 // ---------------------------------------------------------------------------
 // Internals
@@ -444,37 +460,38 @@ function whenReady(
 }
 
 /**
- * `transact` with the client retry of PROTOCOL.md §6: when the socket closes
- * after the send, it waits up to `retry.timeoutMs` for the client to be ready
- * again and, on the same `session`, resends the identical params once with
- * `retry: true`. Every other unsettled outcome rejects `uncertain` with
- * `details: {txn_id, reason}`; a request never sent rejects `disconnected`.
+ * Sends a write that carries a `txn_id` with the client retry of PROTOCOL.md
+ * §6, shared by `transactWithRetry` and `invokeWithRetry`: when the socket
+ * closes after the send, it waits up to `retry.timeoutMs` for the client to
+ * be ready again and, on the same `session`, resends the identical params
+ * once with `retry: true`. Every other unsettled outcome rejects `uncertain`
+ * with `details: {txn_id, reason}`; a request never sent rejects
+ * `disconnected`. `params` must already be a snapshot the caller cannot
+ * mutate.
  */
-export async function transactWithRetry(
+async function writeWithRetry<M extends "transact" | "invoke">(
   client: ProtocolClient,
-  ops: WireOp[],
-  options: TransactWithRetryOptions,
-): Promise<TransactResult> {
+  method: M,
+  params: M extends "transact" ? TransactParams : InvokeParams,
+  txn_id: string,
+  options: WriteRetryOptions,
+): Promise<M extends "transact" ? TransactResult : InvokeResult> {
+  type R = M extends "transact" ? TransactResult : InvokeResult;
+  const send = (p: TransactParams | InvokeParams) =>
+    (method === "transact"
+      ? client.request("transact", p as TransactParams)
+      : client.request("invoke", p as InvokeParams)) as Promise<R>;
   const timers = options.timers ?? globalTimers;
-  const txn_id = options.txn_id ?? globalThis.crypto.randomUUID();
-  const built: TransactParams = {
-    base_revision: options.base_revision ?? client.revision,
-    ops,
-    txn_id,
-  };
-  if (options.label !== undefined) built.label = options.label;
-  if (options.actor !== undefined) built.actor = options.actor;
-  // A snapshot: the caller mutating `ops` or `actor` later must not change the resend (§6).
-  const params = structuredClone(built);
+  const what = `${method} ${txn_id}`;
   const session = client.session;
 
   try {
-    return await client.request("transact", params);
+    return await send(params);
   } catch (e) {
     if (!(e instanceof ProtocolFailure) || e.error.code !== "uncertain") throw e;
     const reason = (e.error.details as { reason?: unknown } | undefined)?.reason;
     if (reason !== "socket_closed") {
-      throw uncertain(txn_id, "timeout", `transact ${txn_id}: no response in time`);
+      throw uncertain(txn_id, "timeout", `${what}: no response in time`);
     }
   }
 
@@ -484,40 +501,77 @@ export async function transactWithRetry(
       txn_id,
       outcome,
       outcome === "not_ready"
-        ? `transact ${txn_id}: the connection was lost and not ready again within ${options.retry.timeoutMs} ms`
-        : `transact ${txn_id}: the connection was lost and recovery ended (${outcome})`,
+        ? `${what}: the connection was lost and not ready again within ${options.retry.timeoutMs} ms`
+        : `${what}: the connection was lost and recovery ended (${outcome})`,
     );
   }
   if (client.session !== session) {
     throw uncertain(
       txn_id,
       "session_changed",
-      `transact ${txn_id}: the authority restarted before the resend`,
-      { old_session: session, new_session: client.session },
+      `${what}: the authority restarted before the resend`,
+      {
+        old_session: session,
+        new_session: client.session,
+      },
     );
   }
 
   try {
-    return await client.request("transact", { ...params, retry: true });
+    return await send({ ...params, retry: true });
   } catch (e) {
     const code = codeOf(e);
     if (code === "retry_unknown") {
-      throw uncertain(
-        txn_id,
-        "retry_unknown",
-        `transact ${txn_id}: the authority no longer knows it`,
-      );
+      throw uncertain(txn_id, "retry_unknown", `${what}: the authority no longer knows it`);
     }
     if (code === "disconnected" && (e as ProtocolFailure).error.details) {
       const sent = ((e as ProtocolFailure).error.details as { sent?: unknown }).sent;
       if (sent === false) {
-        throw uncertain(txn_id, "not_ready", `transact ${txn_id}: the resend could not be sent`);
+        throw uncertain(txn_id, "not_ready", `${what}: the resend could not be sent`);
       }
     }
-    throw uncertain(txn_id, "resend_lost", `transact ${txn_id}: the resend's response was lost`, {
+    throw uncertain(txn_id, "resend_lost", `${what}: the resend's response was lost`, {
       ...(code === "uncertain"
         ? {}
         : { error: e instanceof ProtocolFailure ? e.error : String(e) }),
     });
   }
+}
+
+/**
+ * `transact` with the client retry of PROTOCOL.md §6 (`writeWithRetry`):
+ * `base_revision` defaults to `client.revision` and `txn_id` to a new UUID.
+ */
+export function transactWithRetry(
+  client: ProtocolClient,
+  ops: WireOp[],
+  options: TransactWithRetryOptions,
+): Promise<TransactResult> {
+  const txn_id = options.txn_id ?? globalThis.crypto.randomUUID();
+  const built: TransactParams = {
+    base_revision: options.base_revision ?? client.revision,
+    ops,
+    txn_id,
+  };
+  if (options.label !== undefined) built.label = options.label;
+  if (options.actor !== undefined) built.actor = options.actor;
+  // A snapshot: the caller mutating `ops` or `actor` later must not change the resend (§6).
+  return writeWithRetry(client, "transact", structuredClone(built), txn_id, options);
+}
+
+/**
+ * `invoke` with the client retry of PROTOCOL.md §6 (M5-D1), exactly as
+ * `transactWithRetry`: one same-session resend with `retry: true` after a
+ * socket drop, `uncertain` with the same reasons otherwise. `base_revision`
+ * is required; `txn_id` defaults to a new UUID.
+ */
+export function invokeWithRetry(
+  client: ProtocolClient,
+  params: InvokeOptions,
+  options: WriteRetryOptions,
+): Promise<InvokeResult> {
+  const txn_id = params.txn_id ?? globalThis.crypto.randomUUID();
+  // A snapshot: the caller mutating `actor` or `table` later must not change the resend (§6).
+  const built: InvokeParams = structuredClone({ ...params, txn_id });
+  return writeWithRetry(client, "invoke", built, txn_id, options);
 }

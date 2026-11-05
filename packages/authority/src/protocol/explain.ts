@@ -10,7 +10,7 @@
  * check runs before any evaluation result is exposed. Views, redaction and
  * group views come from `ViewBuilder`.
  */
-import { type Dependency, parse } from "@vtt/formula";
+import { type Dependency, parse, parseAction } from "@vtt/formula";
 import {
   type DepNode,
   type ExplainActionParams,
@@ -330,6 +330,16 @@ export function explainAction(table: Table, params: ExplainActionParams): Explai
     if (!enabled) result.reason = value.type === "error" ? "when_error" : "when_false";
     result.guard = { ...(gm ? { source: def.when } : {}), value: views.redact(value) };
   }
-  if (gm) result.steps = [...def.steps];
+  if (gm) {
+    result.steps = [...def.steps];
+    const parsed = parseAction(def);
+    if (parsed.when !== undefined) {
+      result.when_parses = parsed.when.ok;
+      if (!parsed.when.ok) result.when_syntax_error = parsed.when.message;
+    }
+    result.step_status = parsed.steps.map((p) =>
+      p.ok ? { ok: true as const } : { ok: false as const, message: p.message, offset: p.offset },
+    );
+  }
   return result;
 }

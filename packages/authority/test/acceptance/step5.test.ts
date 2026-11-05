@@ -383,6 +383,7 @@ describe("§8.4 step 5 through vtt-serve and vtt-mcp", () => {
         action: "Discard",
         enabled: true,
         steps: ["remove(zone)", "remove(this)"],
+        step_status: [{ ok: true }, { ok: true }],
       });
       expect(t3.explainRollSave).toMatchObject({
         object: ROW,

@@ -443,12 +443,17 @@ describe("invoke: the Attack card", () => {
     expect(stale.rejection.type).toBe("stale_write");
     // A guard reading another object: disabled at base, enabled now, no conflict.
     const doc = documentFromSetup(ATTACK.setup);
-    const goblin = doc.objects.goblin1;
     const aldric = doc.objects.aldric;
-    if (goblin === undefined || aldric === undefined) throw new Error("fixture");
-    aldric.actions = [{ name: "Strike", when: "goblin1.ac > 13", steps: ["set(attack_bonus, 6)"] }];
+    if (aldric === undefined) throw new Error("fixture");
+    aldric.actions = [
+      { name: "Strike", when: 'obj("goblin1").ac > 13', steps: ["set(attack_bonus, 6)"] },
+    ];
     const w2 = await world(doc, []);
     const b2 = w2.host.revision;
+    const early = refused(
+      await w2.gm.invoke({ object: "aldric", action: "Strike", base_revision: b2 }),
+    );
+    expect(early.rejection.type).toBe("when_false");
     committed(
       await w2.other.transact(
         [
@@ -528,7 +533,7 @@ describe("invoke: the Fireball card", () => {
     const doc = documentFromSetup(ATTACK.setup);
     const aldric = doc.objects.aldric;
     if (aldric === undefined) throw new Error("fixture");
-    aldric.actions = [{ name: "Deal", steps: ["spawn(attack_card, table)"] }];
+    aldric.actions = [{ name: "Deal", steps: ['spawn(obj("attack_card"), table)'] }];
     const w = await world(doc, []);
     const r = committed(
       await w.gm.invoke({
@@ -653,7 +658,6 @@ describe("invokeWithRetry", () => {
     const w = await attack({ WebSocket: droppingWebSocket(() => drops++) });
     enableRecovery(w.gm, { reconnect: { initialMs: 10, maxMs: 50 } });
     const r0 = w.host.revision;
-    const sent: unknown[] = [];
     const result = await invokeWithRetry(
       w.gm,
       { object: w.card, action: "Roll", base_revision: r0, txn_id: "rt-1" },
@@ -664,7 +668,6 @@ describe("invokeWithRetry", () => {
     // Executed once: one group, one die.
     expect(w.host.revision).toBe(r0 + 1);
     expect(w.dice.remaining()).toBe(1);
-    expect(sent).toEqual([]);
   });
 
   test("reports uncertain after a restart (a new session); the resend is never sent", async () => {

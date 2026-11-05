@@ -127,12 +127,12 @@ describe("routing over a real server", () => {
     expect(host.revision).toBe(5);
   });
 
-  test("invoke answers unsupported", async () => {
+  test("invoke is routed (no longer unsupported): an unknown action is rejected invalid", async () => {
     const { server } = await serve();
     const c = await connect(server);
     expect(
-      await failure(c.request("invoke", { object: "goblin", action: "a", base_revision: 3 })),
-    ).toMatchObject({ code: "unsupported" });
+      await c.request("invoke", { object: "goblin", action: "a", base_revision: 3 }),
+    ).toMatchObject({ status: "rejected", rejection: { type: "invalid" } });
   });
 
   test("an unknown method answers unknown_method", async () => {
@@ -224,9 +224,11 @@ describe("routeRequest", () => {
   test("ProtocolFailure maps to its error; other exceptions to internal", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const d = deps();
-    expect(routeRequest(d, ctx, req("invoke", {}))).toMatchObject({
+    expect(
+      routeRequest(d, ctx, req("explain_action", { object: "ghost", action: "a" })),
+    ).toMatchObject({
       ok: false,
-      error: { code: "unsupported" },
+      error: { code: "not_found" },
     });
     const routes = {
       ...ROUTES,

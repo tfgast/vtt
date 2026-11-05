@@ -26,6 +26,8 @@ import {
   type Welcome,
 } from "./messages";
 import type {
+  InvokeParams,
+  InvokeResult,
   MethodName,
   Params,
   Result,
@@ -171,13 +173,21 @@ export type TransactOptions = {
   actor?: TransactParams["actor"];
 };
 
+/**
+ * `client.invoke`'s params: `invoke`'s params with `base_revision` required
+ * (the revision the caller saw the action at), `txn_id` defaulting to a new
+ * UUID, and no `retry` (only `invokeWithRetry` resends).
+ */
+export type InvokeOptions = Omit<InvokeParams, "txn_id" | "retry"> & { txn_id?: string };
+
 // ---------------------------------------------------------------------------
 // Internals
 
 type Listener<P> = (payload: P) => void;
 
 /** Methods whose sent-but-unsettled outcome is `uncertain` (PROTOCOL.md §6). */
-const isWrite = (method: MethodName) => method === "transact" || method === "undo";
+const isWrite = (method: MethodName) =>
+  method === "transact" || method === "undo" || method === "invoke";
 
 type Pending = {
   method: MethodName;
@@ -613,7 +623,7 @@ export class ProtocolClient {
    *   {type: "protocol", method}` (the connection stays open);
    * - no response in `requestTimeoutMs`: `timeout` for a query, `uncertain`
    *   with `details: {sent: true, reason: "timeout", txn_id?}` for a write
-   *   (`transact`, `undo`);
+   *   (`transact`, `undo`, `invoke`);
    * - the socket closing first: `disconnected` with `details: {sent: true}`
    *   for a query, `uncertain` with `reason: "socket_closed"` for a write.
    */
@@ -640,6 +650,16 @@ export class ProtocolClient {
     if (options.label !== undefined) params.label = options.label;
     if (options.actor !== undefined) params.actor = options.actor;
     return this.request("transact", params);
+  }
+
+  /**
+   * `invoke` (PROTOCOL.md §4, §6) with the given `base_revision` and a UUID
+   * `txn_id` by default; never retries (`invokeWithRetry` does, once). Once
+   * sent, an unsettled outcome rejects `uncertain`, never `disconnected`.
+   */
+  invoke(params: InvokeOptions): Promise<InvokeResult> {
+    const { txn_id, ...rest } = params;
+    return this.request("invoke", { ...rest, txn_id: txn_id ?? globalThis.crypto.randomUUID() });
   }
 
   /**
@@ -935,7 +955,10 @@ export class ProtocolClient {
     return new Promise<T>((resolve, reject) => {
       const pending: Pending = {
         method,
-        txn_id: method === "transact" ? (params as TransactParams).txn_id : undefined,
+        txn_id:
+          method === "transact" || method === "invoke"
+            ? (params as TransactParams | InvokeParams).txn_id
+            : undefined,
         timer: undefined,
         resolve: (value) => {
           try {

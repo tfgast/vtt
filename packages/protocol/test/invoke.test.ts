@@ -16,12 +16,12 @@ import {
   InvokeParamsSchema,
   type InvokeResult,
   METHODS,
-  parseClientMessage,
-  parseResult,
-  parseServerMessage,
   ProtocolClient,
   type ProtocolError,
   ProtocolFailure,
+  parseClientMessage,
+  parseResult,
+  parseServerMessage,
 } from "@vtt/protocol";
 import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 import { FakeServer, flush } from "./support/fake-server";
@@ -80,7 +80,10 @@ describe("InvokeParams", () => {
     ["an empty action", { ...FULL, action: "" }],
     ["a negative base_revision", { ...FULL, base_revision: -1 }],
     ["a missing base_revision", { object: "a", action: "Roll" }],
-    ["a non-finite table position", { ...FULL, table: { board: "map", position: [0, 1e400] } }],
+    [
+      "a non-finite table position",
+      { ...FULL, table: { board: "map", position: [0, Number.POSITIVE_INFINITY] } },
+    ],
     ["a binding as object", { ...FULL, object: "$card" }],
   ])("refuses %s (bad_request)", (_, params) => {
     expect(InvokeParamsSchema.safeParse(params).success).toBe(false);
