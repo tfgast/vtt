@@ -85,11 +85,23 @@ const LOCATION = by("type", {
 });
 const subtree = tagged(["objects", arr(OBJECT)], ["location", LOCATION]);
 
+// `before`/`after` of a field effect: an action list, a shape, or a list or
+// boolean (no keys).
+const fieldEffect = (value: Layout) =>
+  tagged("object", "field", ["before", value], ["after", value]);
+const OTHER_FIELD = fieldEffect(SHAPE);
+const FIELD_EFFECT = by("field", {
+  tag: OTHER_FIELD,
+  shape: OTHER_FIELD,
+  is_template: OTHER_FIELD,
+  is_character: OTHER_FIELD,
+  actions: fieldEffect(arr(ACTION)),
+});
+
 const EFFECT = by("type", {
   cell: tagged("object", "cell", ["before", CELL], ["after", CELL], "cause"),
   cell_visibility: tagged("object", "cell", ["before", VALUE], ["after", VALUE]),
-  // `before`/`after` of a field effect: a shape, or a list or boolean (no keys).
-  field: tagged("object", "field", ["before", SHAPE], ["after", SHAPE]),
+  field: FIELD_EFFECT,
   place: tagged("object", ["before", LOCATION], ["after", LOCATION]),
   create: subtree,
   remove: subtree,

@@ -275,10 +275,15 @@ export function invertForUndo(e: Effect, state: DocState): Effect[] {
 // Undo conflict keys.
 
 /**
- * An undo conflict key: `cell:<object>/<cell>`, `obj:<object>` (every key on
- * that object), or `board:<board>`. Not a CellKey.
+ * An undo conflict key: `cell:<object>/<cell>`, `actions:<object>` (the
+ * object's action list), `obj:<object>` (every key on that object), or
+ * `board:<board>`. Not a CellKey.
  */
-export type TouchedKey = `cell:${ObjectId}/${string}` | `obj:${ObjectId}` | `board:${string}`;
+export type TouchedKey =
+  | `cell:${ObjectId}/${string}`
+  | `actions:${ObjectId}`
+  | `obj:${ObjectId}`
+  | `board:${string}`;
 
 const cellTouch = (object: ObjectId, cell: string): TouchedKey => `cell:${object}/${cell}`;
 
@@ -293,7 +298,7 @@ export function touchedKeys(e: Effect): TouchedKey[] {
       case "cell_visibility":
         return [cellTouch(e.object, e.cell)];
       case "field":
-        return [cellTouch(e.object, e.field)];
+        return e.field === "actions" ? [`actions:${e.object}`] : [cellTouch(e.object, e.field)];
       case "place":
         return [
           cellTouch(e.object, "board"),
@@ -321,6 +326,7 @@ export function touchedKeys(e: Effect): TouchedKey[] {
 /** The object a key names, or null for a board key. */
 function keyObject(key: string): ObjectId | null {
   if (key.startsWith("obj:")) return key.slice(4);
+  if (key.startsWith("actions:")) return key.slice(8);
   if (key.startsWith("cell:")) {
     const slash = key.indexOf("/");
     return slash < 0 ? null : key.slice(5, slash);
@@ -368,7 +374,7 @@ export function changedCells(e: Effect, _stateBefore: DocState): CellKey[] {
       case "cell":
         return [cellKey(e.object, e.cell)];
       case "field":
-        // is_template and is_character are fields, not readable cells.
+        // is_template, is_character and actions are fields, not readable cells.
         return e.field === "tag" || e.field === "shape" ? [cellKey(e.object, e.field)] : [];
       case "place":
         return [

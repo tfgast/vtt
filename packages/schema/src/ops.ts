@@ -6,7 +6,13 @@ import { z } from "zod";
 import { type Cell, CellNameSchema, CellSchema, strictRecord } from "./cell";
 import { type Board, BoardSchema } from "./document";
 import type { BoardId, ObjectId } from "./ids";
-import { type TableObject, TableObjectSchema, ViewersValueSchema } from "./object";
+import {
+  type ActionDef,
+  ActionDefSchema,
+  type TableObject,
+  TableObjectSchema,
+  ViewersValueSchema,
+} from "./object";
 import { type Shape, ShapeSchema } from "./shape";
 import type { ErrorCode, ViewersValue } from "./values";
 
@@ -51,7 +57,14 @@ export type FieldEffect =
   | { type: "field"; object: ObjectId; field: "tag"; before: string[]; after: string[] }
   | { type: "field"; object: ObjectId; field: "shape"; before: Shape | null; after: Shape | null }
   | { type: "field"; object: ObjectId; field: "is_template"; before: boolean; after: boolean }
-  | { type: "field"; object: ObjectId; field: "is_character"; before: boolean; after: boolean };
+  | { type: "field"; object: ObjectId; field: "is_character"; before: boolean; after: boolean }
+  | {
+      type: "field";
+      object: ObjectId;
+      field: "actions";
+      before: ActionDef[];
+      after: ActionDef[];
+    };
 
 /**
  * A move: board to board, board to container, container to board, or within
@@ -180,6 +193,7 @@ const FieldEffectSchema = z.discriminatedUnion("field", [
   field("shape", ShapeSchema.nullable()),
   field("is_template", z.boolean()),
   field("is_character", z.boolean()),
+  field("actions", z.array(ActionDefSchema)),
 ]);
 
 const subtree = <T extends string>(type: T) =>

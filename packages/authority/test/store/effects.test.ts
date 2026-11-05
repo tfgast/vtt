@@ -63,6 +63,13 @@ const E = {
     before: false,
     after: true,
   },
+  fieldActions: {
+    type: "field",
+    object: "goblin",
+    field: "actions",
+    before: [],
+    after: [{ name: "Roll", when: "true", steps: ["roll(value, 1d6)"] }],
+  },
   placeContainerToBoard: {
     type: "place",
     object: "coin",

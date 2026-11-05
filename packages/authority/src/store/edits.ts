@@ -1,12 +1,14 @@
 /**
  * Edit primitives (DESIGN.md §4.1, §4.2, §4.4; FORMULAS.md §3.1, §8.2;
  * FIXTURES.md §5, §6): cell writes, formulas and overrides, cell deletion and
- * renaming, per-cell visibility, object fields, reordering, and boards. Each
+ * renaming, per-cell visibility, object fields, action lists, reordering, and
+ * boards. Each
  * takes the open transaction, checks its arguments against the working copy,
  * and records resolved effects through `tx.record`. A refusal throws
  * Rejected before recording anything.
  */
 import {
+  type ActionDef,
   type BoardId,
   type Cell,
   type CellEffect,
@@ -328,4 +330,67 @@ export function renameBoard(tx: Transaction, id: BoardId, name: string): void {
   const before = tx.doc.getBoard(id) ?? invalid(`no board "${id}"`);
   if (typeof name !== "string") invalid("a board name is text");
   tx.record({ type: "board", before, after: { ...before, name } });
+}
+
+/**
+ * Removes a board (DESIGN.md §4.3). Refused unless the board exists and no
+ * object is directly on it; there is no cascade. Records the board's removal
+ * and the retirement of its id, which stays reserved: user undo re-creates
+ * the board, but `addBoard` with that id is refused for good.
+ */
+export function removeBoard(tx: Transaction, id: BoardId): void {
+  const before = tx.doc.getBoard(id) ?? invalid(`no board "${String(id)}"`);
+  const on = tx.doc.objectsOnBoard(id);
+  if (on.length > 0) invalid(`board "${id}" is not empty (${on.length} on it)`);
+  tx.record({ type: "board", before, after: null });
+  if (!tx.doc.isRetired(id)) tx.record({ type: "retire", ids: [id] });
+}
+
+/** The longest action name, in characters (code points). */
+const MAX_ACTION_NAME = 100;
+
+const ACTION_KEYS: ReadonlySet<string> = new Set(["name", "when", "steps"]);
+
+const isSource = (x: unknown): x is string => typeof x === "string" && x.trim() !== "";
+
+/** A checked copy of one action, or an `invalid` refusal. */
+function actionDef(obj: ObjectId, a: unknown, i: number): ActionDef {
+  if (typeof a !== "object" || a === null || Array.isArray(a)) {
+    invalid(`action ${i} of "${obj}" is not an action`);
+  }
+  const r = a as Record<string, unknown>;
+  const extra = Object.keys(r).find((k) => !ACTION_KEYS.has(k));
+  if (extra !== undefined) invalid(`action ${i} of "${obj}" has an unknown key "${extra}"`);
+  const { name, when, steps } = r;
+  if (typeof name !== "string" || name === "") invalid(`action ${i} of "${obj}" has no name`);
+  if ([...name].length > MAX_ACTION_NAME) {
+    invalid(`action name "${name.slice(0, 20)}…" is longer than ${MAX_ACTION_NAME} characters`);
+  }
+  if (when !== undefined && !isSource(when)) {
+    invalid(`action "${name}" of "${obj}": \`when\` is not source text`);
+  }
+  if (!isTextList(steps)) invalid(`action "${name}" of "${obj}": steps are not a list of text`);
+  if (!steps.every(isSource)) invalid(`action "${name}" of "${obj}" has a blank step`);
+  return when === undefined ? { name, steps: [...steps] } : { name, when, steps: [...steps] };
+}
+
+/**
+ * Replaces the object's whole action list (DESIGN.md §4.5, §5.2; FORMULAS.md
+ * §8) with one field effect. Names are non-empty, at most 100 characters,
+ * and unique on the object (exact comparison). `when` and steps are source
+ * text, stored verbatim and not parsed.
+ */
+export function setActions(tx: Transaction, obj: ObjectId, actions: ActionDef[]): void {
+  const o = requireObject(tx, obj);
+  if (!Array.isArray(actions)) invalid(`the actions of "${obj}" are not a list`);
+  const after: ActionDef[] = [];
+  const names = new Set<string>();
+  for (let i = 0; i < actions.length; i++) {
+    if (!(i in actions)) invalid(`action ${i} of "${obj}" is missing`);
+    const a = actionDef(obj, actions[i], i);
+    if (names.has(a.name)) invalid(`"${obj}" has two actions named "${a.name}"`);
+    names.add(a.name);
+    after.push(a);
+  }
+  tx.record({ type: "field", object: obj, field: "actions", before: o.actions, after });
 }
