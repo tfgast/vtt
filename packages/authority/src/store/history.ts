@@ -4,6 +4,29 @@
  */
 import type { OpGroup, TableLog } from "@vtt/schema";
 
+/** `T` with every nested property and array readonly. */
+export type DeepReadonly<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends readonly (infer U)[]
+    ? readonly DeepReadonly<U>[]
+    : T extends object
+      ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+      : T;
+
+/** A group as History keeps it: a frozen record nobody else holds. */
+export type FrozenGroup = DeepReadonly<OpGroup>;
+
+function deepFreeze<T>(x: T): DeepReadonly<T> {
+  if (typeof x === "object" && x !== null && !Object.isFrozen(x)) {
+    Object.freeze(x);
+    for (const v of Object.values(x)) deepFreeze(v);
+  }
+  return x as DeepReadonly<T>;
+}
+
+/** A deep, frozen copy of `x`. */
+const own = <T>(x: T): DeepReadonly<T> => deepFreeze(structuredClone(x));
+
 /** One violation of the history invariants of DESIGN.md §7. */
 export type HistoryViolation =
   /** The group at `position` has index `actual`, not `expected`. */
@@ -30,7 +53,7 @@ export interface HistoryLoadOptions {
 
 /** Every violation of the history invariants in `log`, in log order; empty when valid. */
 export function validateHistory(
-  log: TableLog,
+  log: DeepReadonly<TableLog>,
   snapshotRevision: number,
   { editedExternally }: HistoryLoadOptions,
 ): HistoryViolation[] {
@@ -146,7 +169,7 @@ export class HistoryError extends Error {
  */
 export class History {
   #first = 0;
-  #groups: OpGroup[] = [];
+  #groups: FrozenGroup[] = [];
   #barrier = 0;
   /** Target index → the retained undo group that undoes it. */
   #undoneBy = new Map<number, number>();
@@ -163,13 +186,13 @@ export class History {
     return this.#barrier;
   }
 
-  /** The retained groups, oldest first. */
-  groups(): readonly OpGroup[] {
+  /** The retained groups, oldest first, as frozen records. */
+  groups(): readonly FrozenGroup[] {
     return this.#groups;
   }
 
   /** The retained group at absolute `index`, or undefined. */
-  get(index: number): OpGroup | undefined {
+  get(index: number): FrozenGroup | undefined {
     return index >= this.#first ? this.#groups[index - this.#first] : undefined;
   }
 
@@ -179,13 +202,13 @@ export class History {
   }
 
   /**
-   * Appends a group under index `nextIndex` and returns it. Refuses an undo
-   * group (or `undoes`) that breaks the undo invariants; revision chaining is
-   * the caller's.
+   * Appends a deep, frozen copy of a group under index `nextIndex` and
+   * returns it. Refuses an undo group (or `undoes`) that breaks the undo
+   * invariants; revision chaining is the caller's.
    */
-  append(group: Omit<OpGroup, "index"> | OpGroup): OpGroup {
+  append(group: DeepReadonly<Omit<OpGroup, "index">> | DeepReadonly<OpGroup>): FrozenGroup {
     const index = this.nextIndex;
-    const g: OpGroup = { ...group, index };
+    const g = own({ ...group, index }) as FrozenGroup;
     if ((g.kind === "undo") !== (g.undoes !== undefined)) {
       throw new Error(`group ${index}: kind "undo" exactly when undoes is present`);
     }
@@ -209,11 +232,15 @@ export class History {
    * barrier is raised to the next index, so every retained group stays as
    * record (DESIGN.md §7, The file).
    */
-  restore(log: TableLog, snapshotRevision: number, options: HistoryLoadOptions): void {
+  restore(
+    log: DeepReadonly<TableLog>,
+    snapshotRevision: number,
+    options: HistoryLoadOptions,
+  ): void {
     const violations = validateHistory(log, snapshotRevision, options);
     if (violations.length > 0) throw new HistoryError(violations);
     this.#first = log.first_index;
-    this.#groups = structuredClone(log.groups);
+    this.#groups = log.groups.map((g) => own(g) as FrozenGroup);
     this.#barrier = options.editedExternally ? this.nextIndex : log.undo_barrier;
     this.#undoneBy = new Map();
     for (const g of this.#groups) if (g.undoes !== undefined) this.#undoneBy.set(g.undoes, g.index);
@@ -242,12 +269,8 @@ export class History {
     this.#barrier = Math.max(this.#barrier, index);
   }
 
-  /** The log as the file stores it. */
-  toLog(): TableLog {
-    return {
-      first_index: this.#first,
-      groups: structuredClone(this.#groups),
-      undo_barrier: this.#barrier,
-    };
+  /** The log as the file stores it; the groups are History's frozen records. */
+  toLog(): DeepReadonly<TableLog> {
+    return { first_index: this.#first, groups: [...this.#groups], undo_barrier: this.#barrier };
   }
 }

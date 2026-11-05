@@ -134,6 +134,56 @@ describe("History", () => {
   });
 });
 
+describe("History owns its records", () => {
+  test("mutating an appended input afterwards changes nothing", () => {
+    const h = history(2);
+    const input = unindexed(group(2, { kind: "undo", undoes: 0, names: { a: "A" } }));
+    h.append(input);
+    const before = structuredClone(h.toLog());
+    input.undoes = 1;
+    input.names.a = "changed";
+    input.effects.push({ type: "retire", ids: ["x"] });
+    expect(h.isUndone(0)).toBe(true);
+    expect(h.isUndone(1)).toBe(false);
+    expect(h.get(2)?.undoes).toBe(0);
+    expect(h.toLog()).toEqual(before);
+  });
+
+  test("returned records are frozen", () => {
+    const h = history(2);
+    h.append(unindexed(group(2, { kind: "undo", undoes: 0, names: { a: "A" } })));
+    const before = structuredClone(h.toLog());
+    const got = h.get(2) as OpGroup;
+    expect(() => {
+      got.undoes = 1;
+    }).toThrow(TypeError);
+    expect(() => {
+      got.names.a = "changed";
+    }).toThrow(TypeError);
+    expect(() => (h.groups() as OpGroup[])[0]?.effects.push({ type: "retire", ids: [] })).toThrow(
+      TypeError,
+    );
+    const logged = h.toLog() as TableLog;
+    expect(() => {
+      logged.groups[0] = group(9);
+    }).not.toThrow();
+    expect(h.isUndone(0)).toBe(true);
+    expect(h.isUndone(1)).toBe(false);
+    expect(h.get(2)?.undoes).toBe(0);
+    expect(h.toLog()).toEqual(before);
+  });
+
+  test("restore keeps copies, not the caller's log", () => {
+    const h = new History();
+    const loaded = log([group(0), group(1, { kind: "undo", undoes: 0 })], { undo_barrier: 0 });
+    h.restore(loaded, 2, { editedExternally: false });
+    const g = loaded.groups[1];
+    if (g) g.undoes = 5;
+    expect(h.get(1)?.undoes).toBe(0);
+    expect(Object.isFrozen(h.get(1))).toBe(true);
+  });
+});
+
 describe("validateHistory", () => {
   const ok = { editedExternally: false };
 
