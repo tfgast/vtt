@@ -332,9 +332,12 @@ export class TableHost {
 
   /** A save request: coalesced, queued behind the save in flight, or started now. */
   #request(explicit: boolean): Promise<SaveEvent> {
+    // A queued save owns the next write even while its predecessor's result
+    // is being emitted (#inFlight already null): a request made from an
+    // onSave listener joins it rather than starting a second write.
+    if (this.#queued !== null) return this.#queued;
     const inFlight = this.#inFlight;
     if (inFlight !== null) {
-      if (this.#queued !== null) return this.#queued;
       if (this.revision === inFlight.revision) return inFlight.promise;
       const queued = inFlight.promise.then(() => {
         this.#queued = null;

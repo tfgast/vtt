@@ -300,6 +300,61 @@ describe("TableHost.save", () => {
     expect(ctl.starts).toBe(2);
   });
 
+  test("a reentrant listener's save() joins the queued save; writes never overlap", async () => {
+    await writeScene();
+    let active = 0;
+    let maxActive = 0;
+    let writes = 0;
+    const gate = deferred();
+    let held: Promise<void> | null = gate.promise;
+    const fs: PersistFs = {
+      ...nodeFs,
+      async open(p, flags) {
+        if (flags === "wx") {
+          writes++;
+          active++;
+          maxActive = Math.max(maxActive, active);
+          if (held) await held;
+          return nodeFs.open(p, flags);
+        }
+        const handle = await nodeFs.open(p, flags);
+        return {
+          writeFile: (data, enc) => handle.writeFile(data, enc),
+          sync: () => handle.sync(),
+          close: async () => {
+            await handle.close();
+            active--;
+          },
+        };
+      },
+    };
+    const host = await open(path, { fs });
+    const store = host.table.store;
+    const fromListener: Promise<SaveEvent>[] = [];
+    host.onSave((event) => {
+      if (event.revision !== 1) return;
+      setHp(store, 1);
+      fromListener.push(host.save());
+    });
+    setHp(store, 3);
+    const first = host.save();
+    setHp(store, 2);
+    const queued = host.save();
+    await ticks();
+    held = null;
+    gate.resolve();
+    expect(await first).toEqual({ status: "saved", revision: 1 });
+    expect(await queued).toEqual({ status: "saved", revision: 3 });
+    expect(fromListener).toHaveLength(1);
+    expect(await fromListener[0]).toEqual({ status: "saved", revision: 3 });
+    expect(maxActive).toBe(1);
+    expect(writes).toBe(2);
+    expect(await readFile(path, "utf8")).toBe(textOf(store));
+    expect(await host.close()).toEqual({ saved: true, revision: 3 });
+    expect(active).toBe(0);
+    expect(await exists(lockPath)).toBe(false);
+  });
+
   test("a save with nothing unsaved does not write", async () => {
     await writeScene();
     const ctl = controlledFs();
