@@ -1,0 +1,280 @@
+#!/usr/bin/env -S node --import tsx
+/**
+ * `vtt-serve`: the authority process (DESIGN.md §7 Platform, Persistence;
+ * PROTOCOL.md §2; D1, D5, D24, D25, D33). One process per table file: it
+ * opens the table (taking its lock), serves the protocol on 127.0.0.1,
+ * writes the discovery file, and on SIGINT or SIGTERM closes the server,
+ * saves, releases the lock and removes the discovery file.
+ *
+ *   vtt-serve <file> [--port n] [--token t] [--allow-origin o]…
+ *             [--no-autosave] [--print-session] [--force-unlock]
+ *
+ * Exit codes: 0 after a clean shutdown whose final save succeeded; 1 for a
+ * usage error, a start-up failure (locked table, bad identity file, port in
+ * use, any other open or listen failure) or a failed final save. Logs go to
+ * stderr; stdout carries only the `--print-session` line.
+ */
+import { lstatSync } from "node:fs";
+import { parseArgs } from "node:util";
+import {
+  canonicalTablePath,
+  type RunningServer,
+  removeSessionFile,
+  removeTableLock,
+  startServer,
+  TableHost,
+  TableIdentityError,
+  TableLockedError,
+  writeSessionFile,
+} from "../index";
+
+const USAGE =
+  "usage: vtt-serve <file> [--port n] [--token t] [--allow-origin o]... [--no-autosave] [--print-session] [--force-unlock]";
+
+/**
+ * The flags. Later flags (e.g. the UI's) are added here; `allowNegative`
+ * gives every boolean a `--no-` form, which is how `--no-autosave` works.
+ */
+const OPTIONS = {
+  port: { type: "string" },
+  token: { type: "string" },
+  "allow-origin": { type: "string", multiple: true },
+  autosave: { type: "boolean", default: true },
+  "print-session": { type: "boolean", default: false },
+  "force-unlock": { type: "boolean", default: false },
+} as const;
+
+interface ServeArgs {
+  file: string;
+  port: number | undefined;
+  token: string | undefined;
+  allowOrigins: string[];
+  autosave: boolean;
+  printSession: boolean;
+  forceUnlock: boolean;
+}
+
+class UsageError extends Error {}
+
+function parse(argv: string[]): ServeArgs {
+  let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
+  try {
+    parsed = parseArgs({
+      args: argv,
+      options: OPTIONS,
+      allowPositionals: true,
+      allowNegative: true,
+      strict: true,
+    });
+  } catch (err) {
+    throw new UsageError((err as Error).message);
+  }
+  const { values, positionals } = parsed;
+  if (positionals.length !== 1) {
+    throw new UsageError(
+      positionals.length === 0
+        ? "missing <file>"
+        : `expected one <file>, got ${positionals.length}`,
+    );
+  }
+  let port: number | undefined;
+  if (values.port !== undefined) {
+    port = /^\d+$/.test(values.port) ? Number(values.port) : Number.NaN;
+    if (!Number.isSafeInteger(port) || port > 65535) {
+      throw new UsageError(`--port must be an integer from 0 to 65535, got ${values.port}`);
+    }
+  }
+  if (values.token === "") throw new UsageError("--token must not be empty");
+  return {
+    file: positionals[0] as string,
+    port,
+    token: values.token,
+    allowOrigins: values["allow-origin"] ?? [],
+    autosave: values.autosave,
+    printSession: values["print-session"],
+    forceUnlock: values["force-unlock"],
+  };
+}
+
+const log = (message: string): void => {
+  process.stderr.write(`vtt-serve: ${message}\n`);
+};
+
+const describe = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+const codeOf = (err: unknown): unknown =>
+  typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
+
+/** Exits once stdout and stderr have flushed (pipes may be asynchronous). */
+async function exit(code: number): Promise<never> {
+  await Promise.all(
+    [process.stdout, process.stderr].map(
+      (stream) => new Promise<void>((resolve) => stream.write("", () => resolve())),
+    ),
+  );
+  process.exit(code);
+}
+
+/** The one-line refusal for a locked table (D33: never taken over here). */
+function lockedMessage(file: string, err: TableLockedError): string {
+  const lockPath = `${file}.lock`;
+  if (err.info === null) {
+    return `${file} is locked: the lock file ${lockPath} is unreadable or malformed`;
+  }
+  const { pid, host, started } = err.info;
+  const holder = `${file} is locked by pid ${pid} on ${host}, started ${started}`;
+  return err.stale
+    ? `${holder}; that process is not running: if no other vtt-serve uses this table, rerun with --force-unlock`
+    : holder;
+}
+
+/** `--force-unlock`: removes the lock file, whatever it holds, and logs what it removed. */
+async function forceUnlock(canonical: string): Promise<void> {
+  const lockPath = `${canonical}.lock`;
+  let present = true;
+  try {
+    lstatSync(lockPath);
+  } catch (err) {
+    if (codeOf(err) !== "ENOENT") throw err;
+    present = false;
+  }
+  const info = await removeTableLock(canonical);
+  if (info !== null) {
+    log(
+      `--force-unlock: removed ${lockPath} (pid ${info.pid} on ${info.host}, started ${info.started})`,
+    );
+  } else if (present) {
+    log(`--force-unlock: removed ${lockPath} (unreadable or malformed content)`);
+  } else {
+    log(`--force-unlock: there was no lock file ${lockPath}`);
+  }
+}
+
+async function main(argv: string[]): Promise<never> {
+  let args: ServeArgs;
+  try {
+    args = parse(argv);
+  } catch (err) {
+    log(`${describe(err)}\n${USAGE}`);
+    return exit(1);
+  }
+
+  // Signals: installed first so a signal during start-up still shuts down
+  // cleanly; handled once, a second signal is ignored.
+  let host: TableHost | null = null;
+  let server: RunningServer | null = null;
+  let sessionWritten = false;
+  let started = false;
+  let stopping: Promise<never> | null = null;
+  let signalled = false;
+
+  const shutdown = (): Promise<never> => {
+    stopping ??= (async () => {
+      if (server !== null) await server.close("shutdown");
+      const result = host === null ? null : await host.close();
+      if (sessionWritten) removeSessionFile(process.pid);
+      if (result === null || result.saved) {
+        if (result?.error !== undefined) log(result.error);
+        return exit(0);
+      }
+      log(
+        `the final save failed; revision ${result.revision} is not saved: ${result.error ?? "unknown error"}`,
+      );
+      return exit(1);
+    })();
+    return stopping;
+  };
+
+  const onSignal = (signal: NodeJS.Signals): void => {
+    if (signalled) return;
+    signalled = true;
+    log(`${signal}: shutting down`);
+    if (started) void shutdown();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
+  let canonical: string;
+  try {
+    canonical = canonicalTablePath(args.file);
+    if (args.forceUnlock) await forceUnlock(canonical);
+  } catch (err) {
+    log(describe(err));
+    return exit(1);
+  }
+
+  try {
+    host = await TableHost.open(args.file, {
+      createIfMissing: true,
+      ...(args.autosave ? {} : { autosave: false as const }),
+    });
+  } catch (err) {
+    if (err instanceof TableLockedError) log(lockedMessage(canonical, err));
+    else if (err instanceof TableIdentityError) log(err.message);
+    else log(`could not open ${canonical}: ${describe(err)}`);
+    return exit(1);
+  }
+  for (const warning of host.warnings) log(`warning: ${warning}`);
+  if (signalled) return shutdown();
+
+  try {
+    server = await startServer({
+      host,
+      ...(args.port === undefined ? {} : { port: args.port }),
+      ...(args.token === undefined ? {} : { token: args.token }),
+      allowOrigins: args.allowOrigins,
+    });
+  } catch (err) {
+    const result = await host.close();
+    if (codeOf(err) === "EADDRINUSE") {
+      log(`port ${args.port ?? "4747 (the default)"} is in use; is another vtt-serve running?`);
+    } else {
+      log(`could not listen on port ${args.port ?? 4747}: ${describe(err)}`);
+    }
+    if (result.error !== undefined) log(result.error);
+    return exit(1);
+  }
+  if (signalled) return shutdown();
+
+  const tablePath = host.path as string;
+  const tableId = host.tableId as string;
+  try {
+    writeSessionFile({
+      url: server.url,
+      token: server.token,
+      pid: process.pid,
+      table_path: tablePath,
+      table_id: tableId,
+    });
+    sessionWritten = true;
+  } catch (err) {
+    // A start-up failure: stop serving rather than run undiscoverable.
+    log(`could not write the session file: ${describe(err)}`);
+    await server.close("shutdown");
+    const result = await host.close();
+    if (result.error !== undefined) log(result.error);
+    return exit(1);
+  }
+
+  started = true;
+  log(`serving ${tablePath} (table id ${tableId}) at ${server.url}`);
+  if (args.printSession) {
+    process.stdout.write(
+      `${JSON.stringify({
+        url: server.url,
+        token: server.token,
+        session: server.session,
+        table_path: tablePath,
+        table_id: tableId,
+      })}\n`,
+    );
+  }
+  if (signalled) return shutdown();
+  // Keep the process alive until a signal; the server's socket holds the loop.
+  return new Promise<never>(() => undefined);
+}
+
+void main(process.argv.slice(2)).catch((err: unknown) => {
+  log(`unexpected failure: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  process.exit(1);
+});

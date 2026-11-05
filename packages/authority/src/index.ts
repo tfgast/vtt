@@ -18,6 +18,7 @@ export * from "./protocol/subscriptions";
 export * from "./protocol/views";
 export * from "./server/http-ui";
 export * from "./server/server";
+export * from "./server/session-file";
 export * from "./spatial/index";
 export * from "./store/index";
 export * from "./visibility";
