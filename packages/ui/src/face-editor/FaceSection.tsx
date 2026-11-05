@@ -19,9 +19,12 @@
  *   the click. An invalid result is an error notice and writes nothing.
  * - The GM edits. In view-as the section shows the character's view of the
  *   face read-only (no `show_when`, which character views do not carry).
+ *   A change of viewer, board or selected object drops pending drafts
+ *   (reverting their text and forgetting their base revision), and no write
+ *   is ever sent while the viewer is not the GM.
  */
 import { parse } from "@vtt/formula";
-import type { ObjectView } from "@vtt/protocol";
+import type { ObjectView, Viewer } from "@vtt/protocol";
 import {
   type FaceElement,
   type FaceLayout,
@@ -30,7 +33,7 @@ import {
   type Rect,
   STRUCTURAL_CELLS,
 } from "@vtt/schema";
-import { type CSSProperties, type KeyboardEvent, useId, useRef, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { inspectorRefLabel, useInspectorWrites } from "../inspector/CellRow";
 import { TableProvider, useSession, useUi } from "../session/hooks";
 import type { TableSession } from "../session/table-session";
@@ -101,19 +104,32 @@ function SelectedFace({ session }: { session: TableSession }) {
   const selection = useUi((s) => s.selection);
   useSession((s) => s.viewVersion);
   const viewer = useSession((s) => s.viewer);
+  const board = useSession((s) => s.activeBoard);
   if (selection.length !== 1) return null;
   const object = selection[0] as ObjectId;
   const view = session.objectView(object);
   if (view === null) return null;
   return (
     <FaceEditor
-      key={object}
+      // Keyed by board, viewer and object: a change of any drops pending
+      // drafts and their captured base revisions (never written later).
+      key={JSON.stringify([board, viewerKey(viewer), object])}
       object={object}
       view={view}
       session={session}
       readOnly={viewer.type !== "gm"}
     />
   );
+}
+
+/** A stable key for a viewer. */
+function viewerKey(viewer: Viewer): string {
+  return viewer.type === "character" ? `character:${viewer.id}` : viewer.type;
+}
+
+/** Whether the session's current viewer is the GM (the only one who edits faces). */
+function viewingAsGm(session: TableSession): boolean {
+  return session.getSnapshot().viewer.type === "gm";
 }
 
 interface FaceEditorProps {
@@ -144,6 +160,8 @@ function useFaceWriter(session: TableSession, object: ObjectId): FaceWriter {
     return view === null ? null : layoutOfView(view);
   };
   const replace = (face: FaceLayout | null, baseRevision: number, verb: string) => {
+    // Never from a character's view (view-as is read-only, and its layout is filtered).
+    if (!viewingAsGm(session)) return;
     void port.write(setFaceOps(object, face), { baseRevision, label: label(verb) });
   };
   return {
@@ -151,6 +169,7 @@ function useFaceWriter(session: TableSession, object: ObjectId): FaceWriter {
     now: () => session.getSnapshot().revision,
     replace,
     edit(edit, baseRevision) {
+      if (!viewingAsGm(session)) return;
       const face = current();
       if (face === null) {
         notice("The face was not changed: the object no longer has a face.");
@@ -588,6 +607,15 @@ interface DraftFieldProps {
 function DraftField({ label, value, session, readOnly, onCommit, validate }: DraftFieldProps) {
   const [draft, setDraftState] = useState<Draft | null>(null);
   const ref = useRef<Draft | null>(null);
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  // Becoming read-only drops a pending draft without writing it.
+  useEffect(() => {
+    if (readOnly && ref.current !== null) {
+      ref.current = null;
+      setDraftState(null);
+    }
+  }, [readOnly]);
   const setDraft = (next: Draft | null) => {
     ref.current = next;
     setDraftState(next);
@@ -601,6 +629,7 @@ function DraftField({ label, value, session, readOnly, onCommit, validate }: Dra
     const current = ref.current;
     if (current === null) return;
     setDraft(null);
+    if (readOnlyRef.current || !viewingAsGm(session)) return;
     if (!commit || current.text === current.initial) return;
     if (validate?.(current.text)) return;
     onCommit(current.text, current.baseRevision);
