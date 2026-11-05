@@ -107,6 +107,9 @@ function expectStepError(outcome: InvokeOutcome, step: number, code?: string) {
   expect(typeof outcome.rejection.message).toBe("string");
 }
 
+/** The 1,000-item each walks every read through the change summary (vtt-qf5.9); CI runners need more than the 5 s default. */
+const HEAVY_TIMEOUT = 30_000;
+
 describe("the Attack card (FORMULAS §10)", () => {
   test("Roll, Roll damage and Apply against scripted dice give the §10 cells, one action group each", () => {
     const table = attackTable();
@@ -466,19 +469,26 @@ describe("each", () => {
     expectStepError(go(tableWith(["each(1 / 0, add(n, 1))"])).outcome, 0, "#DIV0");
   });
 
-  test(`${MAX_EACH_ITEMS} items run; ${MAX_EACH_ITEMS + 1} are step_error #LIMIT`, () => {
-    const items = (n: number): Value => list(Array.from({ length: n }, () => num(1)));
-    const ok = tableWith(["each(xs, add(n, it))"], { xs: c(items(MAX_EACH_ITEMS)), n: c(num(0)) });
-    expect(go(ok).outcome.ok).toBe(true);
-    expect(value(ok, "o", "n")).toEqual(num(MAX_EACH_ITEMS));
+  test(
+    `${MAX_EACH_ITEMS} items run; ${MAX_EACH_ITEMS + 1} are step_error #LIMIT`,
+    () => {
+      const items = (n: number): Value => list(Array.from({ length: n }, () => num(1)));
+      const ok = tableWith(["each(xs, add(n, it))"], {
+        xs: c(items(MAX_EACH_ITEMS)),
+        n: c(num(0)),
+      });
+      expect(go(ok).outcome.ok).toBe(true);
+      expect(value(ok, "o", "n")).toEqual(num(MAX_EACH_ITEMS));
 
-    const over = tableWith(["each(xs, add(n, it))"], {
-      xs: c(items(MAX_EACH_ITEMS + 1)),
-      n: c(num(0)),
-    });
-    expectStepError(go(over).outcome, 0, "#LIMIT");
-    expect(value(over, "o", "n")).toEqual(num(0));
-  });
+      const over = tableWith(["each(xs, add(n, it))"], {
+        xs: c(items(MAX_EACH_ITEMS + 1)),
+        n: c(num(0)),
+      });
+      expectStepError(go(over).outcome, 0, "#LIMIT");
+      expect(value(over, "o", "n")).toEqual(num(0));
+    },
+    HEAVY_TIMEOUT,
+  );
 });
 
 describe("undo", () => {
