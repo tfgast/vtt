@@ -25,7 +25,7 @@ const TEST_MS = 90_000;
 
 const AGENT_NAME = "stdio-test-agent";
 
-/** The 14 request tools, then the subscription tools (PROTOCOL.md §11; `import_asset` is M4). */
+/** The 14 request tools, the subscription tools, then `import_asset` (PROTOCOL.md §11). */
 const TOOL_NAMES = [
   "table_info",
   "list_objects",
@@ -44,6 +44,7 @@ const TOOL_NAMES = [
   "subscribe",
   "poll_changes",
   "unsubscribe",
+  "import_asset",
 ];
 
 interface Printed {
@@ -366,7 +367,7 @@ async function expectServing(a: Agent): Promise<void> {
 
 describe("vtt-mcp with explicit credentials", () => {
   test(
-    "--url/--token lists the 17 tools and answers table_info with the agent actor",
+    "--url/--token lists the 18 tools and answers table_info with the agent actor",
     async () => {
       const s = await printed(serve(file));
       const a = await agent(["--url", s.url, `--token=${s.token}`]);
