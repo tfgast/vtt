@@ -79,6 +79,15 @@ importers:
 
   packages/ui:
     dependencies:
+      '@vtt/formula':
+        specifier: workspace:*
+        version: link:../formula
+      '@vtt/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@vtt/schema':
+        specifier: workspace:*
+        version: link:../schema
       react:
         specifier: 19.3.1
         version: 19.3.1
