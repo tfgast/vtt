@@ -1,0 +1,21 @@
+{
+  "name": "a-table-of-dumb-objects",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": "^26"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "format:check": "biome format ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.5",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}
