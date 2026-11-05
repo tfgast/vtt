@@ -129,6 +129,40 @@ describe("the Attack card", () => {
   });
 });
 
+describe("a character actor", () => {
+  test("groups the GM drove as Aldric name him though they touch only other objects", async () => {
+    const asAldric = { type: "character", id: "aldric" } as const;
+    const { gm, session } = await setup(ATTACK_SEED, [roll("1d20", [12], 12)]);
+    const r = await session.client.invoke({
+      object: "attack",
+      action: "Roll",
+      base_revision: session.client.revision,
+      actor: asAldric,
+    });
+    if (r.status !== "committed") throw new Error(JSON.stringify(r));
+    const t = await session.client.transact(
+      [{ type: "set_value", object: "goblin", cell: "damage_taken", value: num(3) }],
+      { label: "Hurt", actor: asAldric },
+    );
+    if (t.status !== "committed") throw new Error(JSON.stringify(t));
+    // A later rename does not change the names the log captured.
+    await commit(
+      gm,
+      [{ type: "set_value", object: "aldric", cell: "name", value: text("Sir Aldric") }],
+      "Rename",
+    );
+    await caughtUp(session, gm);
+    await mount(session);
+    await until(() => groupItems().length === 4, "four groups");
+    expect(groupItems().map((el) => el.getAttribute("aria-label"))).toEqual([
+      "GM: Rename",
+      "Aldric: Hurt",
+      "Aldric: Roll",
+      "GM: Seed",
+    ]);
+  });
+});
+
 describe("undo", () => {
   test("undoing an agent's group works while Ctrl+Z (mine) does not reach it", async () => {
     const { authority, session } = await setup();
