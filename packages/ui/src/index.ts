@@ -4,6 +4,8 @@ export * from "./scene/camera";
 export * from "./scene/hit-test";
 export * from "./scene/polygon";
 export * from "./scene/scene";
+export * from "./session/bootstrap";
+export * from "./session/table-session";
 export * from "./values/format";
 export * from "./values/input";
 export * from "./values/ops";

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBootstrap } from "@vtt/ui";
 import { afterEach, describe, expect, test } from "vitest";
@@ -58,7 +58,8 @@ describe("readBootstrap (PROTOCOL.md §2, session bootstrap)", () => {
 });
 
 describe("import boundary", () => {
-  const srcDir = fileURLToPath(new URL("../../src", import.meta.url));
+  // A string, not `new URL`: jsdom replaces the URL global.
+  const srcDir = join(dirname(fileURLToPath(import.meta.url)), "../../src");
 
   function sources(dir: string): string[] {
     return readdirSync(dir).flatMap((name) => {
