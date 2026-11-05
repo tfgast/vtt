@@ -119,6 +119,10 @@ function boxes(store: DocumentStore, seed: number): Bounds[] {
   return out;
 }
 
+// Twenty commits on a 3000-object document plus 200 brute-force comparisons
+// run in about a second locally and several seconds on the shared CI runner.
+const HEAVY_TIMEOUT = 30_000;
+
 describe("a generated board of 3000 objects", () => {
   const store = DocumentStore.fromSnapshot(generated(7));
   const index = attach(store);
@@ -135,7 +139,7 @@ describe("a generated board of 3000 objects", () => {
     }
   });
 
-  test("200 random boxes equal the brute-force set", () => {
+  test("200 random boxes equal the brute-force set", { timeout: HEAVY_TIMEOUT }, () => {
     for (const near of boxes(store, 11)) expectAgrees(index, store, "map", near);
   });
 
@@ -151,7 +155,7 @@ describe("a generated board of 3000 objects", () => {
     expect(candidates(index, "other", box(-1e9, -1e9, 1e9, 1e9))).toEqual(["away"]);
   });
 
-  test("still agrees after a batch of moves and writes", () => {
+  test("still agrees after a batch of moves and writes", { timeout: HEAVY_TIMEOUT }, () => {
     const r = rng(23);
     for (let i = 0; i < 20; i++) {
       const id = `o${Math.floor(r() * COUNT)}`;
