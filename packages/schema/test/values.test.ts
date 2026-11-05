@@ -203,3 +203,57 @@ describe("types", () => {
     expect(ERROR_CODES).toHaveLength(7);
   });
 });
+
+/** An array of `before`, then one hole, then `after`. */
+function withHole(before: unknown[], after: unknown[] = []): unknown[] {
+  const a = [...before];
+  a.length = before.length + 1;
+  a.push(...after);
+  return a;
+}
+
+describe("rejects sparse arrays", () => {
+  const p = (x: number, y: number) => [x, y];
+  const cases: Record<string, unknown> = {
+    "list items": { type: "list", items: withHole([num(1)], [num(2)]) },
+    "list items, only a hole": { type: "list", items: withHole([]) },
+    "roll dice": { type: "roll", expr: "2d6", dice: withHole([3]), dropped: [], total: 3 },
+    "roll dropped": { type: "roll", expr: "2d6dl1", dice: [3], dropped: withHole([]), total: 3 },
+    "viewers entries": { type: "viewers", viewers: withHole([]) },
+    "viewers entries after gm": { type: "viewers", viewers: withHole(["gm"]) },
+    "ink strokes": { type: "ink", strokes: withHole([[p(0, 0)]]) },
+    "ink stroke points": { type: "ink", strokes: [withHole([p(0, 0)], [p(1, 1)])] },
+    "ink point coordinate": { type: "ink", strokes: [[withHole([0])]] },
+    "polygon points": {
+      type: "shape",
+      shape: { type: "polygon", points: withHole([p(0, 0), p(1, 0)], [p(0, 1)]) },
+    },
+  };
+  for (const [name, x] of Object.entries(cases)) {
+    test(name, () => {
+      expect(isValue(x)).toBe(false);
+      expect(isCellContent(x)).toBe(false);
+    });
+  }
+});
+
+describe("rejects hidden extra keys", () => {
+  test("a non-enumerable property", () => {
+    const x = num(1);
+    Object.defineProperty(x, "hidden", { value: true, enumerable: false });
+    expect(Object.keys(x)).toEqual(["type", "value"]);
+    expect(isValue(x)).toBe(false);
+    expect(isCellContent(x)).toBe(false);
+  });
+
+  test("a symbol property", () => {
+    const x = { ...ref("goblin1"), [Symbol("extra")]: 1 };
+    expect(isValue(x)).toBe(false);
+    expect(isCellContent(x)).toBe(false);
+  });
+
+  test("on a formula", () => {
+    const f = { type: "formula", source: "a", [Symbol("extra")]: 1 };
+    expect(isCellContent(f)).toBe(false);
+  });
+});

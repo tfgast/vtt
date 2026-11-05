@@ -14,16 +14,25 @@ function isPlainObject(x: unknown): x is Obj {
 
 /** Exactly the keys `type` plus `keys`, all own properties. */
 function hasExactKeys(x: Obj, keys: readonly string[]): boolean {
-  const own = Object.keys(x);
+  const own = Reflect.ownKeys(x);
   if (own.length !== keys.length + 1 || !Object.hasOwn(x, "type")) return false;
   return keys.every((k) => Object.hasOwn(x, k));
+}
+
+/** Like `Array.prototype.every`, but a hole fails instead of being skipped. */
+function everyIndex(arr: unknown[], pred: (item: unknown) => boolean): boolean {
+  for (let i = 0; i < arr.length; i++) {
+    if (!(i in arr) || !pred(arr[i])) return false;
+  }
+  return true;
 }
 
 const isFiniteNumber = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
 
 const isNonBlank = (x: unknown): x is string => typeof x === "string" && x.trim().length > 0;
 
-const isIntArray = (x: unknown): boolean => Array.isArray(x) && x.every((n) => Number.isInteger(n));
+const isIntArray = (x: unknown): boolean =>
+  Array.isArray(x) && everyIndex(x, (n) => Number.isInteger(n));
 
 const isPoint = (x: unknown): boolean =>
   Array.isArray(x) && x.length === 2 && isFiniteNumber(x[0]) && isFiniteNumber(x[1]);
@@ -51,7 +60,9 @@ function isShape(x: unknown): boolean {
     case "circle":
       return hasExactKeys(x, ["radius"]) && isFiniteNumber(x.radius);
     case "polygon":
-      return hasExactKeys(x, ["points"]) && Array.isArray(x.points) && x.points.every(isPoint);
+      return (
+        hasExactKeys(x, ["points"]) && Array.isArray(x.points) && everyIndex(x.points, isPoint)
+      );
     default:
       return false;
   }
@@ -69,7 +80,7 @@ export function isValue(x: unknown): x is Value {
     case "empty":
       return hasExactKeys(x, []);
     case "list":
-      return hasExactKeys(x, ["items"]) && Array.isArray(x.items) && x.items.every(isValue);
+      return hasExactKeys(x, ["items"]) && Array.isArray(x.items) && everyIndex(x.items, isValue);
     case "ref":
       return isRef(x);
     case "dice":
@@ -87,14 +98,14 @@ export function isValue(x: unknown): x is Value {
         hasExactKeys(x, ["viewers"]) &&
         Array.isArray(x.viewers) &&
         x.viewers.length > 0 &&
-        x.viewers.every(isViewerEntry)
+        everyIndex(x.viewers, isViewerEntry)
       );
     case "ink":
       return (
         hasExactKeys(x, ["strokes"]) &&
         Array.isArray(x.strokes) &&
         x.strokes.length > 0 &&
-        x.strokes.every((s) => Array.isArray(s) && s.length > 0 && s.every(isPoint))
+        everyIndex(x.strokes, (s) => Array.isArray(s) && s.length > 0 && everyIndex(s, isPoint))
       );
     case "shape":
       return hasExactKeys(x, ["shape"]) && isShape(x.shape);
