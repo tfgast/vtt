@@ -1,4 +1,5 @@
 import { request as httpRequest } from "node:http";
+import { startServer } from "@vtt/authority";
 import { DEFAULT_PORT, LIMITS, ProtocolFailure } from "@vtt/protocol";
 import { afterEach, describe, expect, test } from "vitest";
 import WebSocketClient from "ws";
@@ -45,6 +46,19 @@ describe("startServer", () => {
     expect(server.url).toBe(`ws://127.0.0.1:${server.port}/ws`);
     expect(server.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(server.session.length).toBeGreaterThan(0);
+  });
+
+  test("a non-loopback hostname is refused before anything listens", async () => {
+    const host = memoryHost();
+    for (const hostname of ["0.0.0.0", "::", "192.168.1.10", "example.test", ""]) {
+      await expect(startServer({ host, port: 0, hostname })).rejects.toThrow(/127\.0\.0\.1 only/);
+    }
+  });
+
+  test("localhost binds 127.0.0.1", async () => {
+    const { server } = await serve({ hostname: "localhost" });
+    expect(server.url).toBe(`ws://127.0.0.1:${server.port}/ws`);
+    expect((await get(server.port, "/healthz")).status).toBe(200);
   });
 
   test("a given token is used", async () => {
@@ -273,6 +287,20 @@ describe("close", () => {
     expect(a.frames.at(-1)).toEqual({ type: "goodbye", reason: "shutdown" });
     expect(b.frames.at(-1)).toEqual({ type: "goodbye", reason: "shutdown" });
     await expect(get(server.port, "/healthz")).rejects.toThrow();
+  });
+
+  test.each([
+    ["a long ASCII reason", "x".repeat(300)],
+    ["a long multibyte reason", "é€😀".repeat(40)],
+  ])("%s: full goodbye, close 1001", async (_name, reason) => {
+    const { server } = await serve();
+    const raw = await RawClient.open(server);
+    await server.close(reason);
+    const info = await raw.closed;
+    expect(info.code).toBe(1001);
+    expect(Buffer.byteLength(info.reason)).toBeLessThanOrEqual(123);
+    expect(reason.startsWith(info.reason)).toBe(true);
+    expect(raw.frames.at(-1)).toEqual({ type: "goodbye", reason });
   });
 
   test("close does not close the host, and is idempotent", async () => {

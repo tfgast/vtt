@@ -358,7 +358,7 @@ export class Connection {
     this.#clearHelloTimer();
     this.#queue.length = 0;
     try {
-      this.#socket.close(code, reason);
+      this.#socket.close(code, closeFrameReason(reason));
     } catch {
       this.#socket.terminate();
     }
@@ -369,6 +369,22 @@ export class Connection {
     this.#host.timers.clearTimeout(this.#helloTimer);
     this.#helloTimer = undefined;
   }
+}
+
+/** The longest close-frame reason, in UTF-8 bytes (RFC 6455 §5.5). */
+export const MAX_CLOSE_REASON_BYTES = 123;
+
+/** `reason` cut to at most 123 UTF-8 bytes on a code-point boundary. */
+export function closeFrameReason(reason: string): string {
+  let bytes = 0;
+  let out = "";
+  for (const ch of reason) {
+    const n = Buffer.byteLength(ch, "utf8");
+    if (bytes + n > MAX_CLOSE_REASON_BYTES) break;
+    bytes += n;
+    out += ch;
+  }
+  return out;
 }
 
 function internal(err: unknown, request: RequestMessage): RequestOutcome {

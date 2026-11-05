@@ -1,6 +1,7 @@
 import {
   Connection,
   type ConnectionHost,
+  closeFrameReason,
   type RequestContext,
   type RequestOutcome,
   type ServerSocket,
@@ -319,6 +320,26 @@ describe("heartbeat and shutdown", () => {
     conn.shutdown("shutdown");
     expect(socket.sent.at(-1)).toEqual({ type: "goodbye", reason: "shutdown" });
     expect(socket.closed).toEqual({ code: 1001, reason: "shutdown" });
+  });
+
+  test("closeFrameReason cuts to 123 UTF-8 bytes on a code-point boundary", () => {
+    expect(closeFrameReason("short")).toBe("short");
+    expect(closeFrameReason("a".repeat(200))).toBe("a".repeat(123));
+    const emoji = closeFrameReason("😀".repeat(40));
+    expect(emoji).toBe("😀".repeat(30));
+    const mixed = closeFrameReason(`a${"€".repeat(50)}`);
+    expect(Buffer.byteLength(mixed)).toBe(121);
+    expect(mixed).toBe(`a${"€".repeat(40)}`);
+  });
+
+  test("shutdown with a long reason: full goodbye, bounded close reason", () => {
+    const { socket, conn } = setup();
+    conn.receive(hello());
+    const reason = "é".repeat(100);
+    conn.shutdown(reason);
+    expect(socket.sent.at(-1)).toEqual({ type: "goodbye", reason });
+    expect(socket.closed).toEqual({ code: 1001, reason: "é".repeat(61) });
+    expect(socket.terminated).toBe(false);
   });
 
   test("socketClosed clears the hello timer and reports once", () => {

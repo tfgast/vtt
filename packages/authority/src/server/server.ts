@@ -35,6 +35,8 @@ export {
   type ConnectionHost,
   type ConnectionState,
   type ConnectionTimers,
+  closeFrameReason,
+  MAX_CLOSE_REASON_BYTES,
   type ServerSocket,
   tokensEqual,
 } from "./connection";
@@ -58,7 +60,10 @@ export interface StartServerOptions {
   host: TableHost;
   /** Default 4747; 0 picks a free port. */
   port?: number;
-  /** Default and v1's only supported value: "127.0.0.1" (PROTOCOL.md §2). */
+  /**
+   * Loopback only (PROTOCOL.md §2): "127.0.0.1" (the default) or "localhost",
+   * which binds 127.0.0.1 so `url` stays exact. Anything else is refused.
+   */
   hostname?: string;
   /** Default: 32 random bytes, base64url. */
   token?: string;
@@ -98,10 +103,19 @@ export const systemServerTimers: ServerTimers = {
 /** How long `close` waits for a client's closing handshake before terminating its socket. */
 const CLOSE_GRACE_MS = 2000;
 
+/** The hostnames `startServer` accepts; both bind 127.0.0.1. */
+const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(["127.0.0.1", "localhost"]);
+
 /** Starts the server; resolves once it is listening. */
 export async function startServer(options: StartServerOptions): Promise<RunningServer> {
+  const hostname = options.hostname ?? "127.0.0.1";
+  if (!LOOPBACK_HOSTNAMES.has(hostname)) {
+    throw new Error(
+      `startServer: hostname ${JSON.stringify(hostname)} is not allowed; the authority binds 127.0.0.1 only (use "127.0.0.1" or "localhost")`,
+    );
+  }
   const server = new AuthorityServer(options);
-  await server.listen(options.port ?? DEFAULT_PORT, options.hostname ?? "127.0.0.1");
+  await server.listen(options.port ?? DEFAULT_PORT, "127.0.0.1");
   return server.handle();
 }
 
