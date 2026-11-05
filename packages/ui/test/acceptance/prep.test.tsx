@@ -666,8 +666,13 @@ describe("§8.4 prep steps 1–4 by hand, minus binders", () => {
       expect(copy).toMatchObject({ is_template: false, board: ids.crypt, tag: ["creature"] });
       expect(lit(copy.cells.template)).toEqual(ref(ids.goblin));
       expect(copy.cell_visibility).toEqual({ ac: gmOnly });
+      expect(lit(copy.cells.image)).toEqual(text(assets.goblin));
+      expect(lit(copy.cells.name)).toEqual(text(GOBLIN.name));
+      for (const cell of GOBLIN_CELLS) expect(lit(copy.cells[cell])).toEqual(num(GOBLIN[cell]));
+      expect(lit(copy.cells.hit)).toEqual(formula(HIT));
       const dieCopy = obj(ids.dieCopies[i] as ObjectId);
       expect(dieCopy.tag).toEqual(["die", "d20"]);
+      expect(lit(dieCopy.cells.name)).toEqual(text("d20"));
       expect(lit(dieCopy.cells.owner)).toEqual(ref(id));
       expect(lit(dieCopy.cells.template)).toEqual(ref(ids.die));
       expect(lit(dieCopy.cells.modifier)).toEqual(formula(MODIFIER));
