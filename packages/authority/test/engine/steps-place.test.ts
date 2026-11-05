@@ -366,6 +366,48 @@ describe("beside(r)", () => {
     expect(contents(table, "bag")).toEqual([]);
   });
 
+  test("a spawn beside uses the copy's initial rotation: the record's, else the template's", () => {
+    const long = { type: "rect", width: 4, height: 1 } as const;
+    const table = tableWith(
+      [
+        "spawn(boxed, beside(token), {rotation: 90})",
+        "spawn(turned, beside(token), {rotation: 0})",
+        "spawn(turned, beside(token))",
+      ],
+      { boxed: c(ref("boxed")), turned: c(ref("turned")), token: c(ref("token")) },
+      [
+        placed("token", 0, 0, { shape: unit }),
+        placed("binder", 9, 9, { contents: ["boxed"] }),
+        obj("boxed", { is_template: true, shape: long }),
+        placed("turned", 0, 20, {
+          is_template: true,
+          shape: long,
+          cells: { rotation: c(num(90)) },
+        }),
+      ],
+    );
+    const outcome = go(table);
+    expectOk(outcome);
+    const xs = outcome.created.map((id) => {
+      const p = position(table, id);
+      if (p.type !== "list" || p.items[0]?.type !== "number") throw new Error("no position");
+      return p.items[0].value;
+    });
+    // 0.5 + 0.5 + 0.25; 0.5 + 2 + 0.25; 0.5 + 0.5 + 0.25
+    expect(xs[0]).toBeCloseTo(1.25);
+    expect(xs[1]).toBeCloseTo(2.75);
+    expect(xs[2]).toBeCloseTo(1.25);
+  });
+
+  test("a spawn's destination is evaluated before its record values", () => {
+    const table = tableWith(
+      ["spawn(die, beside(empty), {rotation: 1 / 0})"],
+      { die: c(ref("die")) },
+      [placed("die", 0, 9)],
+    );
+    expectStepError(go(table), 0, "#REF");
+  });
+
   test("a spawn beside a token uses the template's width; shapeless counts as 0", () => {
     const table = tableWith(
       ["spawn(die, beside(token))", "spawn(dot, beside(token))"],
@@ -506,6 +548,29 @@ describe("spawn", () => {
     }),
     placed("bag", 5, 5),
   ];
+
+  test("created lists every copy of a subtree spawn, root first, then later spawns", () => {
+    const table = tableWith(
+      ["spawn(box, bag)", "spawn(tpl, bag)"],
+      { box: c(ref("box")), tpl: c(ref("tpl")), bag: c(ref("bag")) },
+      [
+        ...extra(),
+        placed("shelf", 20, 20, { contents: ["box"] }),
+        obj("box", { is_template: true, contents: ["inner", "lid"] }),
+        obj("inner", { contents: ["leaf"] }),
+        obj("leaf"),
+        obj("lid"),
+      ],
+    );
+    const outcome = go(table);
+    expectOk(outcome);
+    const originals = outcome.created.map((id) => table.value(id, "template"));
+    expect(originals).toEqual(["box", "inner", "leaf", "lid", "tpl"].map((id) => ref(id)));
+    const [box, inner, leaf, lid, tpl] = outcome.created as string[];
+    expect(contents(table, "bag")).toEqual([box, tpl]);
+    expect(contents(table, box as string)).toEqual([inner, lid]);
+    expect(contents(table, inner as string)).toEqual([leaf]);
+  });
 
   test("record values set the root's cells; created is in creation order", () => {
     const table = tableWith(
