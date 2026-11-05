@@ -44,6 +44,7 @@ export * from "./nav/board-ids";
 export * from "./nav/first-visit-fit";
 export * from "./nav/ViewAsMenu";
 export * from "./render/canvas2d";
+export * from "./render/face-draw";
 export * from "./render/image-cache";
 export * from "./render/recording";
 export * from "./render/renderer";
