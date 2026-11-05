@@ -21,7 +21,9 @@ import {
   type InkPhase,
   type InteractionEvent,
   initMachine,
+  inkLabel,
   inkTarget,
+  MAX_LABEL_LENGTH,
   type Modifiers,
   type ReducerInput,
   reduce,
@@ -362,6 +364,34 @@ describe("targets and the object-local frame", () => {
         ],
       });
     }
+  });
+
+  test("the label names the object, capped at 200 UTF-16 units with an ellipsis", () => {
+    expect(inkLabel("Note")).toBe("Draw ink on Note");
+    const fits = "n".repeat(MAX_LABEL_LENGTH - "Draw ink on ".length);
+    expect(inkLabel(fits)).toBe(`Draw ink on ${fits}`);
+    // A 189-character name would make a 201-unit label.
+    const long = "n".repeat(189);
+    const label = inkLabel(long);
+    expect(label.length).toBeLessThanOrEqual(MAX_LABEL_LENGTH);
+    expect(label.startsWith("Draw ink on nnn")).toBe(true);
+    expect(label.endsWith("…")).toBe(true);
+    // Whole code points only: never half a surrogate pair.
+    const emoji = inkLabel("😀".repeat(150));
+    expect(emoji.length).toBeLessThanOrEqual(MAX_LABEL_LENGTH);
+    expect(emoji).toBe(`Draw ink on ${"😀".repeat(93)}…`);
+
+    const note = view("note", { at: [0, 0], shape: rect(2, 2), cells: { name: text(long) } });
+    const { effects } = drive(
+      createInkTool(),
+      stroke([
+        [0, 0],
+        [0.5, 0],
+      ]),
+      { input: () => world([note]) },
+    );
+    const [w] = writes(effects);
+    expect(w?.label).toBe(label);
   });
 
   test("an ink cell holding something else is a notice and no write", () => {
