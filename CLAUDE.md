@@ -61,6 +61,10 @@ shared by tests and review). See `docs/PROTOCOL.md` for the wire contract.
   entirely empty run, so an inline reporter in the root config fails
   `pnpm test` when any selected project globs zero test files (path filters
   keep all projects selected; `--project` narrows the set).
+- README.md (quick start, agent hookup, keys) and docs/FIRST-SESSION.md (the
+  playtest guide, kept in step with the walkthrough tests) are maintained
+  docs: a change that alters what they describe updates them in the same
+  commit.
 
 ## Tracking: beads
 
