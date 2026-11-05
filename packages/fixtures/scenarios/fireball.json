@@ -926,20 +926,26 @@
           "object": "row_g1",
           "cell": "damage_dealt",
           "value": {
-            "type": "number",
-            "value": 27
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
           },
-          "note": "Not passed (no save yet), so damage_dealt = card.damage = 27; a roll result acts as its total (FORMULAS §2.2)."
+          "note": "Not passed (no save yet), so damage_dealt = card.damage = 27. if returns the chosen branch unchanged, so this is the stored 8d6 roll result, not its total (FORMULAS §2.2: a roll result acts as a number only in arithmetic and comparison; FIXTURES §7 compares roll results by all fields)."
         },
         {
           "type": "cell",
           "object": "row_g2",
           "cell": "damage_dealt",
           "value": {
-            "type": "number",
-            "value": 27
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
           },
-          "note": "Same for goblin2's row."
+          "note": "Same for goblin2's row. if returns the chosen branch unchanged, so this is the stored 8d6 roll result, not its total (FORMULAS §2.2: a roll result acts as a number only in arithmetic and comparison; FIXTURES §7 compares roll results by all fields)."
         },
         {
           "type": "log_groups",
@@ -1048,10 +1054,13 @@
           "object": "row_g2",
           "cell": "damage_dealt",
           "value": {
-            "type": "number",
-            "value": 27
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
           },
-          "note": "Failed: damage_dealt = card.damage = 27."
+          "note": "Failed: damage_dealt = card.damage = 27. if returns the chosen branch unchanged, so this is the stored 8d6 roll result, not its total (FORMULAS §2.2: a roll result acts as a number only in arithmetic and comparison; FIXTURES §7 compares roll results by all fields)."
         },
         {
           "type": "action",
@@ -1220,10 +1229,13 @@
           "object": "row_g1",
           "cell": "damage_dealt",
           "value": {
-            "type": "number",
-            "value": 27
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
           },
-          "note": "The live damage_dealt drifts from 13 to the full 27."
+          "note": "The live damage_dealt drifts from 13 to the full 27. if returns the chosen branch unchanged, so this is the stored 8d6 roll result, not its total (FORMULAS §2.2: a roll result acts as a number only in arithmetic and comparison; FIXTURES §7 compares roll results by all fields)."
         },
         {
           "type": "cell",
