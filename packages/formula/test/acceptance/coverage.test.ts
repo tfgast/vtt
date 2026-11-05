@@ -35,11 +35,14 @@ describe("§10 acceptance coverage", () => {
     expect(total).toBeGreaterThan(0);
   });
 
-  it.each(scenarioFiles)("%s: the acceptance file gates on every source being evaluated", async (name) => {
-    const scenario = scenarios[scenarioFiles.indexOf(name)];
-    if (scenario === undefined) throw new Error(`no scenario ${name}`);
-    const text = await readFile(join(import.meta.dirname, `${name}.test.ts`), "utf8");
-    expect(text).toContain(`acceptance("${name}")`);
-    if (scenarioSources(scenario).length > 0) expect(text).toContain("acc.coverageTest();");
-  });
+  it.each(scenarioFiles)(
+    "%s: the acceptance file gates on every source being evaluated",
+    async (name) => {
+      const scenario = scenarios[scenarioFiles.indexOf(name)];
+      if (scenario === undefined) throw new Error(`no scenario ${name}`);
+      const text = await readFile(join(import.meta.dirname, `${name}.test.ts`), "utf8");
+      expect(text).toContain(`acceptance("${name}")`);
+      if (scenarioSources(scenario).length > 0) expect(text).toContain("acc.coverageTest();");
+    },
+  );
 });

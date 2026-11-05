@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { acceptance } from "../support/acceptance";
 
 const acc = await acceptance("drawing-a-card");
-const [cardSource, handSource] = acc.stepArgs("draw_button", "Draw", 0);
+const [cardSource, handSource] = acc.stepArgs("draw_button", "Draw", 0) as [string, string];
 
 const objectOf = (r: Result): string => {
   if (r.type !== "ref") throw new Error(`expected a reference, got ${JSON.stringify(r)}`);

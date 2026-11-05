@@ -34,10 +34,10 @@ describe(acc.title, () => {
       }
       const target = bind.where.value;
       if (target.type !== "ref") throw new Error(`${acc.at(i)}: where is not a ref`);
-      t.spawn("save_row_t", bind.as, { container: bind.in }, {
-        target: ref(target.object),
-        owner: t.value(target.object, "owner") as ReturnType<typeof ref>,
-      });
+      // spawn(save_row, this, {target: it, owner: it.owner})
+      const owner = t.value(target.object, "owner");
+      if (owner.type !== "ref") throw new Error(`${target.object}.owner is not a ref`);
+      t.spawn("save_row_t", bind.as, { container: bind.in }, { target, owner });
     }
     t.set("fb1", "locked", bool(true));
     t.checkStep(2, ["fb1[Lock targets]", "fb1[Roll damage]", "fb1[Apply all]"]);
