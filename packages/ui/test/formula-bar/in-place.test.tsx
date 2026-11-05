@@ -645,4 +645,14 @@ describe("in-place editor", () => {
     await openEditor("text");
     expect(frame()).toEqual({ left: 416, top: 308, width: 32, height: 16 });
   });
+  test("a shapeless object (point bounds) under a cover does not open", async () => {
+    const { port, stamp, setCovers } = await setup();
+    setCovers([cover("c1", { minX: -21, minY: 9, maxX: -19, maxY: 11 })]);
+    act(() => port.open({ stamp: stamp(), object: "goblin2" }));
+    await settle();
+    expect(editorOf("name")).toBeNull();
+    setCovers([]);
+    act(() => port.open({ stamp: stamp(), object: "goblin2" }));
+    await openEditor("name");
+  });
 });

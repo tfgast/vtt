@@ -14,7 +14,9 @@
  *   request's stamp;
  * - when `cellCapabilities` allows a literal in the target cell;
  * - when its screen rectangle (the request's `rect`, else O's bounds, in
- *   board space) intersects no cover of the current scene.
+ *   board space, transformed exactly) intersects no cover of the current
+ *   scene. The field has a CSS minimum size and may extend past a tiny
+ *   rectangle; positioning and the cover test use the rectangle itself.
  *
  * A formula target that is not overridden focuses the formula bar instead
  * (`requestFormulaBarFocus`). The editor writes literals or overrides,
@@ -29,7 +31,7 @@
  * the object is gone, or on `EditorPort.close`.
  */
 import type { ObjectView, Viewer, WireResult } from "@vtt/protocol";
-import { type Bounds, footprintsOverlap } from "@vtt/schema";
+import { type Bounds, type Footprint, footprintsOverlap, type Point } from "@vtt/schema";
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -61,9 +63,13 @@ import {
   subscribeInPlaceEdit,
 } from "./editor-port";
 
-/** The editor is never narrower than this on screen (it grows about the target's center). */
+/**
+ * The field's CSS minimum width: a usability floor for the field only. The
+ * editor's rectangle (its position and the cover test) is always the exact
+ * transformed target; a field at its minimum may extend past it.
+ */
 export const MIN_EDITOR_WIDTH_PX = 80;
-/** The editor is never shorter than this on screen. */
+/** The field's CSS minimum height (see `MIN_EDITOR_WIDTH_PX`). */
 export const MIN_EDITOR_HEIGHT_PX = 24;
 
 export interface InPlaceEditorProps {
@@ -107,8 +113,8 @@ function targetCell(request: InPlaceEditRequest, view: ObjectView): string {
 
 /**
  * The editor's screen rectangle: `rect` (board space), else the object's
- * bounds in `scene`, transformed by `camera`, grown about its center to the
- * minimum size; null when the object is not drawn and no `rect` is given.
+ * bounds in `scene`, transformed by `camera`, exactly; null when the object
+ * is not drawn and no `rect` is given.
  */
 function screenRect(
   request: InPlaceEditRequest,
@@ -121,9 +127,7 @@ function screenRect(
   if (bounds === undefined) return null;
   const [x0, y0] = toScreen(camera, [bounds.minX, bounds.minY], viewport);
   const [x1, y1] = toScreen(camera, [bounds.maxX, bounds.maxY], viewport);
-  const width = Math.max(x1 - x0, MIN_EDITOR_WIDTH_PX);
-  const height = Math.max(y1 - y0, MIN_EDITOR_HEIGHT_PX);
-  return { left: (x0 + x1 - width) / 2, top: (y0 + y1 - height) / 2, width, height };
+  return { left: x0, top: y0, width: x1 - x0, height: y1 - y0 };
 }
 
 /** Whether screen rectangle `r` intersects any cover of `scene` (positive-area overlap). */
@@ -136,15 +140,29 @@ function coveredRect(
   if (scene.covers.length === 0) return false;
   const [minX, minY] = toBoard(camera, [r.left, r.top], viewport);
   const [maxX, maxY] = toBoard(camera, [r.left + r.width, r.top + r.height], viewport);
-  const footprint = {
-    shape: { type: "rect" as const, width: maxX - minX, height: maxY - minY },
-    anchor: [(minX + maxX) / 2, (minY + maxY) / 2] as [number, number],
-    rotation: 0,
-  };
+  const center: Point = [(minX + maxX) / 2, (minY + maxY) / 2];
+  // A rectangle without area (a shapeless object's point bounds) is tested by its
+  // corners and center, boundary inclusive; a rect footprint without area overlaps nothing.
+  const footprints: Footprint[] =
+    maxX - minX > 0 && maxY - minY > 0
+      ? [
+          {
+            shape: { type: "rect", width: maxX - minX, height: maxY - minY },
+            anchor: center,
+            rotation: 0,
+          },
+        ]
+      : [center, [minX, minY], [maxX, maxY]].map((anchor) => ({
+          shape: null,
+          anchor: anchor as Point,
+          rotation: 0,
+        }));
   return scene.covers.some(
     (c) =>
       c.wholeBoard ||
-      footprintsOverlap(footprint, { shape: c.shape, anchor: c.anchor, rotation: c.rotation }),
+      footprints.some((f) =>
+        footprintsOverlap(f, { shape: c.shape, anchor: c.anchor, rotation: c.rotation }),
+      ),
   );
 }
 
@@ -156,6 +174,8 @@ const FIELD_STYLE: CSSProperties = {
   margin: 0,
   font: "inherit",
   resize: "none",
+  minWidth: MIN_EDITOR_WIDTH_PX,
+  minHeight: MIN_EDITOR_HEIGHT_PX,
 };
 const NOTE_STYLE: CSSProperties = {
   position: "absolute",

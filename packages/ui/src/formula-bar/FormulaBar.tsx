@@ -13,12 +13,15 @@
  * input that replaces it. Read-only (value only) in view-as, for cells that
  * allow neither literal nor formula, and with nothing focused.
  *
- * The revision is captured when the input gains focus; Enter commits with it
- * unless the input is unchanged; Escape reverts; leaving the input discards
+ * The input is a textarea that keeps the text exactly (multiline formula
+ * sources and text). The revision is captured when it gains focus; Enter
+ * commits with it unless the input is unchanged (Shift+Enter inserts a
+ * newline); Escape reverts; leaving the input discards
  * the draft. Input that does not parse shows the parser's message (checked
  * as you type, debounced) and cannot be committed. Hovering or focusing the
  * bar sets `UiStore.hoveredCell` to the focused cell (tracing is
- * vtt-3l6.24's). `requestFormulaBarFocus` (editor-port.ts) gives the input
+ * vtt-3l6.24's); leaving, blurring, clearing the focused cell and unmounting
+ * clear the hover the bar set, never another component's. `requestFormulaBarFocus` (editor-port.ts) gives the input
  * keyboard focus.
  */
 import type { CellView, ObjectView } from "@vtt/protocol";
@@ -122,7 +125,12 @@ const BAR_STYLE: CSSProperties = {
   fontFamily: "ui-monospace, monospace",
 };
 const ADDRESS_STYLE: CSSProperties = { fontWeight: 600, whiteSpace: "nowrap" };
-const INPUT_STYLE: CSSProperties = { flex: 1, minWidth: 0, fontFamily: "inherit" };
+const INPUT_STYLE: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  fontFamily: "inherit",
+  resize: "none",
+};
 const NOTE_STYLE: CSSProperties = { fontSize: "0.85em", whiteSpace: "nowrap" };
 const ERROR_STYLE: CSSProperties = { ...NOTE_STYLE, color: "#b3261e" };
 const MUTED_STYLE: CSSProperties = { color: "GrayText" };
@@ -137,10 +145,12 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
     () => ui.getState().focusedCell,
   );
   const port = useMemo(() => createWritePort(session), [session]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [draftState, setDraft] = useState<Draft | null>(null);
   const [focusTick, setFocusTick] = useState(0);
   const presence = useRef({ hovered: false, focused: false });
+  /** The `hoveredCell` this bar set, so it clears only its own. */
+  const ownHover = useRef<CellAddress | null>(null);
 
   const viewer = snapshot.viewer;
   const gm = viewer.type === "gm";
@@ -160,25 +170,35 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
 
   // -- hover (tracing reads `hoveredCell`)
 
-  const syncHover = useCallback(() => {
-    const { hovered, focused: inside } = presence.current;
-    const cell = ui.getState().focusedCell;
-    if ((hovered || inside) && cell !== null) {
-      ui.setHoveredCell(cell);
-      return;
-    }
-    const current = ui.getState().hoveredCell;
-    if (current !== null && cell !== null && keyOf(current) === keyOf(cell)) {
-      ui.setHoveredCell(null);
-    }
-  }, [ui]);
+  /**
+   * Sets `hoveredCell` to the focused cell while the bar is hovered or
+   * focused; otherwise clears the hover this bar set, unless another
+   * component has replaced it since.
+   */
+  const syncHover = useCallback(
+    (present = true) => {
+      const { hovered, focused: inside } = presence.current;
+      const cell = ui.getState().focusedCell;
+      if (present && (hovered || inside) && cell !== null) {
+        ownHover.current = cell;
+        ui.setHoveredCell(cell);
+        return;
+      }
+      const own = ownHover.current;
+      ownHover.current = null;
+      const current = ui.getState().hoveredCell;
+      if (own !== null && current !== null && keyOf(current) === keyOf(own)) {
+        ui.setHoveredCell(null);
+      }
+    },
+    [ui],
+  );
 
-  // A new focused cell while hovered or focused moves the hover with it.
+  // The focused cell changed (or was cleared): the hover follows it, or is cleared.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-run when the focused cell changes
-  useEffect(() => {
-    const { hovered, focused: inside } = presence.current;
-    if ((hovered || inside) && focused !== null) ui.setHoveredCell(focused);
-  }, [key, ui]);
+  useEffect(() => syncHover(), [key, syncHover]);
+  // Unmounting clears the bar's own hover.
+  useEffect(() => () => syncHover(false), [syncHover]);
 
   // A new focused cell while the input has keyboard focus: a new draft, at today's revision.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-run when the focused cell changes
@@ -248,8 +268,9 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
     inputRef.current?.blur();
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Shift+Enter inserts a newline (the textarea keeps the text exactly).
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       const current = draft ?? beginDraft();
       if (current !== null) commit(current);
@@ -294,10 +315,11 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
   } else {
     body = (
       <>
-        <input
+        <textarea
           ref={inputRef}
           aria-label="Formula"
           style={INPUT_STYLE}
+          rows={Math.max(1, (draft?.text ?? start.text).split("\n").length)}
           value={draft?.text ?? start.text}
           spellCheck={false}
           onFocus={() => {
