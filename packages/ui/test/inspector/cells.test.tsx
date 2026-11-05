@@ -7,7 +7,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CellView, WireOp } from "@vtt/protocol";
-import type { ObjectId } from "@vtt/schema";
+import type { ObjectId, OpGroup } from "@vtt/schema";
 import {
   type CellAddress,
   CellList,
@@ -135,6 +135,8 @@ interface Setup {
   rerender(object: ObjectId): void;
   /** The `transact` params the session sent since setup. */
   transacts(): { ops: WireOp[]; base_revision?: number }[];
+  /** The authority's log groups. */
+  groups(): readonly OpGroup[];
 }
 
 async function setup(object: ObjectId = "goblin"): Promise<Setup> {
@@ -165,6 +167,7 @@ async function setup(object: ObjectId = "goblin"): Promise<Setup> {
       request.mock.calls
         .filter(([method]) => method === "transact")
         .map(([, params]) => params as { ops: WireOp[]; base_revision?: number }),
+    groups: () => authority.host.table.store.history.groups() as readonly OpGroup[],
   };
 }
 
@@ -389,6 +392,56 @@ describe("the value editor", () => {
       source: "max_hp + 1",
       overridden: true,
     });
+  });
+
+  test("vtt-1xv.29: committing the evaluated value over a formula cell writes one override", async () => {
+    const user = userEvent.setup();
+    const { session, transacts, groups } = await setup();
+    const before = groups().length;
+    const editor = await openEditor(user, "hp");
+    expect(editor.value).toBe("9");
+    await user.type(editor, "{Enter}");
+    await until(() => cellOf(session, "goblin", "hp")?.overridden === true, "the override");
+    expect(transacts()).toHaveLength(1);
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_value", object: "goblin", cell: "hp", value: num(9) },
+    ]);
+    expect(transacts()[0]?.base_revision).toBe(1);
+    expect(groups().length).toBe(before + 1);
+    expect(cellOf(session, "goblin", "hp")).toMatchObject({
+      kind: "formula",
+      source: "max_hp - damage_taken",
+      overridden: true,
+    });
+  });
+
+  test("vtt-1xv.29: the same literal over a literal cell writes nothing", async () => {
+    const user = userEvent.setup();
+    const { session, transacts, groups } = await setup();
+    const before = groups().length;
+    const editor = await openEditor(user, "ac");
+    expect(editor.value).toBe("13");
+    await user.type(editor, "{Enter}");
+    expect(editorOf("ac")).toBeNull();
+    const again = await openEditor(user, "ac");
+    await user.clear(again);
+    await user.type(again, " 13 {Enter}");
+    expect(editorOf("ac")).toBeNull();
+    expect(transacts()).toEqual([]);
+    expect(groups().length).toBe(before);
+    expect(cellOf(session, "goblin", "ac")?.value).toEqual(num(13));
+  });
+
+  test("vtt-1xv.29: the same text over an overridden formula cell writes nothing", async () => {
+    const user = userEvent.setup();
+    const { transacts, groups } = await setup();
+    const before = groups().length;
+    const editor = await openEditor(user, "temp");
+    expect(editor.value).toBe("20");
+    await user.type(editor, "{Enter}");
+    expect(editorOf("temp")).toBeNull();
+    expect(transacts()).toEqual([]);
+    expect(groups().length).toBe(before);
   });
 
   test("a roll value opens the replace-value editor (empty, reason shown); typing 3 writes 3", async () => {
