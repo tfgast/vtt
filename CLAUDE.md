@@ -16,6 +16,21 @@ Packages: `schema` (document and operation types, validation), `formula`
 undo, persistence, spatial index, WebSocket protocol, MCP server), `ui`,
 `fixtures` (machine-readable acceptance fixtures shared by tests and review).
 
+### Conventions
+
+- Before asking for review, run `pnpm typecheck`, `pnpm lint`,
+  `pnpm format:check`, and `pnpm test`. All four must exit 0.
+- Tooling is pinned to TypeScript 7, Vitest 5, and Biome 2 (exact versions in
+  the root `package.json`); configure against those majors.
+- Libraries are consumed as TypeScript source: each package's `exports` maps
+  `"."` to `./src/index.ts`, and Vite, Vitest, and tsx resolve it directly.
+  No build step for libraries in v1.
+- Each package has a `tsconfig.json` extending `tsconfig.base.json` and a
+  `typecheck` script running `tsc --noEmit`. No composite, no project
+  references. With zero packages, `pnpm -r --parallel typecheck` prints
+  "No projects matched the filters" and exits 0; no extra flag is needed.
+- One `vitest.config.ts` per package. Biome is the only linter and formatter.
+
 ## Tracking: beads
 
 Issues live in beads (`bd`), prefix `vtt`. `.beads/issues.jsonl` is committed.
