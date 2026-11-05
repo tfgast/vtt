@@ -103,7 +103,13 @@ export interface GroupSummary {
 /** The table through the GM client: the snapshot's boards and objects, and every log group. */
 export interface TableCapture {
   boards: unknown;
+  /** The stored snapshot's objects (literals, formula sources, overrides, containment). */
   objects: unknown;
+  /**
+   * Every object's GM view through the assertion client, by id: each cell's
+   * evaluated value, kind, source and override, and the action states.
+   */
+  views: Record<ObjectId, unknown>;
   groups: GroupSummary[];
 }
 
@@ -223,8 +229,18 @@ async function allGroups(ctx: DriverContext): Promise<GroupSummary[]> {
 
 async function capture(ctx: DriverContext): Promise<TableCapture> {
   const { snapshot } = await ctx.gm.request("document", {});
-  const s = snapshot as { boards?: unknown; objects?: unknown };
-  return { boards: s.boards, objects: s.objects, groups: await allGroups(ctx) };
+  const s = snapshot as { boards?: unknown; objects?: Record<ObjectId, unknown> };
+  const ids = Object.keys(s.objects ?? {}).sort();
+  const views: Record<ObjectId, unknown> = {};
+  for (let i = 0; i < ids.length; i += 100) {
+    const { objects, missing } = await ctx.gm.request("get_objects", {
+      ids: ids.slice(i, i + 100),
+      viewer: { type: "gm" },
+    });
+    if (missing.length > 0) throw new Error(`play B: GM views missing ${missing.join(", ")}`);
+    for (const v of objects) views[v.id] = v;
+  }
+  return { boards: s.boards, objects: s.objects, views, groups: await allGroups(ctx) };
 }
 
 /** The group Ctrl+Z (`human`) selects: the newest neither undone nor an undo, by `gm` or a character. */

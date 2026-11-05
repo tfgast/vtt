@@ -168,9 +168,19 @@ describe(`play B: ${WALKTHROUGH_STEPS.slice(11, 15)
     expect(value(await view(c, pc.Brenna.token), "damage_taken")).toEqual(num(0));
     expect(o.applyAllGroup.label).toBe("Apply all");
     expect(o.applyAllGroup.actor).toBe("Aldric");
+    // One damage_taken sentence per goblin, with the exact change; none for Brenna.
+    const damageSentences = o.applyAllGroup.sentences.filter((t) => t.includes(".damage_taken "));
+    expect(damageSentences).toEqual([
+      "Set G1.damage_taken to 20 (was 6)",
+      "Set G2.damage_taken to 28 (was 0)",
+      "Set G3.damage_taken to 28 (was 0)",
+    ]);
     for (const name of ["G1", "G2", "G3"]) {
-      expect(o.applyAllGroup.sentences.filter((t) => t.includes(name))).toHaveLength(1);
+      expect(o.applyAllGroup.sentences.filter((t) => t.includes(`${name}.damage_taken`))).toEqual(
+        damageSentences.filter((t) => t.startsWith(`Set ${name}.`)),
+      );
     }
+    expect(o.applyAllGroup.sentences.some((t) => t.includes("Brenna"))).toBe(false);
 
     // Step 13: a sticky note with the DC; a loose d20 rolled in the tray.
     const note = await view(c, o.note);
@@ -238,6 +248,11 @@ describe(`play B: ${WALKTHROUGH_STEPS.slice(11, 15)
     expect(o.activeBoardAfterRestart).toBe(prep.crypt);
     expect(o.after.boards).toEqual(o.before.boards);
     expect(o.after.objects).toEqual(o.before.objects);
+    // Evaluated values too: every object's GM cell views (values, formulas, overrides).
+    expect(Object.keys(o.before.views)).toHaveLength(
+      Object.keys(o.before.objects as object).length,
+    );
+    expect(o.after.views).toEqual(o.before.views);
     expect(o.after.groups).toEqual(o.before.groups);
     expect(Object.keys(o.after.objects as object)).toContain(g4);
     expect(Object.keys(o.after.objects as object)).toContain(g4Die);
