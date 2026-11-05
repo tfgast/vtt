@@ -226,10 +226,11 @@ describe.each([
   });
 
   test("a leftover dice entry in a complete run is a scenario error", () => {
-    const err = thrown(() => run(valid({ dice: [roll14], steps: [setDamage(5)] })));
+    const err = thrown(() =>
+      run(valid({ dice: [roll14, roll14], steps: [setDamage(5), setDamage(6)] })),
+    );
     expect(err).toBeInstanceOf(ScenarioError);
-    expect(err.message).toMatch(/^"Synthetic": end: /);
-    expect(err.message).toContain("1 dice script entry left");
+    expect(err.message).toBe('"Synthetic": after step 1: 2 scripted dice entries unused');
   });
 
   test("a leftover dice entry in a partial run is not judged", () => {
@@ -348,6 +349,47 @@ describe.each([
     const err = thrown(() => run(s));
     expect(err).toBeInstanceOf(ScenarioError);
     expect(err.message).toMatch(/^"Synthetic": step 1, expect #1 \(cell\): /);
+  });
+
+  test("log_includes on a removed object is a scenario error", () => {
+    const s = valid({
+      setup: {
+        boards: [{ id: "table" }],
+        characters: [],
+        objects: [
+          { id: "binder", placement: { board: "table", position: [0, 0] }, contents: ["tpl"] },
+          { id: "tpl", is_template: true, cells: { hp: n(1) } },
+        ],
+      },
+      steps: [
+        {
+          actor: "gm",
+          do: {
+            type: "spawn",
+            template: "tpl",
+            to: { type: "board", board: "table", position: [1, 1] },
+            cells: { hp: n(9) },
+            as: "copy",
+          },
+        },
+        {
+          actor: "gm",
+          do: { type: "undo" },
+          expect: [
+            { type: "exists", object: "copy", exists: false },
+            {
+              type: "log_includes",
+              group: 0,
+              effect: { type: "write", object: "copy", cell: "hp", value: n(9) },
+            },
+          ],
+        },
+      ],
+    });
+    const err = thrown(() => run(s));
+    expect(err).toBeInstanceOf(ScenarioError);
+    expect(err.message).toMatch(/^"Synthetic": step 1, expect #1 \(log_includes\): /);
+    expect(err.message).toContain("removed");
   });
 
   test("bind names exactly one object; zero matches is a scenario error", () => {

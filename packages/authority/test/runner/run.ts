@@ -13,7 +13,7 @@
  *
  * Failures throw: ScenarioFailure when an expectation does not hold,
  * ScenarioError when the scenario is wrong (FIXTURES §5, §6). Both name the
- * scenario, the step (or `setup`, or `end`) and the expectation.
+ * scenario, the step (or `setup`, or `after step N` for leftover dice) and the expectation.
  *
  * Round-trip mode: after setup and after every step, `serializeTable` →
  * `canonicalJson` → `parseTable`, asserting the snapshot and the log are
@@ -193,7 +193,7 @@ export function runScenario(scenario: Scenario, options: RunOptions = {}): RunRe
   const left = state.dice.remaining();
   if (complete && left > 0) {
     throw new ScenarioError(
-      `${title}: end: ${left} dice script ${left === 1 ? "entry" : "entries"} left over`,
+      `${title}: after ${stepsRun === 0 ? "setup" : `step ${stepsRun - 1}`}: ${left} scripted dice ${left === 1 ? "entry" : "entries"} unused`,
     );
   }
   return { title: scenario.title, complete, stepsRun, stepsTotal: scenario.steps.length, skipped };

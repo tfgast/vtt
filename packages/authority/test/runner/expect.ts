@@ -203,6 +203,7 @@ export function checkExpectation(state: RunState, e: Expectation): boolean {
       return true;
     }
     case "log_includes": {
+      liveObject(state, e.effect.object);
       const groups = store.history.groups();
       const group = e.group < 0 ? groups.at(e.group) : store.history.get(e.group);
       if (group === undefined) {
