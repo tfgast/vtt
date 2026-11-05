@@ -1,5 +1,6 @@
 export const PACKAGE = "@vtt/formula";
 
+export * from "./dice/index";
 export * from "./syntax/ast";
 export * from "./syntax/lexer";
 export * from "./syntax/parser";
