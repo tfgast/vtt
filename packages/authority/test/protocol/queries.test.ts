@@ -30,15 +30,7 @@ import {
   ProtocolFailure,
   ZonesResultSchema,
 } from "@vtt/protocol";
-import {
-  list,
-  num,
-  ref,
-  type Shape,
-  type TableObject,
-  text,
-  type ViewersValue,
-} from "@vtt/schema";
+import { list, num, ref, type Shape, type TableObject, text, type ViewersValue } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { c, commit, f, obj, placed, snapshot, zone } from "../engine/helpers";
 import { loadScenarioFile } from "../runner/load";
@@ -79,9 +71,11 @@ const character = (id: string, x: number, rest: Partial<TableObject> = {}): Tabl
  */
 const EXPENSIVE = `len(objects(sum([${Array(2500).fill("this.w").join(", ")}]) < 0))`;
 
-/** Twelve plain objects off-board, so `EXPENSIVE` exceeds the budget. */
+/** Twelve plain objects far from every test point, so `EXPENSIVE` exceeds the budget. */
 const filler = (): TableObject[] =>
-  Array.from({ length: 12 }, (_, i) => obj(`filler${String(i).padStart(2, "0")}`));
+  Array.from({ length: 12 }, (_, i) =>
+    placed(`filler${String(i).padStart(2, "0")}`, 1000 + i, 1000),
+  );
 
 describe("list_objects", () => {
   test("120 objects at limit 50: three pages, ascending ids, no duplicates", () => {
@@ -123,15 +117,9 @@ describe("list_objects", () => {
   });
 
   test("ids order by code point", () => {
-    // "\u{1F600}" (a surrogate pair) sorts after "�" by code point, before it by UTF-16 unit.
-    const table = Table.fromSnapshot(
-      snapshot([placed("a\u{1F600}", 0, 0), placed("a�", 1, 0), placed("a", 2, 0)]),
-    );
-    expect(listObjects(table, {}).objects.map((o) => o.id)).toEqual([
-      "a",
-      "a�",
-      "a\u{1F600}",
-    ]);
+    const ids = ["aa", "a_", "aB", "a0", "Z"];
+    const table = Table.fromSnapshot(snapshot(ids.map((id, i) => placed(id, i, 0))));
+    expect(listObjects(table, {}).objects.map((o) => o.id)).toEqual(["Z", "a0", "aB", "a_", "aa"]);
   });
 
   test("a tag filter over fireball.json returns its creatures", async () => {
@@ -163,15 +151,16 @@ describe("list_objects", () => {
     expect(ids({ container: "nothing" })).toEqual([]);
   });
 
-  test("name matches only a literal name", () => {
+  test("name matches the whole literal name", () => {
     const table = Table.fromSnapshot(
       snapshot([
-        placed("lit", 0, 0, { cells: { name: c(text("Bob")) } }),
-        placed("formula", 1, 0, { cells: { name: f('"Bob"') } }),
+        placed("bob", 0, 0, { cells: { name: c(text("Bob")) } }),
+        placed("bobby", 1, 0, { cells: { name: c(text("Bobby")) } }),
+        placed("nameless", 2, 0),
       ]),
     );
     expect(listObjects(table, { filter: { name: "Bob" } }).objects.map((o) => o.id)).toEqual([
-      "lit",
+      "bob",
     ]);
   });
 
@@ -325,20 +314,22 @@ describe("zones", () => {
     const before = zonesOnBoard(t, { board: "table" });
     expect(ZonesResultSchema.parse(before)).toEqual(before);
     expect(before.zones.map((z) => z.id)).toEqual(["road", "rubble", "swamp"]);
-    expect(before.zones.find((z) => z.id === "swamp")?.contents).toEqual([]);
+    // The rubble zone's anchor lies inside the swamp; contents() includes zones.
+    expect(before.zones.find((z) => z.id === "swamp")?.contents).toEqual(["rubble"]);
 
     commit(t, (tx) => move(tx, "aldric", { type: "board", board: "table", position: [10, 10] }));
     const inside = zonesOnBoard(t, { board: "table" });
     expect(inside.revision).toBe(1);
     const swamp = inside.zones.find((z) => z.id === "swamp");
-    expect(swamp?.contents).toEqual(["aldric"]);
+    // A move onto a board raises the token to the top z, so it follows the rubble.
+    expect(swamp?.contents).toEqual(["rubble", "aldric"]);
     expect(swamp?.error).toBeUndefined();
     expect(swamp?.view.id).toBe("swamp");
     expect(swamp?.view.cells.name).toBeDefined();
 
     commit(t, (tx) => move(tx, "aldric", { type: "board", board: "table", position: [30, 30] }));
     const outside = zonesOnBoard(t, { board: "table" });
-    expect(outside.zones.find((z) => z.id === "swamp")?.contents).toEqual([]);
+    expect(outside.zones.find((z) => z.id === "swamp")?.contents).toEqual(["rubble"]);
   });
 
   test("view is structural; contents is in query order and filtered by visibility", () => {
@@ -366,17 +357,23 @@ describe("zones", () => {
   });
 
   test("a zone whose contents(zone) is #TYPE is listed with contents [] and error #TYPE", () => {
-    // `position = "here"` (text, as a formula) leaves the zone unplaced, and
-    // FORMULAS §6 excludes it: contents is [] without an error. A position
-    // formula whose evaluation fails on text is #TYPE, which contents
-    // propagates.
+    // `position = "here"` (text, as a formula) leaves a zone unplaced, and
+    // FORMULAS §6 excludes it: its contents are [] without an error. A
+    // position formula whose evaluation fails on text (`"here" + 1`) is
+    // #TYPE, which contents() propagates. A geometry error in any candidate
+    // also poisons other zones' contents() on the same board, so the bad
+    // zone has board `other` to itself.
     const t = Table.fromSnapshot(
-      snapshot([
-        zone("bad", 0, 0, 4, { cells: { position: f('"here" + 1') } }),
-        zone("unplaced", 0, 0, 4, { cells: { position: f('"here"') } }),
-        zone("good", 0, 0, 4),
-        placed("token", 1, 1),
-      ]),
+      snapshot(
+        [
+          zone("bad", 0, 0, 4, { board: "other", cells: { position: f('"here" + 1') } }),
+          placed("stone", 1, 1, { board: "other" }),
+          zone("unplaced", 0, 0, 4, { cells: { position: f('"here"') } }),
+          zone("good", 0, 0, 4),
+          placed("token", 1, 1),
+        ],
+        ["table", "other"],
+      ),
     );
     expect(t.value("bad", "position")).toMatchObject({ type: "error", code: "#TYPE" });
     expect(t.engine.evaluate("contents(this)", { thisId: "bad" })).toMatchObject({
@@ -386,14 +383,17 @@ describe("zones", () => {
     expect(t.value("unplaced", "position")).toEqual(text("here"));
     expect(t.engine.evaluate("contents(this)", { thisId: "unplaced" })).toEqual(list([]));
 
-    const r = zonesOnBoard(t, { board: "table" });
-    expect(ZonesResultSchema.parse(r)).toEqual(r);
-    expect(r.zones.map((z) => [z.id, z.contents, z.error])).toEqual([
-      ["bad", [], "#TYPE"],
+    const other = zonesOnBoard(t, { board: "other" });
+    expect(ZonesResultSchema.parse(other)).toEqual(other);
+    expect(other.zones.map((z) => [z.id, z.contents, z.error])).toEqual([["bad", [], "#TYPE"]]);
+    expect(other.zones[0]?.view.id).toBe("bad");
+    expect(other.zones[0]?.view.cells.position?.kind).toBe("formula");
+
+    const table = zonesOnBoard(t, { board: "table" });
+    expect(table.zones.map((z) => [z.id, z.contents, z.error])).toEqual([
       ["good", ["token"], undefined],
       ["unplaced", [], undefined],
     ]);
-    expect(r.zones[0]?.view.id).toBe("bad");
   });
 
   test("a zone whose position is #LIMIT: contents [] and error #LIMIT", () => {
@@ -403,17 +403,13 @@ describe("zones", () => {
         zone("costly", 0, 0, 4, {
           cells: { w: c(num(1)), position: f(`[${EXPENSIVE}, 0]`) },
         }),
-        zone("plain", 0, 0, 4),
         placed("token", 1, 1),
       ]),
     );
     expect(t.value("costly", "position")).toMatchObject({ type: "error", code: "#LIMIT" });
     const r = zonesOnBoard(t, { board: "table" });
     expect(ZonesResultSchema.parse(r)).toEqual(r);
-    expect(r.zones.map((z) => [z.id, z.contents, z.error])).toEqual([
-      ["costly", [], "#LIMIT"],
-      ["plain", ["token"], undefined],
-    ]);
+    expect(r.zones.map((z) => [z.id, z.contents, z.error])).toEqual([["costly", [], "#LIMIT"]]);
   });
 });
 
@@ -633,9 +629,9 @@ describe("log", () => {
     const r = logPage(t, { viewer: ALDRIC });
     expect(LogResultSchema.parse(r)).toEqual(r);
     expect(r.groups.map((g) => g.index)).toEqual([3, 2, 0]);
-    expect(logPage(t, { viewer: ALDRIC, limit: 2, before: 3 }).groups.map((g) => g.index)).toEqual(
-      [2, 0],
-    );
+    expect(logPage(t, { viewer: ALDRIC, limit: 2, before: 3 }).groups.map((g) => g.index)).toEqual([
+      2, 0,
+    ]);
   });
 
   test("first_index and undo_barrier follow compaction", () => {

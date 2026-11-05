@@ -8,6 +8,7 @@ export * from "./host/table-host";
 export * from "./persist/index";
 export * from "./protocol/commands";
 export * from "./protocol/conflicts";
+export * from "./protocol/queries";
 export * from "./protocol/views";
 export * from "./spatial/index";
 export * from "./store/index";
