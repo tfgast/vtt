@@ -236,6 +236,29 @@ describe("staying current through commits", () => {
     check(store, index);
   });
 
+  test("a position content switched from formula to literal", () => {
+    const { store, index } = setup();
+    const before = formula("far.position");
+    expect(store.getCell("fpos", "position")).toEqual(before);
+    run(store, (tx) =>
+      tx.record({
+        type: "cell",
+        object: "fpos",
+        cell: "position",
+        before,
+        after: { content: point(400, 400) },
+        cause: "edit",
+      }),
+    );
+    expect(must(store.getCell("fpos", "position"))).toEqual({ content: point(400, 400) });
+    const nearby = box(399, 399, 401, 401);
+    expect(candidates(index, "map", B)).not.toContain("fpos");
+    expect(candidates(index, "map", nearby)).toEqual(["fpos", "fz"]);
+    expectAgrees(index, store, "map", B);
+    expectAgrees(index, store, "map", nearby);
+    check(store, index);
+  });
+
   test("a formula z switched to a literal", () => {
     const { store, index } = setup();
     run(store, (tx) => writeValue(tx, "fz", "z", num(3)));
@@ -258,5 +281,78 @@ describe("staying current through commits", () => {
       }
     }
     expect(must(store.getObject("inside")).board).toBe("other");
+  });
+});
+
+/**
+ * Runs `fn`, failing instead of hanging if it makes more than `limit` calls
+ * to `Array.prototype.push` or `Map.prototype.get`. A synchronous loop cannot
+ * be preempted by a test timeout, but every bucket enumeration step makes one
+ * of these calls (a key pushed while indexing, a bucket looked up while
+ * querying), so a loop that stops advancing trips the guard.
+ */
+function withinSteps<T>(fn: () => T, limit = 1_000_000): T {
+  const push = Array.prototype.push;
+  const get = Map.prototype.get;
+  let steps = 0;
+  const step = () => {
+    steps += 1;
+    if (steps > limit) throw new Error(`more than ${limit} steps: enumeration does not advance`);
+  };
+  Array.prototype.push = function (this: unknown[], ...items: unknown[]) {
+    step();
+    return push.apply(this, items);
+  };
+  Map.prototype.get = function (this: Map<unknown, unknown>, key: unknown) {
+    step();
+    return get.call(this, key);
+  };
+  try {
+    return fn();
+  } finally {
+    Array.prototype.push = push;
+    Map.prototype.get = get;
+  }
+}
+
+describe("coordinates past the safe-integer bucket range", () => {
+  const huge = (): Snapshot => {
+    const s = small();
+    s.objects.huge = obj("huge", {
+      board: "map",
+      shape: { type: "rect", width: 2, height: 2 },
+      cells: { position: at(1e20, 0) },
+    });
+    return s;
+  };
+
+  test("an object at [1e20, 0] is indexed and queried", { timeout: 2000 }, () => {
+    const store = DocumentStore.fromSnapshot(huge());
+    const index = withinSteps(() => attach(store));
+    const nearHuge = box(1e20 - 10, -10, 1e20 + 10, 10);
+    const ids = withinSteps(() => candidates(index, "map", nearHuge));
+    expect(ids).toEqual(["fpos", "fz", "huge"]);
+    expect(withinSteps(() => candidates(index, "map", B))).not.toContain("huge");
+    expectAgrees(index, store, "map", nearHuge);
+    expectAgrees(index, store, "map", B);
+    withinSteps(() => run(store, (tx) => writeValue(tx, "inside", "position", point(-1e20, 5))));
+    expectAgrees(index, store, "map", box(-1e20 - 10, 0, -1e20 + 10, 10));
+    expect(candidates(index, "map", box(-1e20 - 10, 0, -1e20 + 10, 10))).toContain("inside");
+  });
+
+  test("a query box reaching 1e20 takes the brute-force path", { timeout: 2000 }, () => {
+    const store = DocumentStore.fromSnapshot(small());
+    const index = attach(store);
+    // Narrow boxes: few buckets by count, so only the safe-integer check keeps
+    // them off the bucket walk.
+    for (const near of [
+      box(1e20, 0, 1e20, 5),
+      box(-1e20, 1e20, -1e20 + 1, 1e20 + 1),
+      box(1e20, 1e20, 1e20 + 1e5, 1e20 + 1e5),
+      box(0, 0, 1e20, 20),
+      box(-1e20, -1e20, 1e20, 1e20),
+    ]) {
+      withinSteps(() => expectAgrees(index, store, "map", near));
+    }
   });
 });

@@ -15,7 +15,7 @@
  *
  * Per board: a uniform grid of 8×8 board-unit buckets holding object ids by
  * literal index bounds, a list of objects whose bounds span more than 64
- * buckets (or are not finite), and the set of objects with formula geometry,
+ * buckets (or whose bucket coordinates are not safe integers), and the set of objects with formula geometry,
  * always returned. Bucketed and large objects are still tested with
  * `boundsIntersect`, so the grid only narrows the search.
  *
@@ -70,13 +70,18 @@ interface BoardIndex {
 const bucketOf = (v: number): number => Math.floor(v / SPATIAL_BUCKET_SIZE);
 const bucketKey = (bx: number, by: number): string => `${bx},${by}`;
 
-/** The bucket range of `b`, and how many buckets it covers (NaN or Infinity when not finite). */
+/**
+ * The bucket range of `b`, and how many buckets it covers. The count is NaN
+ * unless every end is a safe integer: past 2^53 `bx++` no longer advances,
+ * so such a range must never be enumerated (callers treat NaN as "too many").
+ */
 function bucketRange(b: Bounds): { x0: number; y0: number; x1: number; y1: number; count: number } {
   const x0 = bucketOf(b.minX);
   const y0 = bucketOf(b.minY);
   const x1 = bucketOf(b.maxX);
   const y1 = bucketOf(b.maxY);
-  return { x0, y0, x1, y1, count: (x1 - x0 + 1) * (y1 - y0 + 1) };
+  const safe = [x0, y0, x1, y1].every(Number.isSafeInteger);
+  return { x0, y0, x1, y1, count: safe ? (x1 - x0 + 1) * (y1 - y0 + 1) : Number.NaN };
 }
 
 /** The literal a cell reads as: its override when it has one, else its content. */
@@ -154,7 +159,7 @@ export class SpatialIndex {
     };
     for (const id of b.large) test(id);
     const r = bucketRange(near);
-    // A huge, inverted, or non-finite box: testing every entry is cheaper and exact.
+    // A huge, inverted, non-finite, or unsafe-coordinate box: testing every entry is exact.
     if (!(r.count > 0 && r.count <= b.buckets.size)) {
       for (const [id, e] of b.entries) if (e.kind === "grid") test(id);
       return [...out];
