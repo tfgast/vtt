@@ -3,7 +3,10 @@
  * by vtt-nb8.2; M6 plan Q1–Q3, Q13): `runPrep` on a fresh stocked table,
  * every Done-when item asserted through the GM assertion client.
  */
-import { CRYPT_MAP } from "@vtt/fixtures";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
+import { CRYPT_MAP, exampleAssetPath } from "@vtt/fixtures";
 import type { ObjectView, Viewer } from "@vtt/protocol";
 import type { ObjectId } from "@vtt/schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -179,9 +182,11 @@ describe(`prep: ${WALKTHROUGH_STEPS.slice(0, 6)
     expect(goblin.is_template).toBe(true);
     expect(goblin.is_character).toBe(true);
     expect(value(goblin, "name")).toEqual(text("Goblin"));
-    const image = value(goblin, "image") as { type: string; value: string };
-    expect(image.type).toBe("text");
-    expect(image.value).toMatch(/goblin/);
+    // The imported asset's path: `<table basename>.assets/<slug>-<hash8>.<ext>` (PROTOCOL.md §1).
+    const goblinBytes = await readFile(exampleAssetPath("goblin.png"));
+    const hash8 = createHash("sha256").update(goblinBytes).digest("hex").slice(0, 8);
+    const goblinPath = `${basename(c.file)}.assets/goblin-${hash8}.png`;
+    expect(value(goblin, "image")).toEqual(text(goblinPath));
     expect(value(goblin, "ac")).toEqual(num(13));
     expect(goblin.cells.ac?.visibility).toEqual({ type: "viewers", viewers: ["gm"] });
     expect(value(goblin, "max_hp")).toEqual(num(7));
@@ -206,7 +211,7 @@ describe(`prep: ${WALKTHROUGH_STEPS.slice(0, 6)
       expect(g.is_character).toBe(true);
       expect(g.is_template).toBe(false);
       expect(value(g, "template")).toEqual(ref(prep.goblinTemplate));
-      expect(value(g, "image")).toEqual(image);
+      expect(value(g, "image")).toEqual(text(goblinPath));
       expect(g.cells.hit?.kind).toBe("formula");
       expect(g.cells.hit).toMatchObject({ source: HIT_FORMULA.slice(1) });
       expect(value(g, "hit")).toEqual({ type: "boolean", value: false });
