@@ -8,8 +8,8 @@ import {
   DocumentStore,
   newTableSnapshot,
   type RunningServer,
-  ScriptedDiceSource,
   type ScriptedDiceEntry,
+  ScriptedDiceSource,
   startServer,
   TableHost,
 } from "@vtt/authority";
@@ -195,24 +195,43 @@ export async function commit(
   return result;
 }
 
-/** `count` groups, each setting `object.cell` to the next number, labelled `<prefix> <k>`. */
+/**
+ * `count` groups, each setting `object.cell` to the next number, labelled
+ * `<prefix> <k>`, written round-robin by `writers` (the authority limits
+ * requests per connection and second) with the latest revision as base;
+ * resolves once every writer has seen the last commit.
+ */
 export async function commitMany(
-  client: ProtocolClient,
+  writers: ProtocolClient | readonly ProtocolClient[],
   count: number,
   object: string,
   cell: string,
   prefix: string,
 ): Promise<number[]> {
+  const pool = Array.isArray(writers) ? writers : [writers as ProtocolClient];
   const indices: number[] = [];
+  let revision = Math.max(...pool.map((c) => c.revision));
   for (let k = 0; k < count; k++) {
-    const r = await commit(
-      client,
-      [{ type: "set_value", object, cell, value: num(k + 1) }],
-      `${prefix} ${k}`,
-    );
-    indices.push(r.index);
+    const client = pool[k % pool.length] as ProtocolClient;
+    const result = await client.transact([{ type: "set_value", object, cell, value: num(k + 1) }], {
+      label: `${prefix} ${k}`,
+      base_revision: revision,
+    });
+    if (result.status !== "committed") {
+      throw new Error(`rejected: ${JSON.stringify(result.rejection)}`);
+    }
+    revision = result.revision;
+    indices.push(result.index);
   }
+  await until(() => pool.every((c) => c.revision >= revision), "the writers to catch up");
   return indices;
+}
+
+/** A GM client and three more GM writers, for `commitMany`. */
+export async function writers(authority: LogAuthority): Promise<ProtocolClient[]> {
+  const out: ProtocolClient[] = [];
+  for (let k = 0; k < 4; k++) out.push(await authority.client(`writer ${k}`));
+  return out;
 }
 
 /** Waits until `session` has reached `client`'s revision. */

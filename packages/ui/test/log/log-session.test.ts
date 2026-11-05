@@ -6,15 +6,23 @@
  * frame, older pages as a chain from a fixed boundary, invalidation and the
  * in-order rebuild, generation-tagged responses.
  */
-import type { GroupView, LogParams, ProtocolClient, WireOp } from "@vtt/protocol";
+import {
+  type GroupView,
+  type LogParams,
+  type ProtocolClient,
+  ProtocolFailure,
+  type WireOp,
+} from "@vtt/protocol";
 import {
   createLogSession,
   createUiStore,
   type LogSession,
   type LogSnapshot,
+  sessionNotices,
   type TableSession,
 } from "@vtt/ui";
 import { afterEach, describe, expect, test } from "vitest";
+import { whenReady } from "../support/authority";
 import {
   ALDRIC,
   ALL,
@@ -30,8 +38,8 @@ import {
   startLogAuthority,
   text,
   until,
+  writers,
 } from "./support";
-import { whenReady } from "../support/authority";
 
 const logs: LogSession[] = [];
 
@@ -87,12 +95,13 @@ async function settle(log: LogSession): Promise<void> {
 
 async function setup(seed: WireOp[] = PARTY_SEED) {
   const authority = await startLogAuthority();
-  const gm = await authority.client("gm");
+  const pool = await writers(authority);
+  const gm = pool[0] as ProtocolClient;
   await commit(gm, seed, "Seed");
   const session = authority.session();
   await whenReady(session);
   const ui = createUiStore({ session });
-  return { authority, gm, session, ui };
+  return { authority, gm, pool, session, ui };
 }
 
 describe("the window", () => {
@@ -150,8 +159,8 @@ describe("the window", () => {
 
 describe("older pages", () => {
   test("'Load older' after 260 groups pages past the 200 window; the chain stays gap-free as the window slides", async () => {
-    const { gm, session } = await setup();
-    await commitMany(gm, 260, "note", "n", "Step");
+    const { gm, pool, session } = await setup();
+    await commitMany(pool, 260, "note", "n", "Step");
     await caughtUp(session, gm);
     const log = open(session);
     await live(log);
@@ -183,13 +192,13 @@ describe("older pages", () => {
   });
 
   test("as the GM, undoing a group in a loaded page from a second client strikes it through after the rebuild", async () => {
-    const { authority, gm, session } = await setup();
+    const { authority, gm, pool, session } = await setup();
     const lonely = await commit(
       gm,
       [{ type: "set_value", object: "note", cell: "mark", value: num(1) }],
       "Lonely",
     );
-    await commitMany(gm, 230, "note", "n", "Step");
+    await commitMany(pool, 230, "note", "n", "Step");
     await caughtUp(session, gm);
     const log = open(session);
     await live(log);
@@ -213,8 +222,8 @@ describe("older pages", () => {
   });
 
   test("as the GM, a commit that undoes nothing in the chain leaves it fresh", async () => {
-    const { gm, session } = await setup();
-    await commitMany(gm, 210, "note", "n", "Step");
+    const { gm, pool, session } = await setup();
+    await commitMany(pool, 210, "note", "n", "Step");
     await caughtUp(session, gm);
     const log = open(session);
     await live(log);
@@ -234,7 +243,7 @@ describe("older pages", () => {
   });
 
   test("as Aldric, hiding an object whose effects appear only in loaded pages removes them after the rebuild", async () => {
-    const { gm, session, ui } = await setup([
+    const { gm, pool, session, ui } = await setup([
       ...PARTY_SEED,
       {
         type: "create_object",
@@ -244,7 +253,7 @@ describe("older pages", () => {
       },
     ]);
     await commitMany(gm, 30, "torch", "lit", "Torch");
-    await commitMany(gm, 250, "note", "n", "Note");
+    await commitMany(pool, 250, "note", "n", "Note");
     await caughtUp(session, gm);
     await ui.setViewer(ALDRIC);
     const log = open(session);
@@ -270,7 +279,7 @@ describe("older pages", () => {
   });
 
   test("as Aldric, revealing groups that cross a page boundary yields a gap-free chain", async () => {
-    const { gm, session, ui } = await setup([
+    const { gm, pool, session, ui } = await setup([
       ...PARTY_SEED,
       {
         type: "create_object",
@@ -292,7 +301,7 @@ describe("older pages", () => {
         `Torch ${k}`,
       );
     }
-    await commitMany(gm, 200, "note", "m", "Window");
+    await commitMany(pool, 200, "note", "m", "Window");
     await caughtUp(session, gm);
     await ui.setViewer(ALDRIC);
     const log = open(session);
@@ -326,7 +335,7 @@ describe("older pages", () => {
   });
 
   test("as Aldric with a window that shows no groups, 'Load older' still reaches older visible groups", async () => {
-    const { gm, session, ui } = await setup([
+    const { gm, pool, session, ui } = await setup([
       ...PARTY_SEED,
       {
         type: "create_object",
@@ -339,7 +348,7 @@ describe("older pages", () => {
       },
     ]);
     await commitMany(gm, 10, "note", "n", "Public");
-    await commitMany(gm, 210, "vault", "gold", "Secret");
+    await commitMany(pool, 210, "vault", "gold", "Secret");
     await caughtUp(session, gm);
     await ui.setViewer(ALDRIC);
     const log = open(session);
@@ -358,7 +367,7 @@ describe("older pages", () => {
   });
 
   test("a response from a superseded generation is dropped", async () => {
-    const { gm, session, ui } = await setup([
+    const { gm, pool, session, ui } = await setup([
       ...PARTY_SEED,
       {
         type: "create_object",
@@ -368,7 +377,7 @@ describe("older pages", () => {
       },
     ]);
     await commitMany(gm, 30, "torch", "lit", "Torch");
-    await commitMany(gm, 230, "note", "n", "Note");
+    await commitMany(pool, 230, "note", "n", "Note");
     await caughtUp(session, gm);
     await ui.setViewer(ALDRIC);
     const log = open(session);
@@ -415,8 +424,8 @@ describe("older pages", () => {
 
 describe("viewers and subscriptions", () => {
   test("a viewer change drops older pages", async () => {
-    const { gm, session, ui } = await setup();
-    await commitMany(gm, 210, "note", "n", "Step");
+    const { gm, pool, session, ui } = await setup();
+    await commitMany(pool, 210, "note", "n", "Step");
     await caughtUp(session, gm);
     const log = open(session);
     await live(log);
@@ -429,6 +438,26 @@ describe("viewers and subscriptions", () => {
     expect(log.getSnapshot().entries.every((e) => e.page === null)).toBe(true);
     await ui.setViewer(GM);
     await until(() => log.getSnapshot().viewer.type === "gm", "the GM list");
+  });
+
+  test("a refused window subscription is a connection notice", async () => {
+    const { session } = await setup();
+    const client = session.client;
+    const original = client.subscribe.bind(client);
+    client.subscribe = ((params) =>
+      params.scope.type === "log"
+        ? Promise.reject(new ProtocolFailure("busy", "too many subscriptions"))
+        : original(params)) as typeof client.subscribe;
+    const log = open(session);
+    await log.idle();
+    expect(log.getSnapshot().live).toBe(false);
+    expect(
+      sessionNotices(session)
+        .list()
+        .map((n) => n.text),
+    ).toEqual([
+      "The log could not be updated. The table is busy; try again in a moment (too many subscriptions).",
+    ]);
   });
 
   test("close unsubscribes and stops updating", async () => {

@@ -16,7 +16,7 @@ import {
   type UiStore,
   undo,
 } from "@vtt/ui";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { whenReady } from "../support/authority";
 import {
   ALDRIC,
@@ -33,6 +33,7 @@ import {
   startLogAuthority,
   text,
   until,
+  writers,
 } from "./support";
 
 afterEach(async () => {
@@ -70,11 +71,12 @@ async function mount(session: TableSession, ui?: UiStore) {
 
 async function setup(seed = PARTY_SEED, dice: Parameters<typeof startLogAuthority>[0] = []) {
   const authority = await startLogAuthority(dice);
-  const gm = await authority.client("gm");
+  const pool = await writers(authority);
+  const gm = pool[0] as ProtocolClient;
   await commit(gm, seed, "Seed");
   const session = authority.session();
   await whenReady(session);
-  return { authority, gm, session };
+  return { authority, gm, pool, session };
 }
 
 async function invoke(client: ProtocolClient, action: string) {
@@ -170,8 +172,8 @@ describe("undo", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Undo GM: First" }));
     await until(() => notices(session).length > 0, "a notice");
-    expect(notices(session)).toContain(
-      `Cannot undo #${first.index}: later edits #${second.index} conflict.`,
+    expect(notices(session)[0]).toMatch(
+      new RegExp(`^Cannot undo #${first.index}: later edits #${second.index} conflict`),
     );
     expect(item("GM: First").dataset.undone).toBe("false");
   });
@@ -223,8 +225,8 @@ describe("as Aldric", () => {
 
 describe("paging", () => {
   test("'Load older' after 260 groups pages past the 200 window", async () => {
-    const { gm, session } = await setup();
-    await commitMany(gm, 260, "note", "n", "Step");
+    const { gm, pool, session } = await setup();
+    await commitMany(pool, 260, "note", "n", "Step");
     await caughtUp(session, gm);
     await mount(session);
     await until(() => groupItems().length === 200, "the window");
@@ -240,22 +242,81 @@ describe("paging", () => {
   });
 
   test("without an IntersectionObserver, stale pages are rebuilt on the next render", async () => {
-    const { authority, gm, session } = await setup();
+    const { authority, gm, pool, session } = await setup();
     const lonely = await commit(
       gm,
       [{ type: "set_value", object: "note", cell: "mark", value: num(1) }],
       "Lonely",
     );
-    await commitMany(gm, 210, "note", "n", "Step");
+    await commitMany(pool, 210, "note", "n", "Step");
     await caughtUp(session, gm);
     await mount(session);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Load older" }));
-    await until(() => groupItems().length === 213, "every group");
+    await until(() => groupItems().length === 212, "every group");
     const other = await authority.client("other");
     await other.request("undo", { target: { type: "group", index: lonely.index } });
     await caughtUp(session, other);
     await until(() => item("GM: Lonely").dataset.undone === "true", "the rebuilt page");
+  });
+});
+
+describe("with an IntersectionObserver", () => {
+  /** A stand-in observer whose intersections the test reports. */
+  class FakeObserver {
+    static last: FakeObserver | null = null;
+    readonly observed = new Set<Element>();
+    constructor(
+      readonly callback: (records: { target: Element; isIntersecting: boolean }[]) => void,
+    ) {
+      FakeObserver.last = this;
+    }
+    observe(el: Element) {
+      this.observed.add(el);
+    }
+    unobserve(el: Element) {
+      this.observed.delete(el);
+    }
+    disconnect() {
+      this.observed.clear();
+    }
+    report(isIntersecting: boolean) {
+      this.callback([...this.observed].map((target) => ({ target, isIntersecting })));
+    }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test("a stale page is rebuilt only once it is reported in view", async () => {
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    const { authority, gm, pool, session } = await setup();
+    const lonely = await commit(
+      gm,
+      [{ type: "set_value", object: "note", cell: "mark", value: num(1) }],
+      "Lonely",
+    );
+    await commitMany(pool, 210, "note", "n", "Step");
+    await caughtUp(session, gm);
+    await mount(session);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Load older" }));
+    await until(() => groupItems().length === 212, "every group");
+    const observer = FakeObserver.last as FakeObserver;
+    expect([...observer.observed].map((el) => (el as HTMLElement).dataset.logPage)).toEqual(["1"]);
+
+    const other = await authority.client("other");
+    await other.request("undo", { target: { type: "group", index: lonely.index } });
+    await caughtUp(session, other);
+    await until(() => item("GM: Lonely").dataset.refreshing !== undefined, "a stale page");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(item("GM: Lonely").dataset.undone).toBe("false");
+    expect(within(item("GM: Lonely")).getByText("refreshing")).toBeDefined();
+
+    act(() => observer.report(true));
+    await until(() => item("GM: Lonely").dataset.undone === "true", "the rebuilt page");
+    expect(item("GM: Lonely").dataset.refreshing).toBeUndefined();
   });
 });
 
