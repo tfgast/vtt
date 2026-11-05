@@ -9,6 +9,7 @@ import {
   INVOKE_DESCRIPTION,
   INVOKE_RETRY_MS,
   InvokeInputSchema,
+  type McpExtension,
   ScriptedDiceSource,
   subscriptionTools,
   TableHost,
@@ -54,10 +55,8 @@ function attackTable(edit: (doc: Snapshot) => void = () => undefined): TableHost
   return TableHost.inMemory(DocumentStore.fromSnapshot(doc), { dice });
 }
 
-const start = (
-  edit?: (doc: Snapshot) => void,
-  extensions: Parameters<typeof startHarness>[0]["extensions"] = [],
-) => startHarness({ host: attackTable(edit), extensions });
+const start = (edit?: (doc: Snapshot) => void, extensions: McpExtension[] = []) =>
+  startHarness({ host: attackTable(edit), extensions });
 
 // biome-ignore lint/suspicious/noExplicitAny: assertions read results loosely
 function ok(result: ToolResult): any {
@@ -320,12 +319,15 @@ describe("invoke", () => {
     expect(stale.rejection).toMatchObject({ type: "stale_write", base_revision: revision });
   });
 
-  test("an unknown object is isError with the protocol error", async () => {
+  test("an unknown object is isError with the invalid rejection", async () => {
     const h = await start();
     const missing = failed(
       await h.call("invoke", { object: "nobody", action: "Roll", base_revision: 0 }),
     );
-    expect(missing).toEqual({ code: expect.any(String), message: expect.any(String) });
+    expect(missing).toEqual({
+      status: "rejected",
+      rejection: { type: "invalid", message: expect.any(String) },
+    });
   });
 });
 

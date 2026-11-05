@@ -29,6 +29,7 @@ import {
 } from "@vtt/protocol";
 import { z } from "zod";
 import { failureResult, toolError, toolResult, withConnection } from "./gate";
+import { INVOKE_TOOL, invokeHandler } from "./invoke-tool";
 
 /** How long a `transact` whose socket dropped after the send waits to resend (PROTOCOL.md §6, §11). */
 export const TRANSACT_RETRY_MS = 10_000;
@@ -103,7 +104,7 @@ const DESCRIPTIONS = {
 // ---------------------------------------------------------------------------
 // The tool table
 
-export type ToolName = keyof typeof DESCRIPTIONS;
+export type ToolName = keyof typeof DESCRIPTIONS | "invoke";
 
 export interface ToolSpec {
   readonly name: ToolName;
@@ -112,10 +113,10 @@ export interface ToolSpec {
   readonly input: z.ZodObject;
 }
 
-const spec = (name: ToolName, input: z.ZodObject): ToolSpec =>
+const spec = (name: keyof typeof DESCRIPTIONS, input: z.ZodObject): ToolSpec =>
   Object.freeze({ name, description: DESCRIPTIONS[name], input });
 
-/** The 14 request tools of PROTOCOL.md §11, in its table order. */
+/** The 15 request tools of PROTOCOL.md §11, in its table order (`invoke`: invoke-tool.ts). */
 export const TOOLS: readonly ToolSpec[] = Object.freeze([
   spec("table_info", TableInfoInputSchema),
   spec("list_objects", ListObjectsInputSchema),
@@ -129,6 +130,7 @@ export const TOOLS: readonly ToolSpec[] = Object.freeze([
   spec("explain_group", ExplainGroupInputSchema),
   spec("explain_action", ExplainActionInputSchema),
   spec("transact", TransactInputSchema),
+  INVOKE_TOOL,
   spec("undo", UndoInputSchema),
   spec("save", SaveInputSchema),
 ]);
@@ -183,6 +185,8 @@ function handlerFor(
           writeResult,
         );
       };
+    case "invoke":
+      return invokeHandler(client);
     case "undo":
       return (args) =>
         run(() => client.request("undo", args as z.infer<typeof UndoInputSchema>), writeResult);
@@ -191,7 +195,7 @@ function handlerFor(
   }
 }
 
-/** Registers the 14 request tools on `server`, each through the connection gate. */
+/** Registers the 15 request tools on `server`, each through the connection gate. */
 export function registerTools(server: McpServer, client: ProtocolClient): void {
   for (const tool of TOOLS) {
     const handle = handlerFor(tool.name, client);

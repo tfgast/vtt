@@ -9,6 +9,10 @@ import type {
   ActionView,
   CellView,
   DeltaEvent,
+  FaceElementView,
+  FaceLayoutElementView,
+  FaceLayoutView,
+  FaceView,
   GroupHeader,
   ObjectView,
   ProtocolErrorCode,
@@ -19,8 +23,19 @@ import type { ObjectId } from "@vtt/schema";
 /** The buffer's capacity per subscription (PROTOCOL.md §11). */
 export const CHANGE_BUFFER_LIMIT = 1000;
 
-/** The facts of an object view that are neither cells nor its id. */
-export type ObjectFacts = { is_template: boolean; is_character: boolean; actions: ActionView[] };
+/**
+ * The facts of an object view that are neither cells nor its id (PROTOCOL.md
+ * §11). `face` (M5, vtt-1xv.13) is the view's face as a `FaceLayoutView`:
+ * the stored layout with each element's `index`, without the live `shown`,
+ * `reason` and `error`, so a `show_when` flip changes no fact; absent when
+ * the view carries no face (the object has no layout, or a structural view).
+ */
+export type ObjectFacts = {
+  is_template: boolean;
+  is_character: boolean;
+  actions: ActionView[];
+  face?: FaceLayoutView | null;
+};
 
 export type CellChange = { object: ObjectId; cell: string; before?: CellView; after?: CellView };
 export type ObjectChange = { object: ObjectId; before?: ObjectFacts; after?: ObjectFacts };
@@ -47,9 +62,31 @@ export type ChangeRecord = CommitRecord | ResyncRecord | FailedRecord;
 /** `{code, message}` of a failed subscription. */
 export type SubscriptionFailure = { code: ProtocolErrorCode; message: string };
 
+/** A live face element without its live fields: the stored element and its `index`. */
+function layoutElement(element: FaceElementView): FaceLayoutElementView {
+  const { shown: _shown, reason: _reason, error: _error, ...stored } = element;
+  return stored as FaceLayoutElementView;
+}
+
+/** A live face as its `FaceLayoutView` (PROTOCOL.md §7.6): live fields dropped. */
+function faceLayout(face: FaceView): FaceLayoutView {
+  const { elements, collapsed, ...rest } = face;
+  return {
+    ...rest,
+    elements: elements.map(layoutElement),
+    ...(collapsed === undefined ? {} : { collapsed: collapsed.map(layoutElement) }),
+  };
+}
+
 /** The `ObjectFacts` of a view. */
 export function objectFacts(view: ObjectView): ObjectFacts {
-  return { is_template: view.is_template, is_character: view.is_character, actions: view.actions };
+  const facts: ObjectFacts = {
+    is_template: view.is_template,
+    is_character: view.is_character,
+    actions: view.actions,
+  };
+  if (view.face !== undefined) facts.face = faceLayout(view.face);
+  return facts;
 }
 
 /** Structural equality of JSON-like values; object key order is ignored. */
@@ -82,7 +119,8 @@ function sides<B extends object, T>(base: B, before: T | undefined, after: T | u
  * `removed` are the delta's ids absent before and after; `cells` every cell
  * whose `CellView` differs (one side only when the cell or object is absent
  * there), names sorted per object; `objects` every object whose
- * `ObjectFacts` differ, an object entering or leaving included. Objects keep
+ * `ObjectFacts` (flags, actions, face) differ, an object entering or
+ * leaving included. Objects keep
  * the delta's order (upserted views, then removed ids).
  */
 export function commitRecord(event: DeltaEvent): CommitRecord {

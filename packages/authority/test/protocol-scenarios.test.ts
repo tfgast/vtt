@@ -403,7 +403,7 @@ test("every falsified expectation fails the same way in both runners", async () 
       }
     }
   }
-  expect(count).toBeGreaterThan(200);
+  expect(count).toBeGreaterThan(300);
 }, 60_000);
 
 describe("invoke, action and face_element over the wire (vtt-1xv.13)", () => {
