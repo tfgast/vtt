@@ -301,7 +301,8 @@ describe("resolveFace: contents elements", () => {
   const binder = mk("binder", {
     shape: rect(7, 10),
     at: [0, 0],
-    cells: { name: text("Binder") },
+    // A character view: face_up is sent (absent, a character would fail closed to face down).
+    cells: { name: text("Binder"), face_up: bool(true) },
     contents: ["tpl_a", null, "card_b"],
     face: binderFace,
   });

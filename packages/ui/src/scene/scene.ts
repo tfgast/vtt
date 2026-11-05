@@ -211,6 +211,33 @@ function drawItem(p: Placed, gm: boolean, formatText: (v: WireValue) => string):
   return item;
 }
 
+export interface DrawItemOptions {
+  anchor: Point;
+  /** Degrees clockwise about the anchor. */
+  rotation: number;
+  gm: boolean;
+  /** Formats the `text` cell (`SceneInput.formatText`). */
+  formatText: (value: WireValue) => string;
+}
+
+/**
+ * The draw item `buildScene` makes for `view` placed at `anchor` with
+ * `rotation` (z and shape read from the view; no preview), for a GM scene
+ * when `gm`. Faces draw a contained object with it at the origin (M5 plan
+ * review r2 finding 3).
+ */
+export function drawItemFor(view: ObjectView, opts: DrawItemOptions): DrawItem {
+  const shapeCell = view.cells.shape?.value;
+  const placed: Placed = {
+    view,
+    anchor: [opts.anchor[0], opts.anchor[1]],
+    rotation: opts.rotation,
+    z: geometryNumber(view.cells.z?.value),
+    shape: shapeCell?.type === "shape" ? shapeCell.shape : null,
+  };
+  return drawItem(placed, opts.gm, opts.formatText);
+}
+
 function coverItem(cover: Cover): CoverItem {
   const { region } = cover;
   if ("whole_board" in region) return { key: cover.key, wholeBoard: true };
