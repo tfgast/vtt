@@ -1,0 +1,307 @@
+{
+  "title": "Drawing two cards from a deck into a hand",
+  "source": "Drawing a card",
+  "description": "A deck holds two cards, ace then king. Aldric's Draw button moves the first card of the deck into his hand, twice, in order. The cards are visible to all but Aldric's hand is visible only to him, so a card in the hand is seen by Aldric and not by Bryn; moving a card back out restores all. A third Draw on the empty deck is disabled and its invocation refused.",
+  "setup": {
+    "boards": [{ "id": "table", "name": "Table" }],
+    "characters": ["aldric", "bryn"],
+    "objects": [
+      {
+        "id": "aldric",
+        "note": "Aldric has hand, a reference to his hand, so owner.hand resolves on the Draw button.",
+        "tag": ["pc"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [0, 0] },
+        "cells": {
+          "name": { "type": "text", "value": "Aldric" },
+          "hand": { "type": "ref", "object": "aldric_hand" }
+        }
+      },
+      {
+        "id": "bryn",
+        "note": "Another character, to show the hand hides its cards from everyone but Aldric.",
+        "tag": ["pc"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [2, 0] },
+        "cells": { "name": { "type": "text", "value": "Bryn" } }
+      },
+      {
+        "id": "aldric_hand",
+        "note": "DESIGN §4.4: a hand is a container visible only to its owner.",
+        "tag": ["hand"],
+        "placement": { "board": "table", "position": [0, -4] },
+        "contents": [],
+        "cells": {
+          "name": { "type": "text", "value": "Aldric's hand" },
+          "owner": { "type": "ref", "object": "aldric" },
+          "visible_to": { "type": "viewers", "viewers": [{ "type": "ref", "object": "aldric" }] }
+        }
+      },
+      {
+        "id": "deck",
+        "tag": ["deck"],
+        "shape": { "type": "rect", "width": 2, "height": 3 },
+        "placement": { "board": "table", "position": [6, 0] },
+        "contents": ["card_ace", "card_king"],
+        "cells": {
+          "name": { "type": "text", "value": "Deck" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] }
+        }
+      },
+      {
+        "id": "card_ace",
+        "tag": ["card"],
+        "shape": { "type": "rect", "width": 2, "height": 3 },
+        "cells": {
+          "name": { "type": "text", "value": "Ace" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] }
+        }
+      },
+      {
+        "id": "card_king",
+        "tag": ["card"],
+        "shape": { "type": "rect", "width": 2, "height": 3 },
+        "cells": {
+          "name": { "type": "text", "value": "King" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] }
+        }
+      },
+      {
+        "id": "draw_button",
+        "note": "The Draw action lives on an object whose cells include deck (a reference to the deck) and owner (Aldric).",
+        "tag": ["button"],
+        "shape": { "type": "rect", "width": 1, "height": 1 },
+        "placement": { "board": "table", "position": [4, -4] },
+        "cells": {
+          "name": { "type": "text", "value": "Draw" },
+          "deck": { "type": "ref", "object": "deck" },
+          "owner": { "type": "ref", "object": "aldric" }
+        },
+        "actions": [
+          {
+            "name": "Draw",
+            "when": "len(deck.contents) > 0",
+            "steps": ["move(first(deck.contents), owner.hand)"]
+          }
+        ]
+      }
+    ]
+  },
+  "dice": [],
+  "expect": [
+    {
+      "type": "contents",
+      "object": "deck",
+      "contents": ["card_ace", "card_king"],
+      "note": "A deck container with two cards."
+    },
+    {
+      "type": "contents",
+      "object": "aldric_hand",
+      "contents": [],
+      "note": "The hand starts empty."
+    },
+    {
+      "type": "action",
+      "object": "draw_button",
+      "action": "Draw",
+      "enabled": true,
+      "note": "[Draw] when: len(deck.contents) > 0; the deck has two cards."
+    },
+    {
+      "type": "object_visible",
+      "object": "card_ace",
+      "viewer": "bryn",
+      "visible": true,
+      "note": "The cards are visible_to all, and so is the deck."
+    },
+    { "type": "log_groups", "count": 0, "note": "Nothing has happened yet." }
+  ],
+  "steps": [
+    {
+      "actor": "aldric",
+      "note": "First Draw: move(first(deck.contents), owner.hand) takes the ace.",
+      "do": { "type": "invoke", "object": "draw_button", "action": "Draw" },
+      "expect": [
+        {
+          "type": "contents",
+          "object": "deck",
+          "contents": ["card_king"],
+          "note": "first(deck.contents) left the deck."
+        },
+        {
+          "type": "contents",
+          "object": "aldric_hand",
+          "contents": ["card_ace"],
+          "note": "A reference to a container as destination goes into its contents, at the end (FORMULAS §8.2)."
+        },
+        {
+          "type": "container",
+          "object": "card_ace",
+          "container": "aldric_hand",
+          "index": 0,
+          "note": "The ace is in the hand."
+        },
+        {
+          "type": "cell",
+          "object": "card_ace",
+          "cell": "visible_to",
+          "value": { "type": "viewers", "viewers": ["all"] },
+          "note": "The card's own cell never changed (DESIGN §4.4)."
+        },
+        {
+          "type": "object_visible",
+          "object": "card_ace",
+          "viewer": "aldric",
+          "visible": true,
+          "note": "A card marked all inside a hand marked to one character is seen only by that character (DESIGN §4.4)."
+        },
+        {
+          "type": "object_visible",
+          "object": "card_ace",
+          "viewer": "bryn",
+          "visible": false,
+          "note": "A card marked all inside a hand marked to one character is seen only by that character (DESIGN §4.4)."
+        },
+        {
+          "type": "object_visible",
+          "object": "card_king",
+          "viewer": "bryn",
+          "visible": true,
+          "note": "The king is still in the public deck."
+        },
+        {
+          "type": "action",
+          "object": "draw_button",
+          "action": "Draw",
+          "enabled": true,
+          "note": "[Draw] when: len(deck.contents) > 0; one card left."
+        },
+        { "type": "log_groups", "count": 1, "note": "An invoke is one group (FIXTURES §8)." }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Second Draw takes the king, now first in the deck.",
+      "do": { "type": "invoke", "object": "draw_button", "action": "Draw" },
+      "expect": [
+        {
+          "type": "contents",
+          "object": "deck",
+          "contents": [],
+          "note": "The deck is empty."
+        },
+        {
+          "type": "contents",
+          "object": "aldric_hand",
+          "contents": ["card_ace", "card_king"],
+          "note": "Draws append to the hand in order (FORMULAS §8.2: at the end)."
+        },
+        {
+          "type": "container",
+          "object": "card_king",
+          "container": "aldric_hand",
+          "index": 1,
+          "note": "The king is second in the hand."
+        },
+        {
+          "type": "object_visible",
+          "object": "card_king",
+          "viewer": "aldric",
+          "visible": true,
+          "note": "Inside Aldric's hand, seen by Aldric."
+        },
+        {
+          "type": "object_visible",
+          "object": "card_king",
+          "viewer": "bryn",
+          "visible": false,
+          "note": "Inside Aldric's hand, not seen by Bryn."
+        },
+        {
+          "type": "action",
+          "object": "draw_button",
+          "action": "Draw",
+          "enabled": false,
+          "note": "The third Draw: action disabled; len(deck.contents) > 0 is false (FIXTURES §9)."
+        },
+        { "type": "log_groups", "count": 2, "note": "An invoke is one group (FIXTURES §8)." }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "The third Draw on the empty deck.",
+      "do": { "type": "invoke", "object": "draw_button", "action": "Draw" },
+      "expect": [
+        {
+          "type": "rejected",
+          "reason": { "type": "when_false" },
+          "note": "Then an invocation rejected with when_false (FIXTURES §9)."
+        },
+        {
+          "type": "contents",
+          "object": "aldric_hand",
+          "contents": ["card_ace", "card_king"],
+          "note": "A refused step changes nothing (FIXTURES §6)."
+        },
+        {
+          "type": "contents",
+          "object": "deck",
+          "contents": [],
+          "note": "A refused step changes nothing (FIXTURES §6)."
+        },
+        {
+          "type": "log_groups",
+          "count": 2,
+          "note": "A refused step appends no log group (FIXTURES §6)."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Aldric plays the ace onto the table.",
+      "do": {
+        "type": "move",
+        "object": "card_ace",
+        "to": { "type": "board", "board": "table", "position": [3, 3] }
+      },
+      "expect": [
+        {
+          "type": "placement",
+          "object": "card_ace",
+          "board": "table",
+          "position": [3, 3],
+          "note": "The ace is on the table."
+        },
+        {
+          "type": "contents",
+          "object": "aldric_hand",
+          "contents": ["card_king"],
+          "note": "Moving removes the object from its old container (DESIGN §4.1)."
+        },
+        {
+          "type": "object_visible",
+          "object": "card_ace",
+          "viewer": "bryn",
+          "visible": true,
+          "note": "Moving it out of the hand restores all, because the card's own cell never changed (DESIGN §4.4)."
+        },
+        {
+          "type": "object_visible",
+          "object": "card_ace",
+          "viewer": "aldric",
+          "visible": true,
+          "note": "visible_to all."
+        },
+        {
+          "type": "object_visible",
+          "object": "card_king",
+          "viewer": "bryn",
+          "visible": false,
+          "note": "The king is still in Aldric's hand."
+        },
+        { "type": "log_groups", "count": 3, "note": "A move is one group (FIXTURES §8)." }
+      ]
+    }
+  ]
+}

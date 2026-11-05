@@ -1,0 +1,103 @@
+{
+  "title": "Shuffling a stack with a scripted permutation",
+  "source": "Shuffling",
+  "description": "A stack holds three cards a, b, c in that order and has a Shuffle action, shuffle(this). The dice script supplies the permutation [2, 0, 1]; with new[i] = old[order[i]] (FIXTURES §5) the result is c, a, b. Undo restores the original order.",
+  "setup": {
+    "boards": [{ "id": "table", "name": "Table" }],
+    "characters": [],
+    "objects": [
+      {
+        "id": "stack",
+        "tag": ["deck"],
+        "shape": { "type": "rect", "width": 2, "height": 3 },
+        "placement": { "board": "table", "position": [0, 0] },
+        "contents": ["card_a", "card_b", "card_c"],
+        "cells": { "name": { "type": "text", "value": "Stack" } },
+        "actions": [{ "name": "Shuffle", "steps": ["shuffle(this)"] }]
+      },
+      {
+        "id": "card_a",
+        "tag": ["card"],
+        "shape": { "type": "rect", "width": 2, "height": 3 },
+        "cells": { "name": { "type": "text", "value": "A" } }
+      },
+      {
+        "id": "card_b",
+        "tag": ["card"],
+        "shape": { "type": "rect", "width": 2, "height": 3 },
+        "cells": { "name": { "type": "text", "value": "B" } }
+      },
+      {
+        "id": "card_c",
+        "tag": ["card"],
+        "shape": { "type": "rect", "width": 2, "height": 3 },
+        "cells": { "name": { "type": "text", "value": "C" } }
+      }
+    ]
+  },
+  "dice": [{ "type": "permutation", "order": [2, 0, 1] }],
+  "expect": [
+    {
+      "type": "contents",
+      "object": "stack",
+      "contents": ["card_a", "card_b", "card_c"],
+      "note": "A container with known contents."
+    },
+    {
+      "type": "action",
+      "object": "stack",
+      "action": "Shuffle",
+      "enabled": true,
+      "note": "[Shuffle] has no when, so it is always enabled (FIXTURES §7: true or absent)."
+    },
+    { "type": "log_groups", "count": 0, "note": "Nothing has happened yet." }
+  ],
+  "steps": [
+    {
+      "actor": "gm",
+      "note": "[Shuffle] shuffle(this); consumes the scripted permutation [2, 0, 1].",
+      "do": { "type": "invoke", "object": "stack", "action": "Shuffle" },
+      "expect": [
+        {
+          "type": "contents",
+          "object": "stack",
+          "contents": ["card_c", "card_a", "card_b"],
+          "note": "new[i] = old[order[i]]: with contents [a, b, c] and order [2, 0, 1] the result is [c, a, b] (FIXTURES §5)."
+        },
+        {
+          "type": "container",
+          "object": "card_c",
+          "container": "stack",
+          "index": 0,
+          "note": "c is now on top."
+        },
+        {
+          "type": "action",
+          "object": "stack",
+          "action": "Shuffle",
+          "enabled": true,
+          "note": "No when; still enabled."
+        },
+        { "type": "log_groups", "count": 1, "note": "An invoke is one group (FIXTURES §8)." }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Undo reverses the whole action (FORMULAS §8.1).",
+      "do": { "type": "undo" },
+      "expect": [
+        {
+          "type": "contents",
+          "object": "stack",
+          "contents": ["card_a", "card_b", "card_c"],
+          "note": "undo restores the original order (FIXTURES §9)."
+        },
+        {
+          "type": "log_groups",
+          "count": 2,
+          "note": "Undo is itself an operation and appends one group (FIXTURES §8)."
+        }
+      ]
+    }
+  ]
+}
