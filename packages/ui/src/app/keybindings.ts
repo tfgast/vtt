@@ -2,7 +2,10 @@
  * The app's keybindings (vtt-3l6.17; DESIGN.md §7 Undo, §8.1): Ctrl/Cmd+Z
  * undoes the GM's own latest group and Ctrl/Cmd+S saves (its default
  * prevented), both through vtt-3l6.21's `undo` and `save`; the tool keys
- * activate tools (M5, vtt-1xv.23: D ink, W text, L layout). Nothing fires while focus is in a text field, where the
+ * activate tools (M5, vtt-1xv.23: D ink, W text, L layout); `?` (Shift+/)
+ * toggles the keyboard and gesture help (vtt-nb8.8). `KEY_BINDINGS` is the
+ * one table: `keyCommand` dispatches from it and the help lists it, so the
+ * two cannot drift. Nothing fires while focus is in a text field, where the
  * keys keep their text-editing meaning. The select tool's own keys (Delete,
  * arrows, F, `[`, `]`, Escape) reach it through `BoardCanvas`, not here.
  */
@@ -12,22 +15,68 @@ import { save, undo } from "../session/writes";
 import type { UiStore } from "../state/ui-state";
 import { activateTool } from "./Toolbar";
 
-/** Tool keys (lower case; Shift is ignored). */
-export const TOOL_KEYS: Readonly<Record<string, ToolId>> = {
-  v: "select",
-  t: "token",
-  c: "card",
-  n: "note",
-  r: "zone-rect",
-  o: "zone-circle",
-  p: "zone-polygon",
-  i: "image",
-  d: "ink",
-  w: "text",
-  l: "layout",
-};
+export type KeyCommand =
+  | { type: "undo" }
+  | { type: "save" }
+  | { type: "help" }
+  | { type: "tool"; tool: ToolId };
 
-export type KeyCommand = { type: "undo" } | { type: "save" } | { type: "tool"; tool: ToolId };
+/** One keybinding: what the help shows (`keys`, `label`) and what dispatch matches. */
+export interface KeyBinding {
+  /** The keys as the help shows them, e.g. "V", "Ctrl/Cmd+Z", "?". */
+  readonly keys: string;
+  /** What the binding does, as the help shows it. */
+  readonly label: string;
+  /** The matched `KeyboardEvent.key`, lower case. */
+  readonly key: string;
+  /** Whether Ctrl or Cmd is held (without Alt or Shift); else no Ctrl, Cmd or Alt, Shift ignored. */
+  readonly mod: boolean;
+  readonly command: KeyCommand;
+}
+
+const toolBinding = (key: string, tool: ToolId, label: string): KeyBinding => ({
+  keys: key.toUpperCase(),
+  label,
+  key,
+  mod: false,
+  command: { type: "tool", tool },
+});
+
+/** The app's keybindings, in the help's order: the table `keyCommand` dispatches from. */
+export const KEY_BINDINGS: readonly KeyBinding[] = [
+  toolBinding("v", "select", "Select tool"),
+  toolBinding("t", "token", "Token tool"),
+  toolBinding("c", "card", "Card tool"),
+  toolBinding("n", "note", "Note tool"),
+  toolBinding("r", "zone-rect", "Rectangle zone tool"),
+  toolBinding("o", "zone-circle", "Circle zone tool"),
+  toolBinding("p", "zone-polygon", "Polygon zone tool"),
+  toolBinding("i", "image", "Image tool"),
+  toolBinding("d", "ink", "Ink tool"),
+  toolBinding("w", "text", "Text tool"),
+  toolBinding("l", "layout", "Layout tool"),
+  { keys: "Ctrl/Cmd+Z", label: "Undo", key: "z", mod: true, command: { type: "undo" } },
+  { keys: "Ctrl/Cmd+S", label: "Save", key: "s", mod: true, command: { type: "save" } },
+  {
+    keys: "?",
+    label: "Show or hide this help",
+    key: "?",
+    mod: false,
+    command: { type: "help" },
+  },
+];
+
+/** Tool keys (lower case; Shift is ignored), read from `KEY_BINDINGS`. */
+export const TOOL_KEYS: Readonly<Record<string, ToolId>> = Object.fromEntries(
+  KEY_BINDINGS.flatMap((b) => (b.command.type === "tool" ? [[b.key, b.command.tool]] : [])),
+);
+
+/** The help's keys of the binding of `command` (e.g. "Ctrl/Cmd+Z"), or undefined. */
+export function keysOf(type: KeyCommand["type"], tool?: ToolId): string | undefined {
+  return KEY_BINDINGS.find(
+    (b) => b.command.type === type && (b.command.type !== "tool" || b.command.tool === tool),
+  )?.keys;
+}
 
 /** The fields of a `KeyboardEvent` a command is read from. */
 export interface KeyLike {
@@ -43,6 +92,7 @@ export interface KeyLike {
 export interface KeyActions {
   undo(): void;
   save(): void;
+  help(): void;
   tool(id: ToolId): void;
 }
 
@@ -74,19 +124,13 @@ export function isTextField(target: EventTarget | null): boolean {
   return target.closest('[contenteditable]:not([contenteditable="false"])') !== null;
 }
 
-/** The command of a key press, or null (also for every key in a text field). */
+/** The command of a key press, from `KEY_BINDINGS`, or null (also for every key in a text field). */
 export function keyCommand(e: KeyLike): KeyCommand | null {
   if (isTextField(e.target)) return null;
   const k = e.key.toLowerCase();
-  if (e.ctrlKey || e.metaKey) {
-    if (e.altKey || e.shiftKey) return null;
-    if (k === "z") return { type: "undo" };
-    if (k === "s") return { type: "save" };
-    return null;
-  }
-  if (e.altKey) return null;
-  const tool = Object.hasOwn(TOOL_KEYS, k) ? TOOL_KEYS[k] : undefined;
-  return tool === undefined ? null : { type: "tool", tool };
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod ? e.altKey || e.shiftKey : e.altKey) return null;
+  return KEY_BINDINGS.find((b) => b.mod === mod && b.key === k)?.command ?? null;
 }
 
 /** Listens for key presses on `target`; returns the remover. */
@@ -105,6 +149,9 @@ export function bindKeybindings(
     } else if (command.type === "save") {
       e.preventDefault();
       actions.save();
+    } else if (command.type === "help") {
+      e.preventDefault();
+      actions.help();
     } else {
       actions.tool(command.tool);
     }
@@ -113,11 +160,16 @@ export function bindKeybindings(
   return () => target.removeEventListener("keydown", onKeyDown);
 }
 
-/** The app's actions: `undo(session)`, `save(session)` and `activateTool(ui, id)`. */
-export function appKeyActions(session: TableSession, ui: UiStore): KeyActions {
+/** The app's actions: `undo(session)`, `save(session)`, `toggleHelp()` and `activateTool(ui, id)`. */
+export function appKeyActions(
+  session: TableSession,
+  ui: UiStore,
+  toggleHelp: () => void,
+): KeyActions {
   return {
     undo: () => void undo(session),
     save: () => void save(session),
+    help: toggleHelp,
     tool: (id) => activateTool(ui, id),
   };
 }

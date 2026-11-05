@@ -5,10 +5,12 @@
  * Undo, §4.4–§4.8, §8.1; PROTOCOL.md §2, §6; M4 plan Q9, Q14; M5 plan Q1,
  * Q12, Q19, Q20.
  *
- * Layout: the toolbar on top (tools, fog, view as, undo, save); board tabs
+ * Layout: the toolbar on top (tools, fog, view as, undo, save, help); board tabs
  * and the formula bar above the canvas; on the right the edit-template
  * banner and the inspector panel (tabs Inspector, Objects and Log); the
- * status bar at the bottom; notices floating above it.
+ * status bar at the bottom; notices floating above it; the keyboard and
+ * gesture help (vtt-nb8.8) over everything while open (`?` or the toolbar's
+ * "?" button toggles it, Esc closes it).
  *
  * Wiring (one of each per mounted app):
  * - one `FaceStateStore` (vtt-1xv.14) and one `RuntimeInputs` shared by the
@@ -52,6 +54,7 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { INVOKE_EXTENSION, invokeExtension } from "./actions/invoke";
+import { HelpPanel } from "./app/HelpPanel";
 import { appKeyActions, bindKeybindings } from "./app/keybindings";
 import { Notices } from "./app/Notices";
 import { StatusBar } from "./app/StatusBar";
@@ -310,6 +313,9 @@ function Shell(props: AppProps & { ui: UiStore }) {
   const pendingPick = useRef<((file: File | null) => void) | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
+  const [helpOpen, setHelpOpen] = useState(false);
+  const toggleHelp = useCallback(() => setHelpOpen((open) => !open), []);
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
 
   const pickFile = useCallback((accept: string): Promise<File | null> => {
     const injected = propsRef.current.pickFile;
@@ -366,7 +372,10 @@ function Shell(props: AppProps & { ui: UiStore }) {
   useEffect(() => cameraStore.connect(), [cameraStore]);
   useFirstVisitFit({ session, ui, cameraStore });
   useEffect(() => startTracing({ session, ui }), [session, ui]);
-  useEffect(() => bindKeybindings(window, appKeyActions(session, ui)), [session, ui]);
+  useEffect(
+    () => bindKeybindings(window, appKeyActions(session, ui, toggleHelp)),
+    [session, ui, toggleHelp],
+  );
   useEffect(
     () => () => {
       pendingPick.current?.(null);
@@ -376,7 +385,11 @@ function Shell(props: AppProps & { ui: UiStore }) {
 
   return (
     <div style={ROOT_STYLE}>
-      {composition === null ? <header /> : <Toolbar registry={composition.registry} />}
+      {composition === null ? (
+        <header />
+      ) : (
+        <Toolbar registry={composition.registry} onHelp={toggleHelp} />
+      )}
       <div style={MAIN_STYLE}>
         <main style={BOARD_COLUMN_STYLE}>
           <BoardTabs />
@@ -408,6 +421,7 @@ function Shell(props: AppProps & { ui: UiStore }) {
       </div>
       <StatusBar />
       <Notices />
+      {helpOpen ? <HelpPanel onClose={closeHelp} /> : null}
       <input ref={fileInput} type="file" hidden aria-hidden="true" tabIndex={-1} />
     </div>
   );
