@@ -103,6 +103,41 @@ describe("injectSession", () => {
     expect(out.toLowerCase().match(/vtt-session/g)).toHaveLength(1);
   });
 
+  test("a quoted > in an earlier attribute does not hide a stale element's id", () => {
+    const stale = INDEX.replace(
+      "</head>",
+      `<script data-note=">" id="vtt-session" type="application/json">{"token":"stale1"}</script>\n<script type='application/json' title='a > b' id=vtt-session>{"token":"stale2"}</script>\n</head>`,
+    );
+    const out = injectSession(stale, session);
+    expect(out).not.toContain("stale");
+    expect(out.match(/vtt-session/g)).toHaveLength(1);
+    expect(sessions(out)).toEqual([session]);
+  });
+
+  test("data-id and other look-alike attributes are not the id", () => {
+    const page = INDEX.replace(
+      "</head>",
+      `<script data-id="vtt-session" src="/ui-assets/app.js"></script>\n<script title='id="vtt-session"' src="/ui-assets/b.js"></script>\n<script id="other" data-x="id=vtt-session" src="/ui-assets/c.js"></script>\n</head>`,
+    );
+    const out = injectSession(page, session);
+    expect(out).toContain(`<script data-id="vtt-session" src="/ui-assets/app.js"></script>`);
+    expect(out).toContain(`<script title='id="vtt-session"' src="/ui-assets/b.js"></script>`);
+    expect(out).toContain(
+      `<script id="other" data-x="id=vtt-session" src="/ui-assets/c.js"></script>`,
+    );
+    expect(out.replace(/<script id="vtt-session"[\s\S]*?<\/script>/, "")).toBe(page);
+  });
+
+  test("a stale element's content is skipped as raw text, and a mixed-case closing tag ends it", () => {
+    const stale = INDEX.replace(
+      "</head>",
+      `<script ID="vtt-session">{"token":"<script id=\\"x\\">stale"}</SCRIPT\t>\n</head>`,
+    );
+    const out = injectSession(stale, session);
+    expect(out).not.toContain("stale");
+    expect(sessions(out)).toEqual([session]);
+  });
+
   test("escapes < so a token cannot close the element", () => {
     const token = "</script><script>alert(1)</script><!--";
     const out = injectSession(INDEX, { url: session.url, token });

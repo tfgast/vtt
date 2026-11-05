@@ -18,23 +18,105 @@ export interface SessionCredentials {
   token: string;
 }
 
-/** Matches every `<script … id="vtt-session" …>…</script>` element, any case or quoting. */
-const SESSION_ELEMENT_RE =
-  /<script\b[^>]*\bid\s*=\s*(?:"vtt-session"|'vtt-session'|vtt-session(?=[\s>]))[^>]*>[\s\S]*?<\/script\s*>/gi;
-
 /**
- * Returns `html` with every existing `vtt-session` element removed and
+ * Returns `html` with every existing `vtt-session` script element removed and
  * exactly one inserted before the first `</head>`. The JSON has `<` escaped
- * as `<`, so no token can close the element. Throws when `html` has no
- * `</head>`.
+ * as `\u003c`, so no token can close the element. Throws when `html` has no
+ * `</head>`. Only `<script>` elements with that id are replaced; another
+ * element carrying `id="vtt-session"` is left alone (the build has none,
+ * PROTOCOL.md §2).
  */
 export function injectSession(html: string, session: SessionCredentials): string {
   const json = JSON.stringify({ url: session.url, token: session.token }).replace(/</g, "\\u003c");
   const element = `<script id="vtt-session" type="application/json">${json}</script>`;
-  const stripped = html.replace(SESSION_ELEMENT_RE, "");
+  const stripped = stripSessionScripts(html);
   const at = stripped.search(/<\/head\s*>/i);
   if (at < 0) throw new Error("injectSession: the page has no </head> to insert the session into");
   return stripped.slice(0, at) + element + stripped.slice(at);
+}
+
+const SESSION_ID = "vtt-session";
+
+/** Whether `c` ends a tag name (`<script` must be followed by one of these to be a script tag). */
+function endsTagName(c: string | undefined): boolean {
+  return c === undefined || c === ">" || c === "/" || /\s/.test(c);
+}
+
+/**
+ * Removes every `<script>` element whose start tag has an attribute named
+ * exactly `id` (name case-insensitive, first occurrence wins as in HTML)
+ * with the value `vtt-session`, through its `</script>` (or the end of the
+ * page when unterminated). Start tags are scanned attribute by attribute,
+ * honouring double-quoted, single-quoted and unquoted values, so a `>` inside
+ * a quoted value does not end the tag and `data-id` is not `id`. Script
+ * contents are skipped as raw text.
+ */
+function stripSessionScripts(html: string): string {
+  const lower = html.toLowerCase();
+  let out = "";
+  let kept = 0;
+  let from = 0;
+  for (;;) {
+    let start = lower.indexOf("<script", from);
+    while (start >= 0 && !endsTagName(lower[start + 7]))
+      start = lower.indexOf("<script", start + 7);
+    if (start < 0) break;
+    const tag = scanStartTag(html, start + 7);
+    if (tag === null) break; // an unterminated start tag: nothing more to find
+    const end = scriptEnd(lower, tag.end);
+    if (tag.attrs.get("id") === SESSION_ID) {
+      out += html.slice(kept, start);
+      kept = end;
+    }
+    from = end;
+  }
+  return out + html.slice(kept);
+}
+
+/** The index just past the `</script…>` that closes a script whose content starts at `from`. */
+function scriptEnd(lower: string, from: number): number {
+  let close = lower.indexOf("</script", from);
+  while (close >= 0 && !endsTagName(lower[close + 8])) close = lower.indexOf("</script", close + 8);
+  if (close < 0) return lower.length;
+  const gt = lower.indexOf(">", close + 8);
+  return gt < 0 ? lower.length : gt + 1;
+}
+
+/**
+ * Scans a start tag's attributes from `i` (just after the tag name) to its
+ * closing `>`; null when the page ends first. Attribute names are lowercased.
+ */
+function scanStartTag(html: string, i: number): { end: number; attrs: Map<string, string> } | null {
+  const attrs = new Map<string, string>();
+  const n = html.length;
+  const isSpace = (c: string | undefined) => c !== undefined && /\s/.test(c);
+  for (;;) {
+    while (i < n && (isSpace(html[i]) || html[i] === "/")) i++;
+    if (i >= n) return null;
+    if (html[i] === ">") return { end: i + 1, attrs };
+    const nameStart = i;
+    i++; // the first character is part of the name even when it is `=`
+    while (i < n && !isSpace(html[i]) && html[i] !== "/" && html[i] !== ">" && html[i] !== "=") i++;
+    const name = html.slice(nameStart, i).toLowerCase();
+    while (i < n && isSpace(html[i])) i++;
+    let value = "";
+    if (html[i] === "=") {
+      i++;
+      while (i < n && isSpace(html[i])) i++;
+      const quote = html[i];
+      if (quote === '"' || quote === "'") {
+        const close = html.indexOf(quote, i + 1);
+        if (close < 0) return null;
+        value = html.slice(i + 1, close);
+        i = close + 1;
+      } else {
+        const valueStart = i;
+        while (i < n && !isSpace(html[i]) && html[i] !== ">") i++;
+        value = html.slice(valueStart, i);
+      }
+    }
+    if (!attrs.has(name)) attrs.set(name, value);
+  }
 }
 
 export interface UiHttpHandlerOptions {
