@@ -55,6 +55,20 @@ const CONTENT = by("type", { ...valueCases, formula: tagged("source") });
 const CELL = fields(["content", CONTENT], ["override", VALUE]);
 const ACTION = fields("name", "when", "steps");
 
+const FACE_STYLE = fields("size", "align", "caption");
+const CELL_ELEMENT = tagged("cell", "rect", "show_when", "min_size", ["style", FACE_STYLE]);
+const FACE_ELEMENT = by("type", {
+  value: CELL_ELEMENT,
+  editor: CELL_ELEMENT,
+  button: tagged("action", "rect", "label", "show_when", "min_size"),
+  contents: tagged("rect", "entries", "show_when", "min_size"),
+});
+const FACE = fields(
+  ["elements", arr(FACE_ELEMENT)],
+  ["collapsed", arr(FACE_ELEMENT)],
+  "default_action",
+);
+
 const OBJECT = fields(
   "id",
   "is_template",
@@ -67,6 +81,7 @@ const OBJECT = fields(
   ["cells", map(CELL)],
   ["cell_visibility", map(VALUE)],
   ["actions", arr(ACTION)],
+  ["face", FACE],
 );
 const BOARD = fields("id", "name");
 
@@ -85,8 +100,8 @@ const LOCATION = by("type", {
 });
 const subtree = tagged(["objects", arr(OBJECT)], ["location", LOCATION]);
 
-// `before`/`after` of a field effect: an action list, a shape, or a list or
-// boolean (no keys).
+// `before`/`after` of a field effect: an action list, a face, a shape, or a
+// list or boolean (no keys).
 const fieldEffect = (value: Layout) =>
   tagged("object", "field", ["before", value], ["after", value]);
 const OTHER_FIELD = fieldEffect(SHAPE);
@@ -96,6 +111,7 @@ const FIELD_EFFECT = by("field", {
   is_template: OTHER_FIELD,
   is_character: OTHER_FIELD,
   actions: fieldEffect(arr(ACTION)),
+  face: fieldEffect(FACE),
 });
 
 const EFFECT = by("type", {

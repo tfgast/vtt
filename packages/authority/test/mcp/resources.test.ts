@@ -38,12 +38,12 @@ describe("static resources (PROTOCOL.md §11)", () => {
     );
   });
 
-  test("vtt://schema/ops is the JSON Schema of WireOp with its 19 op kinds", async () => {
+  test("vtt://schema/ops is the JSON Schema of WireOp with its 20 op kinds", async () => {
     const h = await startHarness();
     const schema = JSON.parse(await h.read("vtt://schema/ops")) as Record<string, unknown>;
     const options = (schema.oneOf ?? schema.anyOf) as { properties: { type: { const: string } } }[];
     const kinds = options.map((o) => o.properties.type.const);
-    expect(kinds).toHaveLength(19);
+    expect(kinds).toHaveLength(20);
     expect([...kinds].sort()).toEqual([...WIRE_OP_TYPES].sort());
   });
 

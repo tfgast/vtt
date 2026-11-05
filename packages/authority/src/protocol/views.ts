@@ -16,6 +16,8 @@ import type {
   CellView,
   Cover,
   EffectView,
+  FaceLayoutElementView,
+  FaceLayoutView,
   GroupView,
   LocationView,
   ObjectSnapshotView,
@@ -31,6 +33,8 @@ import {
   type BoardId,
   type Cell,
   type Effect,
+  type FaceElement,
+  type FaceLayout,
   type Location,
   type ObjectId,
   type OpGroup,
@@ -66,9 +70,10 @@ export interface GroupViewOptions {
 /**
  * An effect as a viewer sees it: `view` null when dropped; `reduced` when it
  * is not kept unreduced (dropped, or a cell, snapshot object, value, ref or
- * id omitted, nulled or redacted). Omitting formula source, action `when`
- * and `steps`, and per-cell visibility metadata is how every character view
- * presents them, not a reduction. Always unreduced for the GM.
+ * id omitted, nulled or redacted; a face element omitted). Omitting formula
+ * source, action `when` and `steps`, face `show_when`, and per-cell
+ * visibility metadata is how every character view presents them, not a
+ * reduction. Always unreduced for the GM.
  */
 export interface FilteredEffect {
   view: EffectView | null;
@@ -457,6 +462,14 @@ export class ViewBuilder {
               before: e.before.map((a) => this.#action(a)),
               after: e.after.map((a) => this.#action(a)),
             };
+          case "face":
+            if (!gm && !this.canSeeObject(e.object)) return null;
+            return {
+              ...base(e),
+              field: "face",
+              before: e.before === null ? null : this.#face(e.object, e.before, track),
+              after: e.after === null ? null : this.#face(e.object, e.after, track),
+            };
         }
         return null;
       case "place":
@@ -572,6 +585,36 @@ export class ViewBuilder {
     if (track === null) {
       out.cell_visibility = clone<Record<string, WireViewers>>(o.cell_visibility);
     }
+    if (o.face !== undefined) out.face = this.#face(o.id, o.face, track);
+    return out;
+  }
+
+  /**
+   * A historical face (PROTOCOL.md §7.6, M5-D7): every element with its
+   * stored `index`. Lossless for the GM. For a character, `show_when` is
+   * withheld (as formula source is, not a reduction) and an element naming
+   * a cell it cannot read now is omitted (a reduction); the others keep
+   * their index. Never live state.
+   */
+  #face(object: ObjectId, face: DeepReadonly<FaceLayout>, track: Reduction | null): FaceLayoutView {
+    const list = (elements: readonly DeepReadonly<FaceElement>[]): FaceLayoutElementView[] => {
+      const out: FaceLayoutElementView[] = [];
+      elements.forEach((e, index) => {
+        if (track !== null && (e.type === "value" || e.type === "editor")) {
+          if (!this.canSeeCell(object, e.cell)) {
+            track.reduced = true;
+            return;
+          }
+        }
+        const element = { ...clone<FaceElement>(e), index };
+        if (track !== null) delete element.show_when;
+        out.push(element);
+      });
+      return out;
+    };
+    const out: FaceLayoutView = { elements: list(face.elements) };
+    if (face.collapsed !== undefined) out.collapsed = list(face.collapsed);
+    if (face.default_action !== undefined) out.default_action = face.default_action;
     return out;
   }
 

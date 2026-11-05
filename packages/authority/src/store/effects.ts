@@ -105,6 +105,11 @@ export function applyEffect(state: DocState, e: Effect): void {
     }
     case "field": {
       const o = state.require(e.object, "field");
+      // A face of null is no layout: the field is absent (M5-D7).
+      if (e.field === "face" && e.after === null) {
+        delete o.face;
+        return;
+      }
       // Each variant pairs a field with its own value type.
       (o as unknown as Record<string, unknown>)[e.field] = clone(e.after);
       return;
@@ -276,12 +281,14 @@ export function invertForUndo(e: Effect, state: DocState): Effect[] {
 
 /**
  * An undo conflict key: `cell:<object>/<cell>`, `actions:<object>` (the
- * object's action list), `obj:<object>` (every key on that object), or
- * `board:<board>`. Not a CellKey.
+ * object's action list), `face:<object>` (its face layout, M5-D7),
+ * `obj:<object>` (every key on that object), or `board:<board>`. Not a
+ * CellKey.
  */
 export type TouchedKey =
   | `cell:${ObjectId}/${string}`
   | `actions:${ObjectId}`
+  | `face:${ObjectId}`
   | `obj:${ObjectId}`
   | `board:${string}`;
 
@@ -298,7 +305,9 @@ export function touchedKeys(e: Effect): TouchedKey[] {
       case "cell_visibility":
         return [cellTouch(e.object, e.cell)];
       case "field":
-        return e.field === "actions" ? [`actions:${e.object}`] : [cellTouch(e.object, e.field)];
+        if (e.field === "actions") return [`actions:${e.object}`];
+        if (e.field === "face") return [`face:${e.object}`];
+        return [cellTouch(e.object, e.field)];
       case "place":
         return [
           cellTouch(e.object, "board"),
@@ -327,6 +336,7 @@ export function touchedKeys(e: Effect): TouchedKey[] {
 function keyObject(key: string): ObjectId | null {
   if (key.startsWith("obj:")) return key.slice(4);
   if (key.startsWith("actions:")) return key.slice(8);
+  if (key.startsWith("face:")) return key.slice(5);
   if (key.startsWith("cell:")) {
     const slash = key.indexOf("/");
     return slash < 0 ? null : key.slice(5, slash);
@@ -374,7 +384,7 @@ export function changedCells(e: Effect, _stateBefore: DocState): CellKey[] {
       case "cell":
         return [cellKey(e.object, e.cell)];
       case "field":
-        // is_template, is_character and actions are fields, not readable cells.
+        // is_template, is_character, actions and face are fields, not readable cells.
         return e.field === "tag" || e.field === "shape" ? [cellKey(e.object, e.field)] : [];
       case "place":
         return [

@@ -50,6 +50,7 @@ export type ObjectInit = Partial<
     | "cells"
     | "cell_visibility"
     | "actions"
+    | "face"
   >
 >;
 
@@ -62,6 +63,7 @@ const INIT_FIELDS: ReadonlySet<string> = new Set([
   "cells",
   "cell_visibility",
   "actions",
+  "face",
 ]);
 
 /** What `spawn` made: the root copy, and original → copy for the whole subtree. */

@@ -89,5 +89,6 @@ test("an empty builder builds an empty summary", () => {
     moved: [],
     changedCells: [],
     actionsChanged: [],
+    faceChanged: [],
   });
 });

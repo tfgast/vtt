@@ -3,6 +3,7 @@ export * from "./doc";
 export * from "./document-store";
 export * from "./edits";
 export * from "./effects";
+export * from "./face";
 export * from "./history";
 export * from "./replay";
 export * from "./structural";
