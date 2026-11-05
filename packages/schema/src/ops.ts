@@ -14,7 +14,7 @@ import {
   ViewersValueSchema,
 } from "./object";
 import { type Shape, ShapeSchema } from "./shape";
-import type { ErrorCode, ViewersValue } from "./values";
+import { ERROR_CODES, type ErrorCode, type ViewersValue } from "./values";
 
 /** Who made a change. The GM is not a character (DESIGN.md §4.4). */
 export type Actor =
@@ -161,7 +161,23 @@ export type Rejection =
   | { type: "nothing_to_undo" }
   | { type: "type_error"; object: ObjectId; cell: string; expected: string }
   /** Unknown object, bad index, retired id, and the like. */
-  | { type: "invalid"; message: string };
+  | { type: "invalid"; message: string }
+  /** The action's `when` guard is not `true` and not an error (FORMULAS.md §8.1, M5-D6). */
+  | { type: "when_false"; object: ObjectId; action: string }
+  /** The action's `when` guard is an error; `#SYNTAX` when it does not parse. */
+  | { type: "when_error"; object: ObjectId; action: string; code: ErrorCode; message?: string }
+  /**
+   * A step of the action failed: `step` is its 0-based index (an `each`'s inner
+   * failure reports the `each`'s); `code` is absent for a primitive's `invalid`.
+   */
+  | {
+      type: "step_error";
+      object: ObjectId;
+      action: string;
+      step: number;
+      code?: ErrorCode;
+      message: string;
+    };
 
 const Id = z.string();
 const Count = z.int().nonnegative();
@@ -283,13 +299,28 @@ export const RejectionSchema: z.ZodType<Rejection> = z.discriminatedUnion("type"
     expected: z.string(),
   }),
   z.strictObject({ type: z.literal("invalid"), message: z.string() }),
+  z.strictObject({ type: z.literal("when_false"), object: Id, action: z.string() }),
+  z.strictObject({
+    type: z.literal("when_error"),
+    object: Id,
+    action: z.string(),
+    code: z.enum(ERROR_CODES),
+    message: z.string().optional(),
+  }),
+  z.strictObject({
+    type: z.literal("step_error"),
+    object: Id,
+    action: z.string(),
+    step: Count,
+    code: z.enum(ERROR_CODES).optional(),
+    message: z.string(),
+  }),
 ]);
 
-/**
- * A rejection reason of the fixture format (FIXTURES.md §6). The action-level
- * reasons `when_false` and `when_error` arrive with M5.
- */
+/** A rejection reason of the fixture format (FIXTURES.md §6). */
 export type FixtureRejectionReason =
+  | { type: "when_false" }
+  | { type: "when_error"; code: ErrorCode }
   | { type: "protected_cell" }
   | { type: "containment_cycle" }
   | { type: "undo_conflict" }
@@ -311,5 +342,11 @@ export function toFixtureReason(r: Rejection): FixtureRejectionReason | null {
       return { type: "step_error", code: "#TYPE" };
     case "invalid":
       return null;
+    case "when_false":
+      return { type: "when_false" };
+    case "when_error":
+      return { type: "when_error", code: r.code };
+    case "step_error":
+      return r.code === undefined ? { type: "step_error" } : { type: "step_error", code: r.code };
   }
 }

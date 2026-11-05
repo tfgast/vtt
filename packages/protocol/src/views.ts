@@ -48,12 +48,19 @@ export const WireActorSchema: z.ZodType<Actor> = looseNoProto(
 // ---------------------------------------------------------------------------
 // Object views (§7.2)
 
-export const ActionViewSchema = looseObject({
+/**
+ * An action's definition (M5-D23): `name`, and for the GM `when` and `steps`.
+ * The type of object views' `actions`, `field: "actions"` effects and
+ * snapshots' `actions`; it never carries live state.
+ */
+export const ActionDefinitionViewSchema = looseObject({
   name: z.string(),
   when: z.string().optional(),
   steps: z.array(z.string()).optional(),
 });
-export type ActionView = z.infer<typeof ActionViewSchema>;
+export type ActionDefinitionView = z.infer<typeof ActionDefinitionViewSchema>;
+/** @deprecated Renamed `ActionDefinitionView` (PROTOCOL.md §7.2). */
+export type ActionView = ActionDefinitionView;
 
 export const CellViewSchema = looseObject({
   value: WireResultSchema,
@@ -69,7 +76,7 @@ export const ObjectViewSchema = looseObject({
   is_template: z.boolean(),
   is_character: z.boolean(),
   cells: looseRecord(z.string(), CellViewSchema),
-  actions: z.array(ActionViewSchema),
+  actions: z.array(ActionDefinitionViewSchema),
   /** GM views only (M4-D12): per-cell visibility entries for names not in `cells`. */
   absent_cell_visibility: looseRecord(z.string(), WireViewersSchema).optional(),
 });
@@ -139,7 +146,7 @@ export const ObjectSnapshotViewSchema = looseObject({
   contents: z.array(Id.nullable()).optional(),
   cells: looseRecord(z.string(), CellStateViewSchema),
   cell_visibility: looseRecord(z.string(), WireViewersSchema).optional(),
-  actions: z.array(ActionViewSchema),
+  actions: z.array(ActionDefinitionViewSchema),
 });
 export type ObjectSnapshotView = z.infer<typeof ObjectSnapshotViewSchema>;
 
@@ -181,7 +188,7 @@ export const EffectViewSchema = looseNoProto(
       fieldEffect("shape", WireShapeSchema.nullable()),
       fieldEffect("is_template", z.boolean()),
       fieldEffect("is_character", z.boolean()),
-      fieldEffect("actions", z.array(ActionViewSchema)),
+      fieldEffect("actions", z.array(ActionDefinitionViewSchema)),
     ]),
     z.object({
       type: z.literal("place"),

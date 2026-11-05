@@ -107,7 +107,7 @@ describe("advertised action limits (M5-D5)", () => {
   test("a welcome carrying LIMITS round-trips through parseServerMessage", () => {
     const parsed = parseServerMessage(JSON.stringify(welcome));
     expect(parsed).toEqual({ ok: true, message: welcome, warnings: [] });
-    if (!parsed.ok || parsed.message.type !== "welcome") throw new Error("not a welcome");
+    if (parsed.ok !== true || parsed.message.type !== "welcome") throw new Error("not a welcome");
     expect(parsed.message.limits.max_each_items).toBe(1000);
     expect(parsed.message.limits.max_action_writes).toBe(10000);
     expect(parsed.message.limits.max_face_elements).toBe(200);

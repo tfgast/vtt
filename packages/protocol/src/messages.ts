@@ -140,6 +140,9 @@ const LimitsSchema = looseObject({
   max_txn_ids_per_client: z.literal(LIMITS.max_txn_ids_per_client),
   max_requests_per_second: z.literal(LIMITS.max_requests_per_second),
   max_buffered_bytes: z.literal(LIMITS.max_buffered_bytes),
+  max_each_items: z.literal(LIMITS.max_each_items),
+  max_action_writes: z.literal(LIMITS.max_action_writes),
+  max_face_elements: z.literal(LIMITS.max_face_elements),
 });
 
 export const WelcomeSchema = looseObject({

@@ -36,6 +36,14 @@ export function describeRejection(r: ProtocolRejection, refLabel: RefLabel): str
       return r.actual === null
         ? `Not undone: there is no edit left to undo, not #${r.expected}.`
         : `Not undone: the latest edit is now #${r.actual}, not #${r.expected}.`;
+    case "when_false":
+      return `${r.action}: its condition is false.`;
+    case "when_error":
+      return `${r.action}: its condition is an error (${withMessage(r.code, r.message)}).`;
+    case "step_error": {
+      const detail = r.code === undefined ? stripPeriod(r.message) : withMessage(r.code, r.message);
+      return `${r.action}: step ${r.step + 1} failed${detail ? ` (${detail})` : ""}.`;
+    }
   }
 }
 
@@ -71,6 +79,12 @@ export function describeError(e: ProtocolError): string {
   const base = ERROR_SENTENCES[e.code] ?? "The request failed";
   const message = stripPeriod(e.message ?? "").trim();
   return message ? `${base} (${message}).` : `${base}.`;
+}
+
+/** `#CODE` or `#CODE: message`, the message without its final period. */
+function withMessage(code: string, message: string | undefined): string {
+  const m = stripPeriod(message ?? "").trim();
+  return m ? `${code}: ${m}` : code;
 }
 
 function stripPeriod(s: string): string {
