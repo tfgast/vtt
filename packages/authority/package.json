@@ -11,5 +11,8 @@
   "dependencies": {
     "@vtt/formula": "workspace:*",
     "@vtt/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@vtt/fixtures": "workspace:*"
   }
 }

@@ -29,6 +29,10 @@ importers:
       '@vtt/schema':
         specifier: workspace:*
         version: link:../schema
+    devDependencies:
+      '@vtt/fixtures':
+        specifier: workspace:*
+        version: link:../fixtures
 
   packages/fixtures:
     dependencies:
