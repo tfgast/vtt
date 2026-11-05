@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "pnpm -r --parallel typecheck",
+    "typecheck": "tsc --noEmit -p . && pnpm -r --parallel typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
     "format:check": "biome format ."
