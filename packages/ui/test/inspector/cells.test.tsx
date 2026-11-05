@@ -6,7 +6,8 @@
  */
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CellView, ObjectId, WireOp } from "@vtt/protocol";
+import type { CellView, WireOp } from "@vtt/protocol";
+import type { ObjectId } from "@vtt/schema";
 import {
   type CellAddress,
   CellList,
@@ -562,7 +563,7 @@ describe("structural rows", () => {
     const editor = await openEditor(user, "position");
     expect(editor.value).toBe("[2, 0]");
     await user.clear(editor);
-    await user.type(editor, "[3, 4]{Enter}");
+    await user.type(editor, "[[3, 4]{Enter}");
     await until(() => shown("position").textContent === "[3, 4]", "the new position");
     expect(transacts()[0]?.ops).toEqual([
       {
@@ -658,6 +659,8 @@ describe("add, rename, delete", () => {
     await user.click(screen.getByRole("button", { name: "Add cell" }));
     await until(() => hasRow("Max HP"), "the Max HP row");
     const editor = await openEditor(user, "Max HP");
+    expect(editor.value).toBe("empty");
+    await user.clear(editor);
     await user.type(editor, "20{Enter}");
     await until(() => shown("Max HP").textContent === "20", "Max HP = 20");
 

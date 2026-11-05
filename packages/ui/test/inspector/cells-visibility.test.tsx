@@ -7,7 +7,8 @@
  */
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CellView, ObjectId, WireOp } from "@vtt/protocol";
+import type { CellView, WireOp } from "@vtt/protocol";
+import type { ObjectId } from "@vtt/schema";
 import { CellList, createUiStore, TableProvider, type TableSession, useSession } from "@vtt/ui";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanupAuthorities, startAuthority, until, whenReady } from "../support/authority";
@@ -350,4 +351,21 @@ describe("read-only", () => {
     await user.dblClick(row("hp").querySelector('[data-part="value"]') as HTMLElement);
     expect(document.querySelectorAll("input, textarea")).toHaveLength(0);
   });
+});
+
+test("switching to view-as closes an open value editor without writing", async () => {
+  const user = userEvent.setup();
+  const { session, transacts } = await setup();
+  await user.dblClick(row("hp").querySelector('[data-part="value"]') as HTMLElement);
+  const editor = within(row("hp")).getByRole("textbox", { name: "Value of hp" });
+  await user.clear(editor);
+  await user.type(editor, "4");
+  await act(() =>
+    session.setView(session.getSnapshot().activeBoard, { type: "character", id: "aldric" }),
+  );
+  await until(() => document.querySelectorAll("input").length === 0, "the read-only list");
+  await act(() => session.setView(session.getSnapshot().activeBoard, { type: "gm" }));
+  await until(() => screen.queryByRole("button", { name: "Add cell" }) !== null, "the GM list");
+  expect(within(row("hp")).queryByRole("textbox")).toBeNull();
+  expect(transacts()).toEqual([]);
 });
