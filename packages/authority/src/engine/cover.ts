@@ -1,0 +1,175 @@
+/**
+ * The opaque-cover query (DESIGN.md §4.4, cover and fail closed; FORMULAS.md
+ * §6): which zones cover an object's anchor, for `Visibility`.
+ *
+ * For the object's board (or its outermost container's), the zones
+ * considered are every `is_zone` candidate of the spatial index for the
+ * anchor's point box (which already includes every object with formula
+ * geometry), every zone on the board whose `opaque` holds a formula, and,
+ * defensively, every zone the index could not place by literal geometry.
+ * Each zone's `is_zone`, `opaque`, `position`, `rotation` and `shape` are
+ * read through the reader (the engine). A zone whose reads are all valid,
+ * with `opaque` true and the anchor in its region (`pointInRegion`), is
+ * `covering`; a zone with any read that is an error or of the wrong type is
+ * `undetermined` (fail closed). A zone never covers itself.
+ *
+ * When the object's own anchor cannot be read as two finite numbers, every
+ * zone on the board that might be opaque (valid reads with `opaque` true, or
+ * any invalid read) is `undetermined`.
+ */
+import { type ObjectId, type Point, pointInRegion, type Result, type Shape } from "@vtt/schema";
+import type { SpatialIndex } from "../spatial/index";
+import type { DocView } from "../store/document-store";
+import type { CoverOracle, CoverResult, VisibilityReader } from "../visibility";
+
+/** What the cover query reads from the store's committed document. */
+export type CoverSource = Pick<
+  DocView,
+  "revision" | "getObject" | "getCell" | "boardOf" | "containerOf"
+>;
+
+/** A zone's evaluated geometry, or "invalid" when any read failed. */
+type ZoneRead =
+  | { opaque: boolean; anchor: Point; rotation: number; shape: Shape | null }
+  | "invalid";
+
+/** The anchor, if `r` is a list of two finite numbers. */
+function anchorOf(r: Result): Point | undefined {
+  if (r.type !== "list" || r.items.length !== 2) return undefined;
+  const [x, y] = r.items;
+  if (x?.type !== "number" || y?.type !== "number") return undefined;
+  if (!Number.isFinite(x.value) || !Number.isFinite(y.value)) return undefined;
+  return [x.value, y.value];
+}
+
+/** A rotation as the evaluator reads it: a number, empty as 0, a roll as its total. */
+function rotationOf(r: Result): number | undefined {
+  const n =
+    r.type === "number"
+      ? r.value
+      : r.type === "empty"
+        ? 0
+        : r.type === "roll"
+          ? r.total
+          : undefined;
+  return n !== undefined && Number.isFinite(n) ? n : undefined;
+}
+
+export class EngineCover implements CoverOracle {
+  readonly #doc: CoverSource;
+  readonly #index: Pick<SpatialIndex, "candidates" | "objectsOnBoard">;
+  readonly #reader: VisibilityReader;
+  /** Per board, at one revision: zones always considered whatever the anchor. */
+  #always: { revision: number; byBoard: Map<ObjectId, ObjectId[]> } = {
+    revision: -1,
+    byBoard: new Map(),
+  };
+
+  constructor(
+    doc: CoverSource,
+    index: Pick<SpatialIndex, "candidates" | "objectsOnBoard">,
+    reader: VisibilityReader,
+  ) {
+    this.#doc = doc;
+    this.#index = index;
+    this.#reader = reader;
+  }
+
+  opaqueZonesCovering(obj: ObjectId): CoverResult {
+    const out: CoverResult = { covering: [], undetermined: [] };
+    const root = this.#root(obj);
+    const board = root === null ? null : this.#doc.boardOf(root);
+    if (root === null || board === null) return out;
+    const anchor = anchorOf(this.#reader.value(root, "position"));
+    const considered = new Set<ObjectId>(
+      anchor === undefined
+        ? this.#zonesOn(board)
+        : [
+            ...this.#index
+              .candidates(board, {
+                minX: anchor[0],
+                minY: anchor[1],
+                maxX: anchor[0],
+                maxY: anchor[1],
+              })
+              .filter((id) => this.#doc.getObject(id)?.is_zone === true),
+            ...this.#alwaysConsidered(board),
+          ],
+    );
+    considered.delete(root);
+    for (const zone of considered) {
+      const z = this.#readZone(zone);
+      if (z === "invalid") {
+        out.undetermined.push(zone);
+        continue;
+      }
+      // A shapeless zone has no region and covers nothing.
+      if (!z.opaque || z.shape === null) continue;
+      if (anchor === undefined) out.undetermined.push(zone);
+      else if (pointInRegion(anchor, z.shape, z.anchor, z.rotation)) out.covering.push(zone);
+    }
+    return out;
+  }
+
+  /** `obj` if on a board, else its outermost container; null on a containment cycle. */
+  #root(obj: ObjectId): ObjectId | null {
+    const seen = new Set<ObjectId>();
+    let o = obj;
+    for (;;) {
+      if (this.#doc.boardOf(o) !== null) return o;
+      const parent = this.#doc.containerOf(o);
+      if (parent === null) return o;
+      if (seen.has(o)) return null;
+      seen.add(o);
+      o = parent;
+    }
+  }
+
+  /** Every zone placed directly on `board` (`is_zone` is a field, never a formula). */
+  #zonesOn(board: ObjectId): ObjectId[] {
+    return this.#index
+      .objectsOnBoard(board)
+      .filter((id) => this.#doc.getObject(id)?.is_zone === true);
+  }
+
+  /**
+   * Zones on `board` considered whatever the anchor: those whose `opaque`
+   * holds a formula, and those whose literal position the index cannot
+   * place. Cached for the current revision.
+   */
+  #alwaysConsidered(board: ObjectId): ObjectId[] {
+    if (this.#always.revision !== this.#doc.revision) {
+      this.#always = { revision: this.#doc.revision, byBoard: new Map() };
+    }
+    let ids = this.#always.byBoard.get(board);
+    if (ids === undefined) {
+      ids = this.#zonesOn(board).filter((id) => {
+        const opaque = this.#doc.getCell(id, "opaque");
+        if (opaque?.content.type === "formula") return true;
+        const p = this.#doc.getCell(id, "position");
+        return p === undefined || anchorOf((p.override ?? p.content) as Result) === undefined;
+      });
+      this.#always.byBoard.set(board, ids);
+    }
+    return ids;
+  }
+
+  /** Reads a zone through the reader; "invalid" when any read is an error or the wrong type. */
+  #readZone(zone: ObjectId): ZoneRead {
+    const read = (cell: string) => this.#reader.value(zone, cell);
+    const isZone = read("is_zone");
+    const opaque = read("opaque");
+    const anchor = anchorOf(read("position"));
+    const rotation = rotationOf(read("rotation"));
+    const shape = read("shape");
+    if (isZone.type !== "boolean" || opaque.type !== "boolean") return "invalid";
+    if (anchor === undefined || rotation === undefined) return "invalid";
+    if (shape.type !== "shape" && shape.type !== "empty") return "invalid";
+    return {
+      opaque: isZone.value && opaque.value,
+      anchor,
+      rotation,
+      shape: shape.type === "shape" ? shape.shape : null,
+    };
+  }
+}

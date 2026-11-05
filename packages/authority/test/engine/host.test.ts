@@ -1,12 +1,17 @@
 /** DocumentHost (vtt-75c.12): the EvalHost over the store and the spatial index. */
+
 import { DocumentHost, DocumentStore, move, SpatialIndex, writeValue } from "@vtt/authority";
+import type { EvalHost } from "@vtt/formula";
 import {
   type Bounds,
   bool,
+  boundsIntersect,
   EMPTY,
+  indexBounds,
   list,
   num,
   type ObjectId,
+  type Point,
   ref,
   type Shape,
   shape,
@@ -14,7 +19,6 @@ import {
   text,
 } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
-import { literalCandidates } from "../../../formula/test/support/memory-host";
 import { at, c, commit, f, obj, placed, snapshot, zone } from "./helpers";
 
 function hostOver(objects: TableObject[], boards?: string[]) {
@@ -91,6 +95,39 @@ test("objectsNamed follows a name rewrite", () => {
   expect(host.objectsNamed("Goblin")).toEqual([]);
   expect(host.objectsNamed("Orc")).toEqual(["g"]);
 });
+
+/**
+ * vtt-o9i.15's `literalCandidates` (packages/formula/test/support/memory-host.ts),
+ * restated over any EvalHost: that module cannot be imported here, since it
+ * pulls in @vtt/fixtures' Node-only sources. Objects on `board` whose literal
+ * indexBounds meet `near`, plus those with a formula-valued geometry cell;
+ * `host.cell` returns an override as its literal.
+ */
+function literalCandidates(host: EvalHost, board: ObjectId, near: Bounds): ObjectId[] {
+  const out: ObjectId[] = [];
+  for (const id of host.allObjects()) {
+    const b = host.cell(id, "board");
+    if (b?.type !== "ref" || b.object !== board) continue;
+    const geometry = (["position", "rotation", "z", "shape"] as const).map((n) => host.cell(id, n));
+    if (geometry.some((g) => g?.type === "formula")) {
+      out.push(id);
+      continue;
+    }
+    const [position, rotation, , shapeCell] = geometry;
+    if (
+      position?.type !== "list" ||
+      position.items.length !== 2 ||
+      !position.items.every((i) => i.type === "number" && Number.isFinite(i.value))
+    ) {
+      continue;
+    }
+    const anchor = position.items.map((i) => (i as { value: number }).value) as Point;
+    const deg = rotation?.type === "number" && Number.isFinite(rotation.value) ? rotation.value : 0;
+    const s = shapeCell?.type === "shape" ? shapeCell.shape : null;
+    if (boundsIntersect(indexBounds(s, anchor, deg), near)) out.push(id);
+  }
+  return out;
+}
 
 /** A deterministic PRNG (mulberry32). */
 function rng(seed: number): () => number {

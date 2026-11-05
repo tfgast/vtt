@@ -203,9 +203,7 @@ describe("structure, names and references", () => {
   });
 
   test("shape reads as a ShapeValue", () => {
-    const table = Table.fromSnapshot(
-      snapshot([zone("room", 0, 0, 4), placed("pawn", 1, 1), obj("loose", { board: "table" })]),
-    );
+    const table = Table.fromSnapshot(snapshot([zone("room", 0, 0, 4), placed("pawn", 1, 1)]));
     expect(table.value("room", "shape")).toEqual(shape({ type: "rect", width: 4, height: 4 }));
     expect(table.value("pawn", "shape")).toEqual({ type: "empty" });
     expect(table.value("room", "is_zone")).toEqual(bool(true));
