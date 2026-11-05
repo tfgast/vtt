@@ -542,6 +542,27 @@ describe("dropTargetAt", () => {
     });
   });
 
+  test("the topmost object under the point decides; a dragged one is transparent", () => {
+    const binder = mk("binder", { at: [0, 0], z: 0, contents: ["a", "b"] });
+    const a = mk("a", { shape: rect(2, 3), container: "binder" });
+    const b = mk("b", { shape: rect(2, 3), container: "binder" });
+    const token = mk("token", { shape: circle(0.5), at: [2, 1], z: 5 });
+    const s = scene([binder, a, b, token]);
+    // The token lies over row a.
+    expect(dropTargetAt(s, [2, 1], CAMERA, ["x"])).toEqual({ kind: "board" });
+    expect(dropTargetAt(s, [2, 0.8], CAMERA, ["token"])).toMatchObject({
+      kind: "contents",
+      container: "binder",
+      index: 0,
+    });
+    // A dragged entry over its own row: its container's list.
+    expect(dropTargetAt(s, [-2, 0.8], CAMERA, ["a"])).toMatchObject({
+      kind: "contents",
+      container: "binder",
+      index: 0,
+    });
+  });
+
   test("elsewhere: the board; a dragged container is not a target", () => {
     const s = make();
     expect(dropTargetAt(s, [100, 100], CAMERA, ["goblin"])).toEqual({ kind: "board" });
