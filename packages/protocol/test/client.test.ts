@@ -10,6 +10,7 @@ import {
   type SocketClosedInfo,
   type SubscribeResult,
   type Subscription,
+  type WebSocketConstructor,
 } from "@vtt/protocol";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { commit, delta, FakeServer, flush, obj, subscribeResult } from "./support/fake-server";
@@ -529,6 +530,18 @@ describe("close", () => {
   });
 });
 
+describe("close during connect", () => {
+  test("close() while connecting rejects connect with disconnected", async () => {
+    const { server, client } = setup();
+    const pending = client.connect();
+    client.close();
+    expect((await failure(pending)).code).toBe("disconnected");
+    expect(client.state).toBe("closed");
+    await flush();
+    expect(server.peer.closedByClient?.code).toBe(1000);
+  });
+});
+
 describe("recovery seam", () => {
   test("requestDuringRecovery works in state recovering while request rejects", async () => {
     const { server, client } = await connected();
@@ -608,7 +621,9 @@ describe("recovery seam", () => {
     server.peer.drop();
     server.token = "rotated";
     expect((await failure(client.reopen())).code).toBe("unauthorized");
-    expect(client.connectionError()?.code).toBe("unauthorized");
+    // A failed attempt leaves state and connection error to the caller (recovery).
+    expect(client.connectionError()?.code).toBe("disconnected");
+    expect(client.state).toBe("idle");
     server.accepting = false;
     expect((await failure(client.reopen())).code).toBe("disconnected");
   });
@@ -690,6 +705,15 @@ describe("recovery seam", () => {
     expect(a.mirror.revision).toBe(0);
   });
 
+  test("setState('closed') closes the client and keeps the connection error", async () => {
+    const { server, client } = await connected();
+    client.setConnectionError({ code: "wrong_table", message: "another table" });
+    client.setState("closed");
+    expect(client.state).toBe("closed");
+    expect(client.connectionError()).toEqual({ code: "wrong_table", message: "another table" });
+    expect(server.peer.closedByClient?.code).toBe(1000);
+  });
+
   test("setState emits state; setConnectionError emits state with the current state", async () => {
     const { client } = await connected();
     const states: ClientState[] = [];
@@ -702,6 +726,11 @@ describe("recovery seam", () => {
 });
 
 describe("browser safety", () => {
+  test("the platform WebSocket fits the WebSocket option", () => {
+    const platform: WebSocketConstructor = WebSocket;
+    expect(typeof platform).toBe("function");
+  });
+
   test("client.ts and mirror.ts import no node: modules", () => {
     for (const file of ["client.ts", "mirror.ts"]) {
       const text = readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
