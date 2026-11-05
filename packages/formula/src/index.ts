@@ -1,5 +1,6 @@
 export const PACKAGE = "@vtt/formula";
 
+export * from "./actions/step-parser";
 export * from "./dice/index";
 export * from "./engine/adhoc";
 export * from "./engine/budget";
