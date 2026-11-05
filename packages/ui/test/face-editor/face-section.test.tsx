@@ -338,6 +338,51 @@ describe("commands", () => {
 });
 
 describe("view-as", () => {
+  test("a pending draft writes nothing after switching to Aldric (Enter or blur)", async () => {
+    const user = userEvent.setup();
+    const { session, transacts } = await setup();
+    const x = within(element(2)).getByRole("textbox", { name: "x" });
+    await user.click(x);
+    await user.clear(x);
+    await user.type(x, "0.5");
+    await act(() =>
+      session.setView(session.getSnapshot().activeBoard, { type: "character", id: "aldric" }),
+    );
+    await until(() => session.getSnapshot().viewer.type === "character", "view-as");
+    await user.keyboard("{Enter}");
+    await user.click(document.body);
+    // The draft is gone: the field shows the face's value again.
+    await until(
+      () =>
+        (within(element(2)).getByRole("textbox", { name: "x" }) as HTMLInputElement).value === "-2",
+      "the reverted field",
+    );
+    const after = within(element(2)).getByRole("textbox", { name: "x" });
+    await user.click(after);
+    await user.type(after, "7{Enter}");
+    await user.click(document.body);
+    // Back as the GM: the face is unchanged and nothing was sent.
+    await act(() => session.setView(session.getSnapshot().activeBoard, { type: "gm" }));
+    await until(() => session.getSnapshot().viewer.type === "gm", "the GM view");
+    await until(() => faceOf(session) !== null && faceOf(session) !== undefined, "the GM face");
+    expect(transacts()).toHaveLength(0);
+    expect(faceOf(session)).toEqual(FACE);
+  });
+
+  test("a pending draft is dropped when the selection changes", async () => {
+    const user = userEvent.setup();
+    const { session, ui, transacts } = await setup();
+    const x = within(element(2)).getByRole("textbox", { name: "x" });
+    await user.click(x);
+    await user.clear(x);
+    await user.type(x, "0.5");
+    act(() => ui.select(["bare"]));
+    await user.keyboard("{Enter}");
+    await user.click(document.body);
+    expect(transacts()).toHaveLength(0);
+    expect(faceOf(session)).toEqual(FACE);
+  });
+
   test("the section is read-only as Aldric", async () => {
     const { session, transacts } = await setup();
     await act(() =>
