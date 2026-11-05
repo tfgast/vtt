@@ -17,6 +17,7 @@ import {
   createRuntimeInputs,
   createToolContext,
   createUiStore,
+  ImageCache,
   type InteractionEvent,
   type InteractionRuntime,
   type Modifiers,
@@ -76,7 +77,7 @@ const selectStub: Tool<null, "select"> = {
 
 /** A gate the injected upload waits on, so a test can act during an upload. */
 function gate() {
-  let open = () => undefined as void;
+  let open: () => void = () => {};
   const promise = new Promise<void>((resolve) => {
     open = resolve;
   });
@@ -286,7 +287,9 @@ describe("zone tools", () => {
         toolOverlays={[]}
         camera={{ x: 0, y: 0, zoom: 1 }}
         setViewport={c.ui.setViewport}
-        createRenderer={() => createCanvas2DRenderer(ctx)}
+        createRenderer={() =>
+          createCanvas2DRenderer(ctx, { images: new ImageCache({ resolve: (p) => p }) })
+        }
         onEvent={(e) => c.runtime.dispatch(e)}
       />,
     );

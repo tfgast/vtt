@@ -110,18 +110,16 @@ function settled(interactionId: string, outcome: SettledOutcome): InteractionEve
  * Drives a tool through `events`, giving event n the interaction id `i<n>`
  * (from 1), and collects every effect. `input` may vary per event.
  */
-// biome-ignore lint/suspicious/noExplicitAny: any tool's phase
-function drive<K extends ToolId>(
-  tool: Tool<any, K>,
+function drive<TPhase, K extends ToolId>(
+  tool: Tool<TPhase, K>,
   events: (InteractionEvent | { cancel: CancelReason })[],
   options: {
-    state?: ToolState<unknown, K>;
+    state?: ToolState<TPhase, K>;
     input?: (n: number) => Partial<ReducerInput>;
     first?: number;
   } = {},
 ) {
-  // biome-ignore lint/suspicious/noExplicitAny: any tool's phase
-  let state: ToolState<any, K> = options.state ?? tool.init(defaultOptions(tool.id));
+  let state: ToolState<TPhase, K> = options.state ?? tool.init(defaultOptions(tool.id));
   const effects: Effect[] = [];
   const perEvent: Effect[][] = [];
   let n = options.first ?? 1;
@@ -894,10 +892,11 @@ describe("image", () => {
       { state: a.state, first: 3 },
     );
     const [w2, w1] = writes(b.effects);
-    expect(w2?.stamp).toEqual(stampAt(2, { board: "crypt" }));
-    expect(w1?.stamp).toEqual(stampAt(1));
-    expect((w2?.ops[0] as CreateOp).init?.cells?.name).toEqual({ type: "text", value: "two" });
-    expect((w1?.ops[0] as CreateOp).to).toEqual({ type: "board", board: "main", position: [1, 1] });
+    if (w1 === undefined || w2 === undefined) throw new Error("two writes expected");
+    expect(w2.stamp).toEqual(stampAt(2, { board: "crypt" }));
+    expect(w1.stamp).toEqual(stampAt(1));
+    expect((w2.ops[0] as CreateOp).init?.cells?.name).toEqual({ type: "text", value: "two" });
+    expect((w1.ops[0] as CreateOp).to).toEqual({ type: "board", board: "main", position: [1, 1] });
   });
 
   test("an unmeasurable image is a notice and no write", () => {

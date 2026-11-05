@@ -5,6 +5,7 @@ export * from "./inspector/CellList";
 export * from "./inspector/CellRow";
 export * from "./inspector/ViewersPicker";
 export * from "./interaction/contracts";
+export * from "./interaction/create-tools";
 export * from "./interaction/effects";
 export * from "./interaction/events";
 export * from "./interaction/machine";
