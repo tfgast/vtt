@@ -42,6 +42,10 @@ import {
 } from "@vtt/ui";
 import { useMemo, useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+// Each case drives several authority round trips through jsdom; slow on loaded CI runners (vtt-qf5.9).
+vi.setConfig({ testTimeout: 30_000 });
+
 import { cleanupAuthorities, startAuthority, until, whenReady } from "../support/authority";
 
 const RECT = { left: 0, top: 0, width: 800, height: 600 };
