@@ -656,9 +656,11 @@ describe("withHandles(selectTool)", () => {
     const held = of(released, "previews")[0];
     expect(held?.hold?.stamp).toBe(write.stamp);
     expect(held?.previews.get("u")).toEqual({ ...pending, rotation: 90 });
-    // The handles show both: the se corner of a 3 × 3 square turned a quarter about (6.5, -3.5).
-    const se = () => lastHandles(released)?.handles.find((m) => m.key === "se")?.at as Point;
-    closePoint(se(), [5, -2]);
+    // The handles show both: the se corner of a 3 × 3 square turned a quarter about (6.5, -3.5)
+    // (emitted during the drag; the release changes nothing).
+    expect(of(released, "overlays")).toEqual([]);
+    const shown = lastHandles(moving)?.handles.find((m) => m.key === "se")?.at as Point;
+    closePoint(shown, [5, -2]);
     // The resize settles first; until revision 8 is seen nothing changes.
     d.send({
       type: "settled",
@@ -676,13 +678,12 @@ describe("withHandles(selectTool)", () => {
       },
     });
     expect(of(d.send(pointer("pointer_move", [20, 20])), "overlays")).toEqual([]);
-    // A rejected rotation drops only its own geometry.
-    d.send({
+    // A failed rotation drops only its own geometry: the handles go back to the pending resize.
+    const after = d.send({
       type: "settled",
       interactionId: write.stamp.interactionId,
       outcome: { type: "write", result: { status: "uncertain", reason: "lost" } },
     });
-    const after = d.send(pointer("pointer_move", [20, 21]));
     closePoint(lastHandles(after)?.handles.find((m) => m.key === "se")?.at as Point, [8, -2]);
   });
 

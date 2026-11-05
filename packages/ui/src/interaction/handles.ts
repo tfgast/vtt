@@ -233,9 +233,12 @@ export function handleMarks(handles: readonly Handle[]): HandleMark[] {
 
 /**
  * The geometry after dragging `handle` of `target` from board point `grab`
- * to `point` (`snap`: Shift held, for the rotate handle). Only what changes
- * is set: `shape` and `position` for a rect, `shape` for a circle or a
- * polygon (not validated here), `rotation` for the rotate handle.
+ * to `point` (`snap`: Shift held, for the rotate handle). The pointer's
+ * displacement moves the handle from where it was, so the offset between the
+ * press and the handle's center changes nothing (a press without movement is
+ * the original geometry). Only what changes is set: `shape` and `position`
+ * for a rect, `shape` for a circle or a polygon (not validated here),
+ * `rotation` for the rotate handle (the angle swept about the anchor).
  */
 export function dragHandle(
   target: HandleTarget,
@@ -253,11 +256,13 @@ export function dragHandle(
     return { rotation: tidy(normalizeDeg(deg)) };
   }
   if (shape === null) return {};
+  // Where the handle's center is dragged to.
+  const moved = add(handle.at, sub(point, grab));
   if (grip.type === "resize" && shape.type === "rect") {
     const { sx, sy } = grip;
     // The fixed point: the opposite corner, or the middle of the opposite edge.
     const fixed = add(anchor, turn([(-sx * shape.width) / 2, (-sy * shape.height) / 2], r));
-    const d = unturn(sub(point, fixed), r);
+    const d = unturn(sub(moved, fixed), r);
     const width = sx === 0 ? shape.width : Math.max(HANDLE_MIN_SIZE, tidy(sx * d[0]));
     const height = sy === 0 ? shape.height : Math.max(HANDLE_MIN_SIZE, tidy(sy * d[1]));
     const position = add(fixed, turn([(sx * width) / 2, (sy * height) / 2], r));
@@ -266,12 +271,12 @@ export function dragHandle(
   if (grip.type === "radius" && shape.type === "circle") {
     const radius = Math.max(
       HANDLE_MIN_SIZE,
-      tidy(Math.hypot(point[0] - anchor[0], point[1] - anchor[1])),
+      tidy(Math.hypot(moved[0] - anchor[0], moved[1] - anchor[1])),
     );
     return { shape: { type: "circle", radius } };
   }
   if (grip.type === "vertex" && shape.type === "polygon") {
-    const local = tidyPoint(unturn(sub(point, anchor), r));
+    const local = tidyPoint(unturn(sub(moved, anchor), r));
     const points = shape.points.map((p, i): Point => (i === grip.index ? local : [p[0], p[1]]));
     return { shape: { type: "polygon", points } };
   }
@@ -299,11 +304,14 @@ export interface HandleDrag {
   viewport: ViewportSize;
 }
 
-/** A handle write's geometry, shown until the client has seen the write. */
-export interface HeldHandles {
+/**
+ * A handle write not yet visible: its own change (`delta`, exactly what it
+ * writes), shown on top of the scene until the client has seen the write.
+ */
+export interface PendingEdit {
   stamp: InteractionStamp;
   object: ObjectId;
-  preview: ScenePreview;
+  delta: ScenePreview;
   /** The committed revision, once settled. */
   revision: number | null;
 }
@@ -318,7 +326,12 @@ export interface HandlesPhase<TPhase> {
   /** The wrapped tool's phase. */
   inner: TPhase;
   drag: HandleDrag | null;
-  held: HeldHandles | null;
+  /**
+   * Handle writes not yet visible, oldest first. Their deltas compose, so a
+   * rotation started before a resize is visible keeps the pending size; each
+   * entry goes when its write fails or the client has seen its revision.
+   */
+  pending: PendingEdit[];
   /** The primary pointer down that went to the wrapped tool and is not up yet. */
   innerPointer: number | null;
   /** The wrapped tool's overlays, as last emitted. */
@@ -386,18 +399,33 @@ function sameShown(a: ShownHandles | null, b: ShownHandles | null): boolean {
   return a.object === b.object && sameMarks(a.handles, b.handles);
 }
 
+/** Equal within 1e-9 (the rounding `tidy` applies). */
+const near = (a: number, b: number) => Math.abs(a - b) <= 1e-9;
+
 function sameShape(a: Shape, b: Shape): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  if (a.type === "rect" && b.type === "rect") {
+    return near(a.width, b.width) && near(a.height, b.height);
+  }
+  if (a.type === "circle" && b.type === "circle") return near(a.radius, b.radius);
+  if (a.type === "polygon" && b.type === "polygon") {
+    return (
+      a.points.length === b.points.length &&
+      a.points.every(
+        (p, i) => near(p[0], (b.points[i] as Point)[0]) && near(p[1], (b.points[i] as Point)[1]),
+      )
+    );
+  }
+  return false;
 }
 
 /** Whether `preview` changes nothing of `target`. */
 function unchanged(target: HandleTarget, preview: ScenePreview): boolean {
-  if (preview.rotation !== undefined && preview.rotation !== normalizeDeg(target.rotation)) {
+  if (preview.rotation !== undefined && !near(preview.rotation, normalizeDeg(target.rotation))) {
     return false;
   }
   if (
     preview.position !== undefined &&
-    (preview.position[0] !== target.anchor[0] || preview.position[1] !== target.anchor[1])
+    (!near(preview.position[0], target.anchor[0]) || !near(preview.position[1], target.anchor[1]))
   ) {
     return false;
   }
@@ -417,6 +445,42 @@ function withPreview(target: HandleTarget, preview: ScenePreview): HandleTarget 
     rotation: preview.rotation ?? target.rotation,
     shape: preview.shape ?? target.shape,
   };
+}
+
+/** The composed deltas of `pending` for `object` (later fields win), or null. */
+function pendingDelta(pending: readonly PendingEdit[], object: ObjectId): ScenePreview | null {
+  let merged: ScenePreview | null = null;
+  for (const p of pending) if (p.object === object) merged = { ...(merged ?? {}), ...p.delta };
+  return merged;
+}
+
+/** `item` with the pending deltas for it applied. */
+function withPending(pending: readonly PendingEdit[], item: HandleTarget): HandleTarget {
+  const delta = pendingDelta(pending, item.id);
+  return delta === null ? item : withPreview(item, delta);
+}
+
+/** Previews of every object with pending deltas, plus `extra` composed last. */
+function pendingPreviews(
+  pending: readonly PendingEdit[],
+  extra?: { object: ObjectId; delta: ScenePreview },
+): Map<ObjectId, ScenePreview> {
+  const all = extra === undefined ? pending : [...pending, extra];
+  const previews = new Map<ObjectId, ScenePreview>();
+  for (const p of all) previews.set(p.object, { ...previews.get(p.object), ...p.delta });
+  return previews;
+}
+
+/**
+ * The previews effect that puts back the pending writes' geometry after a
+ * drag ended without a write: the unsettled ones (a settled write's hold is
+ * already spent), held by the newest of them; none when nothing is unsettled.
+ */
+function restorePending(pending: readonly PendingEdit[]): Effect {
+  const unsettled = pending.filter((p) => p.revision === null);
+  const newest = unsettled[unsettled.length - 1];
+  if (newest === undefined) return { type: "previews", previews: EMPTY_PREVIEWS };
+  return { type: "previews", previews: pendingPreviews(unsettled), hold: { stamp: newest.stamp } };
 }
 
 /** The ops writing `preview` to `object`. */
@@ -491,7 +555,7 @@ export function withHandles<TPhase, K extends ToolId>(
     selection: readonly ObjectId[],
   ): Handle[] {
     if (input.viewer.type !== "gm") return [];
-    const { drag, held } = phase;
+    const { drag } = phase;
     if (drag !== null) {
       const target = drag.preview === null ? drag.target : withPreview(drag.target, drag.preview);
       return handlesFor(target, input.camera, input.viewport);
@@ -500,15 +564,13 @@ export function withHandles<TPhase, K extends ToolId>(
     const id = selection[0] as ObjectId;
     const item = input.scene.items.find((i) => i.id === id);
     if (item === undefined) return [];
-    const target = held !== null && held.object === id ? withPreview(item, held.preview) : item;
-    return handlesFor(target, input.camera, input.viewport);
+    return handlesFor(withPending(phase.pending, item), input.camera, input.viewport);
   }
 
-  /** The phase with a held geometry dropped once the client has seen its write. */
-  function expireHeld(phase: Phase, input: ToolInput): Phase {
-    const { held } = phase;
-    if (held === null || held.revision === null || input.revision < held.revision) return phase;
-    return { ...phase, held: null };
+  /** The phase without the pending edits the client has seen. */
+  function expirePending(phase: Phase, input: ToolInput): Phase {
+    const pending = phase.pending.filter((p) => p.revision === null || input.revision < p.revision);
+    return pending.length === phase.pending.length ? phase : { ...phase, pending };
   }
 
   /**
@@ -541,7 +603,7 @@ export function withHandles<TPhase, K extends ToolId>(
       // A cancel has no input: the given handles, else the shown ones unless the selection changed.
       shown = fixed !== undefined ? fixed : selection === null ? phase.shown : null;
     } else {
-      phase = expireHeld(phase, input);
+      phase = expirePending(phase, input);
       const handles = currentHandles(phase, input, selection ?? input.selection);
       shown =
         handles.length === 0
@@ -582,7 +644,7 @@ export function withHandles<TPhase, K extends ToolId>(
     event: PointerInteractionEvent,
     input: ToolInput,
   ): Result | null {
-    const phase = expireHeld(plain(state).phase, input);
+    const phase = expirePending(plain(state).phase, input);
     if (phase.innerPointer !== null || event.button !== PRIMARY_BUTTON) return null;
     const handles = currentHandles(phase, input, input.selection);
     const handle = hitHandle(handles, event.screen);
@@ -590,9 +652,7 @@ export function withHandles<TPhase, K extends ToolId>(
     const item = input.scene.items.find((i) => i.id === handle.object);
     const stamp = captureStamp(input);
     if (item === undefined || stamp === null) return null;
-    const held = phase.held;
-    const target: HandleTarget =
-      held !== null && held.object === item.id ? withPreview(item, held.preview) : item;
+    const target = withPending(phase.pending, item);
     const drag: HandleDrag = {
       pointerId: event.pointerId,
       stamp,
@@ -631,9 +691,15 @@ export function withHandles<TPhase, K extends ToolId>(
           event.modifiers.shift,
         );
         const next = withPhase(state, { drag: { ...drag, preview } });
+        const { pending } = plain(state).phase;
         return present(
           next,
-          [{ type: "previews", previews: new Map([[drag.target.id, preview]]) }],
+          [
+            {
+              type: "previews",
+              previews: pendingPreviews(pending, { object: drag.target.id, delta: preview }),
+            },
+          ],
           input,
         );
       }
@@ -647,8 +713,8 @@ export function withHandles<TPhase, K extends ToolId>(
           event.modifiers.shift,
         );
         const ended = withPhase(state, { drag: null });
-        const clear: Effect[] =
-          drag.preview === null ? [] : [{ type: "previews", previews: EMPTY_PREVIEWS }];
+        const { pending } = plain(state).phase;
+        const clear: Effect[] = drag.preview === null ? [] : [restorePending(pending)];
         if (unchanged(drag.target, preview)) return present(ended, clear, input);
         const shape = preview.shape;
         const problem = shape?.type === "polygon" ? polygonProblem(shape.points) : undefined;
@@ -656,7 +722,7 @@ export function withHandles<TPhase, K extends ToolId>(
           return present(
             ended,
             [
-              { type: "previews", previews: EMPTY_PREVIEWS },
+              restorePending(pending),
               {
                 type: "notice",
                 level: "warning",
@@ -666,14 +732,15 @@ export function withHandles<TPhase, K extends ToolId>(
             input,
           );
         }
-        const held: HeldHandles = {
+        const edit: PendingEdit = {
           stamp: drag.stamp,
           object: drag.target.id,
-          preview,
+          delta: preview,
           revision: null,
         };
+        const next = [...pending, edit];
         return present(
-          withPhase(ended, { held }),
+          withPhase(ended, { pending: next }),
           [
             {
               type: "write",
@@ -682,11 +749,7 @@ export function withHandles<TPhase, K extends ToolId>(
               label: labelFor(drag.handle, drag.name),
               continuations: [],
             },
-            {
-              type: "previews",
-              previews: new Map([[drag.target.id, preview]]),
-              hold: { stamp: drag.stamp },
-            },
+            { type: "previews", previews: pendingPreviews(next), hold: { stamp: drag.stamp } },
           ],
           input,
         );
@@ -695,7 +758,7 @@ export function withHandles<TPhase, K extends ToolId>(
         if (event.pointerId !== drag.pointerId) return present(state, [], input);
         return present(
           withPhase(state, { drag: null }),
-          [{ type: "previews", previews: EMPTY_PREVIEWS }],
+          [restorePending(plain(state).phase.pending)],
           input,
         );
       case "settled":
@@ -712,16 +775,21 @@ export function withHandles<TPhase, K extends ToolId>(
     event: Extract<InteractionEvent, { type: "settled" }>,
     input: ToolInput,
   ): Result {
-    const { held } = plain(state).phase;
-    if (held === null || held.stamp.interactionId !== event.interactionId) {
+    const { pending } = plain(state).phase;
+    if (!pending.some((p) => p.stamp.interactionId === event.interactionId)) {
       return delegate(state, event, input);
     }
     const outcome = event.outcome;
-    const next =
+    const revision =
       outcome.type === "write" && outcome.result.status === "committed"
-        ? withPhase(state, { held: { ...held, revision: outcome.result.revision } })
-        : withPhase(state, { held: null });
-    return present(next, [], input);
+        ? outcome.result.revision
+        : null;
+    // A committed write stays until its revision is seen; any other outcome drops its delta only.
+    const next = pending.flatMap((p) => {
+      if (p.stamp.interactionId !== event.interactionId) return [p];
+      return revision === null ? [] : [{ ...p, revision }];
+    });
+    return present(withPhase(state, { pending: next }), [], input);
   }
 
   return {
@@ -731,7 +799,7 @@ export function withHandles<TPhase, K extends ToolId>(
       const phase: Phase = {
         inner: inner.phase,
         drag: null,
-        held: null,
+        pending: [],
         innerPointer: null,
         innerOverlays: [],
         shown: null,
@@ -762,16 +830,18 @@ export function withHandles<TPhase, K extends ToolId>(
         const handles = currentHandles(phase, input, input.selection);
         const hit = hitHandle(handles, event.screen);
         const item = hit === null ? undefined : input.scene.items.find((i) => i.id === hit.object);
-        if (hit !== null && item !== undefined)
-          hoverCursor = handleCursor(hit, item.rotation, false);
+        if (hit !== null && item !== undefined) {
+          hoverCursor = handleCursor(hit, withPending(phase.pending, item).rotation, false);
+        }
       }
       return { state: withPhase(out.state, { hoverCursor }), effects: out.effects };
     },
     cancel(state, reason: CancelReason): Result {
       const { drag } = plain(state).phase;
+      // The runtime drops a cancelled tool's held previews, so the pending geometry goes too.
       const reset: Partial<Phase> = {
         drag: null,
-        held: null,
+        pending: [],
         innerPointer: null,
         hoverCursor: null,
       };
