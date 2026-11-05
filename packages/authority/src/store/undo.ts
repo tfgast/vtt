@@ -19,6 +19,11 @@ export type UndoSelector =
   | { type: "latest" }
   /** The most recent candidate made by `actor`. */
   | { type: "actor"; actor: Actor }
+  /**
+   * The most recent candidate whose actor is `gm` or any character: the
+   * UI's Ctrl+Z (M6-D2), never an agent's group.
+   */
+  | { type: "human" }
   /** The group at absolute index `index`, if it is a candidate. */
   | { type: "group"; index: number };
 
@@ -32,6 +37,18 @@ function sameActor(a: Actor, b: Actor): boolean {
       return b.type === "character" && a.id === b.id;
     case "agent":
       return b.type === "agent" && a.name === b.name;
+  }
+}
+
+/** Whether a group by `actor` is what a scanning `selector` looks for. */
+function matches(actor: Actor, selector: Exclude<UndoSelector, { type: "group" }>): boolean {
+  switch (selector.type) {
+    case "latest":
+      return true;
+    case "actor":
+      return sameActor(actor, selector.actor);
+    case "human":
+      return actor.type === "gm" || actor.type === "character";
   }
 }
 
@@ -65,7 +82,7 @@ export function findUndoTarget(history: History, selector: UndoSelector = LATEST
       const g = groups[i];
       if (g === undefined || g.index < history.undoBarrier) break;
       if (!isCandidate(history, g)) continue;
-      if (selector.type === "latest" || sameActor(g.actor as Actor, selector.actor)) return g;
+      if (matches(g.actor as Actor, selector)) return g;
     }
   }
   throw new Rejected({ type: "nothing_to_undo" });

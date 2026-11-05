@@ -13,14 +13,23 @@
  * - `log_includes`: the GM `EffectView`s of `explain_group`.
  * - `replay`: `document`'s log replayed over the setup snapshot, compared
  *   with the stored state.
+ * - `action` (vtt-1xv.13): `explain_action`'s `enabled`; the action must be
+ *   in the GM view's `actions`.
+ * - `face_element` (vtt-1xv.13; PROTOCOL.md §7.2): the viewer's
+ *   `get_objects` face view, finding the element by its stored `index` in
+ *   the named list: shown exactly when present with `shown: true`; absent,
+ *   or the object absent from the viewer's result, is not shown. Live views
+ *   compute `shown` with `faceElementVisible`, the predicate the direct
+ *   runner checks, so the runners agree. The GM view (every stored element)
+ *   decides the scenario errors: no layout, an index past the stored list.
  *
  * Messages and errors follow test/runner/expect.ts: ScenarioFailure when an
  * expectation does not hold, ScenarioError when the scenario uses it wrongly.
- * `action` is skipped (M5); `rejected` belongs to the rejection protocol.
+ * `rejected` belongs to the rejection protocol. Nothing is skipped.
  */
 import { diffStoredState, replay, ScenarioError, storedStateEqual } from "@vtt/authority";
 import type { Expectation, LogEffect } from "@vtt/fixtures";
-import type { CellStateView, EffectView, GroupView } from "@vtt/protocol";
+import type { CellStateView, EffectView, FaceView, GroupView } from "@vtt/protocol";
 import { ProtocolFailure } from "@vtt/protocol";
 import type { OpGroup, Value } from "@vtt/schema";
 import { fixtureValueEquals, ScenarioFailure } from "../runner/expect";
@@ -74,15 +83,49 @@ function effectMatches(state: ProtocolRunState, want: LogEffect, e: EffectView):
   return written !== undefined && fixtureValueEquals(resolveValue(state, want.value), written);
 }
 
-/** Checks one expectation other than `rejected`. Resolves false when it is skipped. */
+/** A face view's `full` (`elements`) or `collapsed` list. */
+const faceList = (face: FaceView | undefined, list: "full" | "collapsed") =>
+  face === undefined ? [] : list === "full" ? face.elements : (face.collapsed ?? []);
+
+/** Checks one expectation other than `rejected`. Resolves false when it is skipped (none is). */
 export async function checkWireExpectation(
   state: ProtocolRunState,
   e: Expectation,
 ): Promise<boolean> {
   switch (e.type) {
-    case "action":
-    case "face_element": // over the protocol in vtt-1xv.13; skipped and counted until then
-      return false;
+    case "action": {
+      const { id, view } = await liveObject(state, e.object);
+      const def = view.actions.find((a) => a.name === e.action);
+      if (def === undefined) throw new ScenarioError(`${e.object} has no action "${e.action}"`);
+      const explained = await state.client.request("explain_action", {
+        object: id,
+        action: e.action,
+      });
+      const got = explained.enabled;
+      const guard = explained.guard;
+      holds(
+        got === e.enabled,
+        () =>
+          `${e.object}[${e.action}]: expected enabled ${e.enabled}, got ${got}${guard === undefined ? " (no guard)" : ` (guard ${guard.source ?? def.when} is ${show(guard.value)})`}`,
+      );
+      return true;
+    }
+    case "face_element": {
+      const { id, view } = await liveObject(state, e.object);
+      const list = e.list ?? "full";
+      const viewer = e.viewer ?? "gm";
+      const where = `${e.object} face ${list}[${e.element}]`;
+      if (view.face === undefined) throw new ScenarioError(`${e.object} has no face layout`);
+      const stored = faceList(view.face, list);
+      if (e.element >= stored.length) {
+        throw new ScenarioError(`${where}: the stored list has ${stored.length} elements`);
+      }
+      const seen = await viewOf(state, id, toViewer(state, viewer));
+      const element = faceList(seen?.face, list).find((x) => x.index === e.element);
+      const got = element?.shown === true;
+      holds(got === e.shown, () => `${where} for ${viewer}: expected shown ${e.shown}, got ${got}`);
+      return true;
+    }
     case "rejected":
       throw new Error("checkWireExpectation: rejected belongs to the rejection protocol");
     case "cell": {

@@ -5,10 +5,10 @@
  * sheet, a stack, a hand, a binder, a character, and the Attack, Damage and
  * Area Save cards with the save row. These are examples, not game content.
  *
- * Every record is copied verbatim from §4.7: ids, shapes, tags, flags,
- * cells in the document's order with their initial values, actions, face
- * elements with their rects and options, and the `gm_binder` contents
- * order. Nothing is chosen here. Ids are human-meaningful and never end in
+ * Every record is copied verbatim from §4.7 (with M6-D3's amendments): ids,
+ * shapes, tags, flags, cells in the document's order with their initial
+ * values, actions, face elements with their rects and options, and the
+ * `gm_binder` contents order. Nothing is chosen here. Ids are human-meaningful and never end in
  * `_<digits>` (§5.3), so spawned copies (`<id>_<n>`) never collide.
  */
 import {
@@ -155,7 +155,8 @@ const sheetFace = (): FaceLayout => {
   const f: Opts = { C: true, m: 12 };
   return {
     elements: [
-      editor("name", [-2.8, -3.8, 5.6, 0.6], { L: true }),
+      editor("name", [-2.8, -3.8, 5.6, 0.6], { L: true, sw: "owner = empty" }),
+      value("owner", [-2.8, -3.8, 5.6, 0.6], { L: true, sw: "owner != empty" }),
       editor("ac", [-2.8, -3.0, 2.7, 0.5], f),
       editor("max_hp", [0.1, -3.0, 2.7, 0.5], f),
       value("hp", [-2.8, -2.4, 2.7, 0.5], f),
@@ -200,7 +201,11 @@ const attackActions = (): ActionDef[] => [
   action("Discard", null, "remove(this)"),
 ];
 
-/** The Attack card face (DESIGN.md §4.6, Face layouts). */
+/**
+ * The Attack card face (DESIGN.md §4.6, Face layouts), with §4.7's
+ * exception (M6-D3): Apply is drawn once `dmg` exists (its guard disables
+ * it after use, with the reason) and a Discard button follows it.
+ */
 const attackFace = (): FaceLayout => ({
   elements: [
     value("name", [-1.2, -1.7, 2.4, 0.4], { L: true }),
@@ -210,7 +215,8 @@ const attackFace = (): FaceLayout => ({
     value("dmg", [-1.2, -0.1, 2.4, 0.4], { C: true }),
     button("Roll", [-1.2, 0.5, 1.1, 0.45], { sw: "roll = empty" }),
     button("Roll damage", [0.1, 0.5, 1.1, 0.45], { sw: "hit and dmg = empty" }),
-    button("Apply", [-1.2, 1.1, 2.4, 0.45], { sw: "not applied" }),
+    button("Apply", [-1.2, 1.1, 1.15, 0.45], { sw: "dmg != empty" }),
+    button("Discard", [0.05, 1.1, 1.15, 0.45]),
   ],
   default_action: "Roll",
 });
@@ -338,7 +344,8 @@ function records(): TableObject[] {
           editor("dmg_dice", [-1.2, -0.7, 2.4, 0.4], { C: true }),
           value("dmg", [-1.2, -0.2, 2.4, 0.5], { C: true }),
           button("Roll damage", [-1.2, 0.5, 2.4, 0.45], { sw: "dmg = empty" }),
-          button("Apply", [-1.2, 1.1, 2.4, 0.45], { sw: "not applied" }),
+          button("Apply", [-1.2, 1.1, 1.15, 0.45], { sw: "dmg != empty" }),
+          button("Discard", [0.05, 1.1, 1.15, 0.45]),
         ],
       },
     }),
@@ -385,7 +392,7 @@ function records(): TableObject[] {
           contentsList([-1.2, -0.45, 2.4, 1.4]),
           button("Lock targets", [-1.2, 1.0, 1.15, 0.35], { sw: "not locked" }),
           button("Roll damage", [0.05, 1.0, 1.15, 0.35], { sw: "locked and damage = empty" }),
-          button("Apply all", [-1.2, 1.4, 1.15, 0.3], { sw: "not applied" }),
+          button("Apply all", [-1.2, 1.4, 1.15, 0.3], { sw: "damage != empty" }),
           button("Discard", [0.05, 1.4, 1.15, 0.3]),
         ],
       },
@@ -439,6 +446,9 @@ function records(): TableObject[] {
         ac: NONE,
         max_hp: NONE,
         damage_taken: lit(num(0)),
+        attack_bonus: NONE,
+        dex_save: NONE,
+        hit: FALSE,
         hp: fx("max_hp - damage_taken"),
       },
       face: {
@@ -446,6 +456,8 @@ function records(): TableObject[] {
           value("image", [-0.5, -0.5, 1, 1]),
           value("name", [-0.8, 0.55, 1.6, 0.3], { m: 12 }),
           value("hp", [0.2, -0.6, 0.5, 0.3], { m: 12 }),
+          value("hit", [-0.7, -0.6, 0.5, 0.3], { m: 12, sw: "hit" }),
+          contentsList([-0.8, 0.9, 1.6, 0.8], { m: 24 }),
         ],
       },
     }),

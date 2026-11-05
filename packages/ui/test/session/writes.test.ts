@@ -3,7 +3,7 @@
  * The UI's writes against a real in-process authority (vtt-3l6.21; DESIGN.md
  * §7 Undo, §5.2; PROTOCOL.md §6; M4-D7; review r1 finding 1): `baseRevision`
  * is sent unchanged, stale writes are shown and never rebased, uncertain
- * outcomes are sticky notices, undo targets `mine`, save is tracked.
+ * outcomes are sticky notices, undo targets `human` (M6-D2), save is tracked.
  */
 import type { Timers, WireOp } from "@vtt/protocol";
 import {
@@ -248,13 +248,13 @@ describe("undo", () => {
     expect(list[0]).toMatchObject({ level: "success", text: "Undid: GM sets hp" });
   });
 
-  test("sends target mine", async () => {
+  test("sends target human (M6-D2)", async () => {
     const { session, port } = await setup();
     await port.write([setHp("t1", 2)], { baseRevision: 1, label: "Edit" });
     const request = vi.spyOn(session.client, "request");
     await undo(session);
     expect(request.mock.calls.find(([m]) => m === "undo")?.[1]).toEqual({
-      target: { type: "mine" },
+      target: { type: "human" },
     });
   });
 
