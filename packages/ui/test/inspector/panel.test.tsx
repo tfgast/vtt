@@ -1,6 +1,6 @@
 /**
  * The inspector panel (vtt-3l6.12; DESIGN.md §4.1 flags and tags, §4.5/§4.6
- * actions shown read-only, §4.6 The inspector and View as in the UI, M4-D11;
+ * actions (editing: vtt-1xv.19), §4.6 The inspector and View as in the UI, M4-D11;
  * PROTOCOL.md §5 `set_tag`, `set_template_flag`, `set_character_flag`, §6
  * `base_revision`): selection text, the object header and the actions list.
  * jsdom against a real in-process authority through the shared helper.
@@ -203,19 +203,23 @@ describe("tags", () => {
 });
 
 describe("actions", () => {
-  test("the GM sees each action's when and steps, read-only", async () => {
+  test("the GM sees each action's state, when and steps, with edit commands", async () => {
     const { ui } = await setup();
     act(() => ui.select(["goblin"]));
     const actions = screen.getByRole("region", { name: "Actions" });
     const save = within(actions).getByText("Roll save").closest("li") as HTMLElement;
     expect(within(save).getByText("save_roll = empty")).toBeDefined();
     expect(within(save).getByText("roll(1d20) -> save_roll")).toBeDefined();
+    expect(within(save).getByText("enabled")).toBeDefined();
     const reset = within(actions).getByText("Reset").closest("li") as HTMLElement;
     expect(within(reset).getByText("set(save_roll, empty)")).toBeDefined();
     expect(within(reset).queryByText(/when/i)).toBeNull();
-    expect(within(actions).getByText(/editing arrives with M5/)).toBeDefined();
+    // Editing (vtt-1xv.19); no Run without the app's runtime.
+    expect(within(save).getByRole("button", { name: "Edit Roll save" })).toBeDefined();
+    expect(within(reset).getByRole("button", { name: "Delete Reset" })).toBeDefined();
+    expect(within(actions).getByRole("button", { name: "Add action" })).toBeDefined();
+    expect(within(actions).queryByRole("button", { name: /^Run/ })).toBeNull();
     expect(within(actions).queryByRole("textbox")).toBeNull();
-    expect(within(actions).queryByRole("button")).toBeNull();
   });
 
   test("viewing as Aldric shows action names only and a read-only inspector", async () => {
