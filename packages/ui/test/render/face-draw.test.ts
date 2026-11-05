@@ -19,6 +19,7 @@ import {
   BACK_FILL,
   buildFaceScene,
   type Camera,
+  CHEVRON_FILL,
   COVER_FILL,
   createCanvas2DRenderer,
   createFaceStateStore,
@@ -362,7 +363,7 @@ describe("text, buttons, editors, images, ink", () => {
       actions: ["Roll", "Apply"],
       states: [
         { name: "Roll", enabled: true },
-        { name: "Apply", enabled: false, reason: { type: "when_false" } } as ActionStateView,
+        { name: "Apply", enabled: false, reason: "when_false" },
       ],
       face: {
         elements: [
@@ -377,7 +378,8 @@ describe("text, buttons, editors, images, ink", () => {
     expect(textCall(ctx, "Roll").style?.globalAlpha).toBe(1);
     // The rounded body (fill and outline) is dimmed too.
     const applyBody = ctx.paints.filter(
-      (c) => (c.name === "fill" || c.name === "stroke") && (c.extent?.minX ?? 0) >= 400 + 0.1 * 64 - 1,
+      (c) =>
+        (c.name === "fill" || c.name === "stroke") && (c.extent?.minX ?? 0) >= 400 + 0.1 * 64 - 1,
     );
     expect(applyBody.length).toBeGreaterThanOrEqual(2);
     for (const p of applyBody) expect(p.style?.globalAlpha).toBeCloseTo(0.4);
@@ -491,7 +493,12 @@ describe("minSize", () => {
   });
 
   test("culls a badge inside a scaled entry by its accumulated height", () => {
-    const tok = mk("tok", { shape: circle(1), container: "bag", cells: { hp: num(7) }, face: badgeFace });
+    const tok = mk("tok", {
+      shape: circle(1),
+      container: "bag",
+      cells: { hp: num(7) },
+      face: badgeFace,
+    });
     const bag = mk("bag", {
       shape: rect(2, 4),
       at: [0, 0],
@@ -572,7 +579,9 @@ describe("nested objects inside a rotated container", () => {
 
   test("a face-down card draws only its back and glyph (and its name), no face", () => {
     const ctx = draw();
-    expect(ctx.paints.some((c) => c.name === "fill" && c.style?.fillStyle === BACK_FILL)).toBe(true);
+    expect(ctx.paints.some((c) => c.name === "fill" && c.style?.fillStyle === BACK_FILL)).toBe(
+      true,
+    );
     expect(texts(ctx)).toContain("↓");
     expect(texts(ctx)).not.toContain("9");
     // DESIGN.md §4.4: a face-down object shows its back and its name.
@@ -611,7 +620,12 @@ describe("contents elements", () => {
     expect(drawn).toEqual(["item 4", "item 5", "item 6", "item 7"]);
     // Clipped to the element rect in device px: x ∈ [272, 528], y ∈ [204, 280.8].
     for (const t of drawn) {
-      expect(round(textCall(ctx, t).clip)).toEqual({ minX: 272, minY: 204, maxX: 528, maxY: 280.8 });
+      expect(round(textCall(ctx, t).clip)).toEqual({
+        minX: 272,
+        minY: 204,
+        maxX: 528,
+        maxY: 280.8,
+      });
     }
     // Row 4 is drawn 0.1 units above the rect's top: scrolled.
     const row4 = textCall(ctx, "item 4");
@@ -720,9 +734,18 @@ describe("contents elements", () => {
 
   test("a collapsed row's chevron points right, an expanded one's down", () => {
     const faceState = createFaceStateStore();
+    faceState.expand("c1");
     const ctx = render([bag, ...children], { faceState });
-    const chevrons = ctx.paints.filter((c) => c.name === "fill" && c.path?.includes("closePath"));
-    expect(chevrons.length).toBeGreaterThanOrEqual(3);
+    const chevrons = ctx.paints.filter((c) => c.style?.fillStyle === CHEVRON_FILL);
+    // Rows 0 and 1 show (row 1 expanded is 3.6 units high and fills the rest).
+    expect(chevrons).toHaveLength(2);
+    const [right, down] = chevrons.map((c) => c.extent as Bounds);
+    expect((right?.maxY ?? 0) - (right?.minY ?? 0)).toBeGreaterThan(
+      (right?.maxX ?? 0) - (right?.minX ?? 0),
+    );
+    expect((down?.maxX ?? 0) - (down?.minX ?? 0)).toBeGreaterThan(
+      (down?.maxY ?? 0) - (down?.minY ?? 0),
+    );
   });
 });
 
