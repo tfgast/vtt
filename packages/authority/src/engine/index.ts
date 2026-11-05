@@ -3,5 +3,6 @@ export * from "./cover";
 export * from "./dice";
 export * from "./host";
 export * from "./invoke";
+export * from "./steps-place";
 export * from "./steps-value";
 export * from "./table";
