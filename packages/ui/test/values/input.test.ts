@@ -77,7 +77,8 @@ describe("parseCellInput", () => {
     ["= a+b ", "hp", formula(" a+b ")],
     ["=x", "name", text("=x")],
     ["12", "name", text("12")],
-    ["", "name", text("")],
+    ["", "name", { type: "empty" }],
+    ["   ", "name", text("   ")],
     [" padded ", "name", text(" padded ")],
     ["gm", "visible_to", { type: "viewers", viewers: ["gm"] }],
     ["all", "visible_to", { type: "viewers", viewers: ["all"] }],
@@ -136,6 +137,8 @@ describe("valueToInputText", () => {
     ["name", text("12"), "12"],
     ["name", text("=x"), "=x"],
     ["name", text(" padded "), " padded "],
+    ["name", text("   "), "   "],
+    ["name", { type: "empty" }, ""],
     ["visible_to", { type: "viewers", viewers: ["gm", ref("aldric")] }, "gm, @aldric"],
     ["visible_to", { type: "viewers", viewers: ["all"] }, "all"],
     [
@@ -176,8 +179,12 @@ describe("valueToInputText", () => {
     }
   });
 
-  test("an empty name is an empty input", () => {
+  test("an empty name is an empty input that reads back as empty", () => {
     expect(valueToInputText({ type: "empty" }, "name")).toEqual({ kind: "literal", text: "" });
+    expect(parseCellInput("", { cell: "name" })).toEqual({
+      ok: true,
+      content: { type: "empty" },
+    });
   });
 
   test.each([
@@ -212,6 +219,7 @@ describe("valueToInputText", () => {
       { type: "list", items: [{ type: "roll", expr: "1d6", dice: [1], dropped: [], total: 1 }] },
     ],
     ["non-text name", "name", num(3)],
+    ["name of empty text", "name", text("")],
     ["plain ref in visible_to", "visible_to", ref("aldric")],
   ];
 

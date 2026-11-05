@@ -100,10 +100,9 @@ function compactText(s: string): string {
   const newline = s.search(/\r?\n|\r/);
   const firstLine = newline < 0 ? s : s.slice(0, newline);
   const chars = Array.from(firstLine);
-  if (chars.length > COMPACT_TEXT_LENGTH) {
-    return chars.slice(0, COMPACT_TEXT_LENGTH - 1).join("") + ELLIPSIS;
-  }
-  return newline < 0 ? firstLine : firstLine + ELLIPSIS;
+  if (newline < 0 && chars.length <= COMPACT_TEXT_LENGTH) return firstLine;
+  // Truncated, for length or for following lines: the ellipsis fits in the cap.
+  return chars.slice(0, COMPACT_TEXT_LENGTH - 1).join("") + ELLIPSIS;
 }
 
 function formatList(items: WireValue[], opts: FormatOptions): string {

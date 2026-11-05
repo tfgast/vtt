@@ -26,7 +26,8 @@ export type CellInputResult =
 /**
  * Parses what was typed into cell `cell`, in this order:
  *
- * 1. `name`: the text verbatim, even with a leading `=`.
+ * 1. `name`: the empty string is `empty`; any other input is the text
+ *    verbatim, even with a leading `=`.
  * 2. A leading `=`: a formula of the rest, which must parse.
  * 3. `visible_to`: `all`, `gm`, `owner`, `@id`, comma-separated, as viewers.
  * 4. The empty string is `empty`; `@id` (a valid, unreserved id) is a ref.
@@ -37,7 +38,9 @@ export type CellInputResult =
  * 7. Anything else: the text verbatim.
  */
 export function parseCellInput(text: string, opts: { cell: string }): CellInputResult {
-  if (opts.cell === "name") return accept({ type: "text", value: text });
+  if (opts.cell === "name") {
+    return accept(text === "" ? { type: "empty" } : { type: "text", value: text });
+  }
   if (text.startsWith("=")) {
     const source = text.slice(1);
     const parsed = parse(source);
@@ -245,13 +248,12 @@ class Unsupported extends Error {}
 /**
  * The input text that `parseCellInput(text, {cell: cellName})` reads back as
  * `value`, or `unsupported` with a reason when no input text does. An empty
- * `name` is `""`, which reads back as the text `""` (`name` input is always
- * text).
+ * `name` is `""`, which reads back as `empty` (non-empty `name` input is
+ * always text).
  */
 export function valueToInputText(value: WireResult, cellName: string): ValueInputText {
   try {
     const text = literalText(value, cellName);
-    if (cellName === "name" && value.type === "empty") return { kind: "literal", text };
     const back = parseCellInput(text, { cell: cellName });
     if (!back.ok || !contentEquals(back.content, value)) {
       return unsupported(`${describeKind(value)} cannot be typed into ${cellName}`);

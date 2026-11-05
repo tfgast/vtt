@@ -28,6 +28,18 @@ const rows: Row[] = [
   ["long text", { type: "text", value: long }, n(`${"a".repeat(39)}…`), n(long)],
   ["text of 40", { type: "text", value: "b".repeat(40) }, n("b".repeat(40)), n("b".repeat(40))],
   ["empty text", { type: "text", value: "" }, n(""), n("")],
+  [
+    "40-character line then more lines",
+    { type: "text", value: `${"c".repeat(40)}\nmore` },
+    n(`${"c".repeat(39)}…`),
+    n(`${"c".repeat(40)}\nmore`),
+  ],
+  [
+    "39-character line then more lines",
+    { type: "text", value: `${"d".repeat(39)}\nmore` },
+    n(`${"d".repeat(39)}…`),
+    n(`${"d".repeat(39)}\nmore`),
+  ],
   ["true", { type: "boolean", value: true }, n("true"), n("true")],
   ["false", { type: "boolean", value: false }, n("false"), n("false")],
   ["empty", { type: "empty" }, { text: "", tone: "muted" }, { text: "empty", tone: "muted" }],
