@@ -122,6 +122,12 @@ describe(`play A: ${WALKTHROUGH_STEPS.slice(6, 11)
     const tray = await view(c, play.tray);
     expect(zones.zones.map((z) => z.id)).toContain(play.tray);
     expect(value(tray, "name")).toEqual({ type: "text", value: "Tray" });
+    // [0, 17]–[6, 20] from M: a 6 × 3 rect centred at M + [3, 18.5] (dyadic, exact).
+    expect(value(tray, "shape")).toEqual({
+      type: "shape",
+      shape: { type: "rect", width: 6, height: 3 },
+    });
+    expect(position(tray)).toEqual(at([3, 18.5]));
     expect(tray.cells.text).toMatchObject({ kind: "formula", source: TRAY_FORMULA.slice(1) });
     expect(value(tray, "text")).toEqual(num(46));
     expect(o.trayText).toEqual(num(46));
@@ -148,6 +154,12 @@ describe(`play A: ${WALKTHROUGH_STEPS.slice(6, 11)
     const strip = await view(c, play.strip);
     expect(zones.zones.map((z) => z.id)).toContain(play.strip);
     expect(value(strip, "name")).toEqual({ type: "text", value: "Initiative" });
+    // [8, 17]–[20, 18] from M: a 12 × 1 rect centred at M + [14, 17.5] (dyadic, exact).
+    expect(value(strip, "shape")).toEqual({
+      type: "shape",
+      shape: { type: "rect", width: 12, height: 1 },
+    });
+    expect(position(strip)).toEqual(at([14, 17.5]));
     // Zones are read now, after step 11: the goblin's die lies on Aldric in the strip.
     expect([...inZone(play.strip)].sort()).toEqual(
       [pc.Aldric.token, pc.Brenna.token, pc.Corin.token, pc.Dara.token, play.goblinDie].sort(),
