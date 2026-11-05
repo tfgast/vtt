@@ -144,17 +144,22 @@ const locationOf = (t: Target): Location =>
     ? { type: "board", board: t.board }
     : { type: "container", container: t.container, index: t.index };
 
-/** The `z` an object landing on `board` gets: 1 + the top literal `z` of the others. */
+/**
+ * The `z` an object landing on `board` gets: 1 + the top literal `z` of the
+ * others (FORMULAS.md §3.1). An absent or empty `z` counts as 0, an
+ * overridden formula as its override; a formula without an override is
+ * skipped. With nothing counted, 1.
+ */
 function topZ(tx: Transaction, board: BoardId, except: ObjectId): number {
-  let top = 0;
+  let top: number | null = null;
   for (const id of tx.doc.objectsOnBoard(board)) {
     if (id === except) continue;
     const z = tx.doc.getCell(id, "z");
-    // An overridden formula z counts as its override (FORMULAS.md §3.1).
     const v = z === undefined ? undefined : z.content.type === "formula" ? z.override : z.content;
-    if (v?.type === "number" && v.value > top) top = v.value;
+    const n = v?.type === "number" ? v.value : v?.type === "empty" ? 0 : null;
+    if (n !== null && (top === null || n > top)) top = n;
   }
-  return top + 1;
+  return (top ?? 0) + 1;
 }
 
 /**
@@ -364,6 +369,9 @@ function checkInitialCell(root: TableObject, cell: string, content: unknown): vo
   if (spec.protection !== "none") protectedCell();
   if (cell === "position" && root.board === null) protectedCell();
   if (cell === "opaque" && !root.is_zone) protectedCell();
+  if ((cell === "rotation" || cell === "z") && root.board === null) {
+    invalid(`"${cell}" is for objects on a board`);
+  }
   const expected = spec.literal.join(" or ");
   if (content.type === "formula") {
     if (!spec.formula)

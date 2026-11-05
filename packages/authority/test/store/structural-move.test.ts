@@ -1,7 +1,7 @@
 import { type Destination, DocumentStore, move, storedStateEqual } from "@vtt/authority";
 import { type Cell, type Effect, list, num, ref, type Snapshot } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
-import { at, lit, must, table } from "./helpers";
+import { at, lit, must, obj, table } from "./helpers";
 import { applyUndo, expectRefused, formula, run } from "./structural-helpers";
 
 const owned = (id: string): Cell => ({ content: ref(id) });
@@ -75,6 +75,24 @@ describe("move to a board", () => {
     const store = DocumentStore.fromSnapshot(s);
     moved(store, "coin", board("map", 0, 0));
     expect(cells(store, "coin").z).toEqual(lit(5));
+  });
+
+  test("on a board whose literal z values are all negative, z lands one above the top", () => {
+    const s = scene();
+    s.objects.low1 = obj("low1", { board: "shelf", cells: { position: at(0, 0), z: lit(-5) } });
+    s.objects.low2 = obj("low2", { board: "shelf", cells: { position: at(1, 0), z: lit(-7) } });
+    s.objects.f = obj("f", { board: "shelf", cells: { position: at(2, 0), z: formula("100") } });
+    const store = DocumentStore.fromSnapshot(s);
+    moved(store, "coin", board("shelf", 0, 0));
+    expect(cells(store, "coin").z).toEqual(lit(-4));
+  });
+
+  test("with only formula z cells on the board, z is 1", () => {
+    const s = scene();
+    s.objects.f = obj("f", { board: "shelf", cells: { position: at(2, 0), z: formula("100") } });
+    const store = DocumentStore.fromSnapshot(s);
+    moved(store, "coin", board("shelf", 0, 0));
+    expect(cells(store, "coin").z).toEqual(lit(1));
   });
 
   test("an overridden formula z counts as its override (FORMULAS.md §3.1)", () => {

@@ -249,6 +249,16 @@ describe("spawn onto a board", () => {
     expect(store.containerOf("fireball_zone_5")).toBeNull();
   });
 
+  test("on a board whose literal z values are all negative, z lands one above the top", () => {
+    const s = scene();
+    must(s.objects.aldric).cells.z = lit(-5);
+    const store = DocumentStore.fromSnapshot(s);
+    run(store, (tx) => {
+      spawn(tx, "fireball_zone", onMap(10, 10));
+    });
+    expect(must(store.getObject("fireball_zone_5")).cells.z).toEqual(lit(-4));
+  });
+
   test("spawning a board object into a container drops its placement cells", () => {
     const s = scene();
     must(s.objects.aldric).cells.rotation = lit(45);
@@ -310,6 +320,36 @@ describe("initial cells", () => {
     const row = must(store.getObject("save_row_t_5"));
     expect(row.cells.note).toEqual({ content: text("hi") });
     expect(row.tag).toEqual(["row"]);
+  });
+
+  test("initial rotation or z into a container is invalid, literal or formula", () => {
+    const store = DocumentStore.fromSnapshot(scene());
+    for (const cell of ["rotation", "z"]) {
+      for (const content of [num(3), { type: "formula", source: "1" } as const]) {
+        expectRefused(store, (tx) => spawn(tx, "die", binder, { [cell]: content }), {
+          type: "invalid",
+        });
+      }
+    }
+  });
+
+  test("initial rotation and z onto a board are allowed, then the landing rule applies", () => {
+    const store = DocumentStore.fromSnapshot(scene());
+    run(store, (tx) => {
+      spawn(tx, "die", onMap(3, 3), { rotation: num(30), z: num(50) });
+      spawn(tx, "die", onMap(4, 4), {
+        rotation: { type: "formula", source: "15" },
+        z: { type: "formula", source: "9" },
+      });
+    });
+    const first = must(store.getObject("die_5"));
+    expect(first.cells.rotation).toEqual(lit(30));
+    // A literal z is put on top: aldric has z 0.
+    expect(first.cells.z).toEqual(lit(1));
+    const second = must(store.getObject("die_6"));
+    expect(second.cells.rotation).toEqual(formula("15"));
+    expect(second.cells.z).toEqual(formula("9"));
+    expect(second.cells.position).toEqual(at(4, 4));
   });
 
   test("protected or ill-typed initial cells are refused, recording nothing", () => {
