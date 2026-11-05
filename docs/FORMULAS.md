@@ -69,7 +69,8 @@ A **dice value** is an expression in standard dice notation. V1 dialect:
   - `!` explodes on maximum. Each explosion adds an extra die to the term
     (extras are separate dice, not compounded into one result); an extra that
     rolls maximum explodes again, up to 100 extras per original die.
-  - `r<N`, `r>N`, `r=N` reroll once on the condition, with N within 1..S. The
+  - `r<N`, `r>N`, `r=N` reroll once on the condition, with N within 1..S.
+    The comparison is strict: `r<2` rerolls only a 1. The
     reroll replaces the die and the original goes to `.dropped`. Extras from
     an explosion are not rerolled.
   - Fudge terms take no `!` and no `r`.
