@@ -295,6 +295,56 @@ describe("buildScene: GM and character scenes", () => {
     for (const i of s.items) expect(i.hiddenBadge).toBe(false);
   });
 
+  test("character: a revealed opaque zone drops image, text, label and outline; the GM keeps them", () => {
+    const revealed = obj("room3", {
+      shape: rect(4, 4),
+      zone: true,
+      cells: {
+        opaque: bool(true),
+        color: text("#336"),
+        pattern: text("hatch"),
+        image: text("t.assets/room-00000000.png"),
+        text: text("Crypt"),
+        name: text("Room 3"),
+      },
+    });
+    const c = item(scene([revealed], { viewer: ALDRIC }), "room3");
+    expect(c).toMatchObject({ fill: "#336", pattern: "hatch", outline: false, opaqueGm: false });
+    expect(c.image).toBeUndefined();
+    expect(c.text).toBeUndefined();
+    expect(c.label).toBeUndefined();
+    const g = item(scene([revealed], { viewer: GM }), "room3");
+    expect(g).toMatchObject({
+      fill: "#336",
+      pattern: "hatch",
+      image: "t.assets/room-00000000.png",
+      text: "Crypt",
+      label: "Room 3",
+      outline: true,
+      opaqueGm: true,
+    });
+  });
+
+  test("an omitted opaque cell fails closed for a character, is false for the GM", () => {
+    const zone = obj("room4", {
+      shape: rect(4, 4),
+      zone: true,
+      cells: { name: text("Room 4"), image: text("t.assets/room-00000000.png") },
+    });
+    delete zone.cells.opaque;
+    const c = item(scene([zone], { viewer: ALDRIC }), "room4");
+    expect(c).toMatchObject({ outline: false, opaqueGm: false });
+    expect(c.image).toBeUndefined();
+    expect(c.label).toBeUndefined();
+    const g = item(scene([zone], { viewer: GM }), "room4");
+    expect(g).toMatchObject({ outline: true, opaqueGm: false, label: "Room 4" });
+    const plain = obj("lake2", { shape: rect(4, 4), zone: true, cells: { name: text("Lake") } });
+    expect(item(scene([plain], { viewer: ALDRIC }), "lake2")).toMatchObject({
+      outline: true,
+      label: "Lake",
+    });
+  });
+
   test("character: a whole_board cover and a region cover make two cover items", () => {
     const covers: Cover[] = [
       { key: "k1", board: BOARD, region: { whole_board: true } },

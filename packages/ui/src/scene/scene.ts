@@ -173,8 +173,12 @@ function drawItem(p: Placed, gm: boolean, formatText: (v: WireValue) => string):
   const isZone = p.view.cells.is_zone?.value.type === "boolean" && p.view.cells.is_zone.value.value;
   // The GM is unaffected by the fail-closed rules (DESIGN.md §4.4).
   const faceDown = gm ? a.faceUp === false : a.faceUp !== true;
-  // Opaque as the cover table reads it (PROTOCOL.md §7.5): anything but `false`.
-  const opaque = isZone && a.opaque !== false && a.opaque !== "absent";
+  // Opaque as the cover table reads it (PROTOCOL.md §7.5): anything but `false`. For a
+  // character an absent cell (omitted by per-cell visibility) fails closed; for the GM it is
+  // the default, false.
+  const opaque = isZone && a.opaque !== false && (!gm || a.opaque !== "absent");
+  // A character sees a revealed opaque zone only through its color and pattern (§4.6).
+  const colorAndPatternOnly = !gm && opaque;
   const item: DrawItem = {
     id: p.view.id,
     anchor: p.anchor,
@@ -188,12 +192,16 @@ function drawItem(p: Placed, gm: boolean, formatText: (v: WireValue) => string):
     faceDownGlyph: gm && faceDown,
     opaqueGm: gm && opaque,
     hiddenBadge: gm && !visibleToAll(a),
-    outline: gm || !opaque,
+    outline: !colorAndPatternOnly,
     alpha: 1,
   };
-  if (a.name !== null) item.label = a.name;
+  if (a.name !== null && !colorAndPatternOnly) item.label = a.name;
   if (faceDown) return item;
   item.fill = a.color ?? (isZone ? null : NEUTRAL_FILL);
+  if (colorAndPatternOnly) {
+    if (a.pattern !== null) item.pattern = a.pattern;
+    return item;
+  }
   if (a.image !== null) item.image = a.image;
   if (a.pattern !== null) item.pattern = a.pattern;
   if (a.text !== null) {
