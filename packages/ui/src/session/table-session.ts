@@ -14,7 +14,8 @@
  * - the **board view**: `{scope: board, viewer, cells: "all"}` for the
  *   active board and the current viewer;
  * - the **selection view**: `{scope: objects, ids, viewer}` for the selected
- *   ids outside the board view, always with the current viewer.
+ *   ids outside the board view, always with the current viewer, in batches of
+ *   at most `max_ids` ids (one subscription each; never truncated).
  *
  * View changes are applied by one serialized reconciler: new subscriptions
  * are made first and swapped in together, and only then are the old ones
@@ -100,6 +101,8 @@ export interface ConnectionNotice {
   readonly subscription: "directory" | "board" | "selection";
   /** For `board`: the board whose view failed. */
   readonly board?: BoardId;
+  /** For `selection`: the ids of the batch that failed (they have no view). */
+  readonly ids?: readonly ObjectId[];
   readonly viewer: Viewer;
   readonly error: ProtocolError;
   /** A sentence for the GM. */
@@ -213,7 +216,8 @@ class Session implements TableSession {
 
   #directory: Held | null = null;
   #board: Held | null = null;
-  #selection: Held | null = null;
+  /** The selection view: one `objects` subscription per `max_ids`-sized batch. */
+  #selection: Held[] = [];
 
   /** Subscriptions refused with an error response; not retried until the next ready transition or request. */
   readonly #blocked = new Set<string>();
@@ -314,16 +318,14 @@ class Session implements TableSession {
 
   objectView(id: ObjectId): ObjectView | null {
     // Both held views always carry the applied viewer (they are swapped together).
-    return (
-      this.#board?.sub.mirror.objects.get(id) ?? this.#selection?.sub.mirror.objects.get(id) ?? null
-    );
+    return this.#board?.sub.mirror.objects.get(id) ?? this.#selectionView(id) ?? null;
   }
 
   refLabel(viewer: Viewer, id: ObjectId): string {
     const sources: ReadonlyMap<ObjectId, ObjectView>[] = [];
     if (sameViewer(viewer, this.#applied.viewer)) {
       if (this.#board) sources.push(this.#board.sub.mirror.objects);
-      if (this.#selection) sources.push(this.#selection.sub.mirror.objects);
+      for (const held of this.#selection) sources.push(held.sub.mirror.objects);
     }
     if (viewer.type === "gm" && this.#directory) sources.push(this.#directory.sub.mirror.objects);
     for (const source of sources) {
@@ -344,7 +346,7 @@ class Session implements TableSession {
     this.#closed = true;
     this.#stopRecovery();
     this.client.close();
-    for (const held of [this.#directory, this.#board, this.#selection]) this.#release(held);
+    for (const held of [this.#directory, this.#board, ...this.#selection]) this.#release(held);
     for (const off of this.#offClient.splice(0)) off();
     const error = new Error("the table session is closed");
     for (const waiter of this.#waiters) waiter.reject(error);
@@ -472,61 +474,66 @@ class Session implements TableSession {
       }
     }
 
-    // The selection view: selected ids outside the (new) board view, with the same viewer.
+    // The selection view: the selected ids outside the (new) board view, with the
+    // same viewer, in `max_ids`-sized batches (one `objects` subscription each).
     const inBoard = nextBoard?.sub.mirror.objects;
-    const need = this.#selected.filter((id) => !inBoard?.has(id)).slice(0, LIMITS.max_ids);
-    let nextSelection = this.#selection;
-    let createdSelection: Held | null = null;
-    const current = this.#selection;
-    const selectionOk =
-      need.length === 0
-        ? current === null
-        : isLive(current) &&
-          sameViewer(current.viewer, viewer) &&
-          current.ids.length === need.length &&
-          need.every((id) => current.ids.includes(id));
-    if (!selectionOk) {
-      const keepable = isLive(current) && sameViewer(current.viewer, viewer) ? current : null;
-      if (need.length === 0) {
-        nextSelection = null;
-      } else {
-        const opened = await this.#open(
-          "selection",
-          { scope: { type: "objects", ids: need }, viewer: copyViewer(viewer) },
-          viewer,
-          null,
-          need,
-        );
-        if (opened === "retry" || opened === "again") {
-          this.#release(created);
-          if (opened === "again") this.#dirty = true;
-          return;
-        }
-        // A refused selection view never blocks a board or viewer switch.
-        if (opened === "failed") {
-          nextSelection = keepable;
-        } else {
-          nextSelection = opened;
-          createdSelection = opened;
-        }
+    const need = this.#selected.filter((id) => !inBoard?.has(id));
+    const batches: ObjectId[][] = [];
+    for (let i = 0; i < need.length; i += LIMITS.max_ids) {
+      batches.push(need.slice(i, i + LIMITS.max_ids));
+    }
+    const nextSelection: Held[] = [];
+    const createdSelection: Held[] = [];
+    const abandon = () => {
+      this.#release(created);
+      for (const held of createdSelection) this.#release(held);
+    };
+    for (const ids of batches) {
+      const reusable = this.#selection.find(
+        (held) =>
+          isLive(held) &&
+          sameViewer(held.viewer, viewer) &&
+          held.ids.length === ids.length &&
+          ids.every((id) => held.ids.includes(id)),
+      );
+      if (reusable) {
+        nextSelection.push(reusable);
+        continue;
+      }
+      const opened = await this.#open(
+        "selection",
+        { scope: { type: "objects", ids }, viewer: copyViewer(viewer) },
+        viewer,
+        null,
+        ids,
+      );
+      if (opened === "retry" || opened === "again") {
+        abandon();
+        if (opened === "again") this.#dirty = true;
+        return;
+      }
+      // A refused batch was reported through `onConnectionNotice` (with its ids); it
+      // never blocks a board or viewer switch.
+      if (opened !== "failed") {
+        nextSelection.push(opened);
+        createdSelection.push(opened);
       }
     }
 
     if (this.#closed) {
-      this.#release(created);
-      this.#release(createdSelection);
+      abandon();
       return;
     }
     // Swap everything at once, then close what was replaced.
     const oldBoard = this.#board !== nextBoard ? this.#board : null;
-    const oldSelection = this.#selection !== nextSelection ? this.#selection : null;
+    const oldSelection = this.#selection.filter((held) => !nextSelection.includes(held));
     this.#board = nextBoard;
     this.#selection = nextSelection;
     const changed =
       oldBoard !== null ||
-      oldSelection !== null ||
+      oldSelection.length > 0 ||
       created !== null ||
-      createdSelection !== null ||
+      createdSelection.length > 0 ||
       this.#applied.board !== board ||
       !sameViewer(this.#applied.viewer, viewer);
     if (changed) {
@@ -535,7 +542,7 @@ class Session implements TableSession {
     }
     this.#refresh();
     this.#release(oldBoard);
-    this.#release(oldSelection);
+    for (const held of oldSelection) this.#release(held);
     if (this.#want !== want) this.#dirty = true;
   }
 
@@ -571,7 +578,7 @@ class Session implements TableSession {
         return "again"; // Removed meanwhile: the next pass picks another board.
       }
       this.#blocked.add(key);
-      this.#notice(role, viewer, board, error);
+      this.#notice(role, viewer, board, ids, error);
       return "failed";
     }
     const held: Held = { role, sub, viewer: copyViewer(viewer), board, ids: [...ids], offs: [] };
@@ -592,14 +599,23 @@ class Session implements TableSession {
     this.#viewVersion++;
     // A board removed meanwhile is a removal, handled by the board list, not a notice.
     const removed = held.role === "board" && !this.client.boards.some((b) => b.id === held.board);
-    if (!removed) this.#notice(held.role, held.viewer, held.board, error);
+    if (!removed) this.#notice(held.role, held.viewer, held.board, held.ids, error);
     // Not a removal: replaced by the reconciler once the client is ready.
     void this.#kick();
     this.#refresh();
   }
 
+  /** `id` in one of the selection batches. */
+  #selectionView(id: ObjectId): ObjectView | undefined {
+    for (const held of this.#selection) {
+      const view = held.sub.mirror.objects.get(id);
+      if (view !== undefined) return view;
+    }
+    return undefined;
+  }
+
   #holds(held: Held): boolean {
-    return this.#directory === held || this.#board === held || this.#selection === held;
+    return this.#directory === held || this.#board === held || this.#selection.includes(held);
   }
 
   #release(held: Held | null): void {
@@ -608,16 +624,23 @@ class Session implements TableSession {
     held.sub.close().catch(() => undefined);
   }
 
-  #notice(role: Role, viewer: Viewer, board: BoardId | null, error: ProtocolError): void {
+  #notice(
+    role: Role,
+    viewer: Viewer,
+    board: BoardId | null,
+    ids: readonly ObjectId[],
+    error: ProtocolError,
+  ): void {
     const what =
       role === "directory"
         ? "The table directory"
         : role === "selection"
-          ? "The view of the selected objects"
+          ? `The view of ${ids.length} selected object${ids.length === 1 ? "" : "s"}`
           : `The view of board ${this.#boardName(board)}`;
     const notice: ConnectionNotice = {
       subscription: role,
       ...(board === null ? {} : { board }),
+      ...(role === "selection" ? { ids: [...ids] } : {}),
       viewer: copyViewer(viewer),
       error,
       message: `${what} could not be updated. ${describeError(error)}`,

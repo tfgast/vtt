@@ -12,7 +12,7 @@ import {
   TableHost,
 } from "@vtt/authority";
 import { type ObjectView, ProtocolClient, type Viewer, type WireOp } from "@vtt/protocol";
-import { createTableSession, type TableSession } from "@vtt/ui";
+import { type ConnectionNotice, createTableSession, type TableSession } from "@vtt/ui";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const servers: RunningServer[] = [];
@@ -90,6 +90,7 @@ const SETUP: WireOp[] = [
 
 let server: RunningServer;
 let session: TableSession;
+let setupClient: ProtocolClient;
 
 beforeEach(async () => {
   const host = TableHost.inMemory(DocumentStore.fromSnapshot(newTableSnapshot()));
@@ -104,6 +105,7 @@ beforeEach(async () => {
   clients.push(gm);
   await gm.connect();
   await gm.transact(SETUP);
+  setupClient = gm;
   session = createTableSession({ url: server.url, token: server.token });
   sessions.push(session);
   await until(() => session.getSnapshot().ready, "the session to be ready");
@@ -247,5 +249,78 @@ describe("viewer isolation (review r1 finding 3)", () => {
     ).toHaveLength(0);
     expect(hasCell(session.objectView("far"), "secret")).toBe(false);
     expect(session.objectView("far")?.id).toBe("far");
+  });
+});
+
+describe("selection batches (max_ids)", () => {
+  const selection = () =>
+    session.client.liveSubscriptions().filter((s) => s.params.scope.type === "objects");
+
+  test("201 selected off-board objects are watched in two batches, also after a viewer switch", async () => {
+    const ids = Array.from({ length: 201 }, (_, i) => `loot_${i}`);
+    await setupClient.transact(
+      ids.map(
+        (id): WireOp => ({
+          type: "create_object",
+          id,
+          to: { type: "board", board: "vault", position: [1, 1] },
+          init: { cells: { name: text(id), secret: num(1) }, cell_visibility: { secret: gmOnly } },
+        }),
+      ),
+    );
+    await until(() => session.directory().has("loot_200"), "the loot in the directory");
+    await session.watchObjects(ids);
+    expect(selection().map((s) => s.params)).toEqual([
+      { scope: { type: "objects", ids: ids.slice(0, 200) }, viewer: GM },
+      { scope: { type: "objects", ids: ids.slice(200) }, viewer: GM },
+    ]);
+    for (const id of ids) expect(hasCell(session.objectView(id), "secret")).toBe(true);
+    expect(session.refLabel(GM, "loot_200")).toBe("loot_200");
+
+    const revision = session.getSnapshot().revision;
+    const leaks: string[] = [];
+    const gaps: string[] = [];
+    session.subscribe(() => {
+      const aldric = session.getSnapshot().viewer.type === "character";
+      for (const id of ids) {
+        const view = session.objectView(id);
+        if (view === null) gaps.push(id);
+        else if (aldric && hasCell(view, "secret")) leaks.push(id);
+      }
+    });
+    await session.setView("gm_board", ALDRIC);
+    expect(session.getSnapshot().revision).toBe(revision);
+    expect(selection().map((s) => s.params)).toEqual([
+      { scope: { type: "objects", ids: ids.slice(0, 200) }, viewer: ALDRIC },
+      { scope: { type: "objects", ids: ids.slice(200) }, viewer: ALDRIC },
+    ]);
+    for (const id of ids) {
+      const view = session.objectView(id);
+      expect(view?.id).toBe(id);
+      expect(hasCell(view, "secret")).toBe(false);
+    }
+    // Atomic across batches: never a GM view while viewing as Aldric, never a gap.
+    expect(leaks).toEqual([]);
+    expect(gaps).toEqual([]);
+    // The old batches were closed after the swap: directory, board view, two batches.
+    expect(session.client.liveSubscriptions()).toHaveLength(4);
+  });
+
+  test("a refused batch is a connection notice naming its ids, not a silent drop", async () => {
+    const notices: ConnectionNotice[] = [];
+    session.onConnectionNotice((n) => notices.push(n));
+    // Ids need not exist. Directory + board view + 14 batches is max_subscriptions (16);
+    // the 15th batch is refused `busy`.
+    const ids = Array.from({ length: 15 * 200 }, (_, i) => `ghost_${i}`);
+    await session.watchObjects(ids);
+    expect(selection()).toHaveLength(14);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      subscription: "selection",
+      ids: ids.slice(14 * 200),
+      viewer: GM,
+      error: { code: "busy" },
+    });
+    expect(notices[0]?.message).toContain("200 selected objects");
   });
 });
