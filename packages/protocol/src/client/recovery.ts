@@ -70,6 +70,24 @@ const samePair = (a: TablePair, b: TablePair) => a.path === b.path && a.id === b
 
 const describePair = (p: TablePair) => `${p.path ?? "(in memory)"} [${p.id ?? "no id"}]`;
 
+/**
+ * Classifies a resubscribe failure: a transport failure the client produced
+ * locally (`ProtocolFailure.local`), or `null` for anything else, including
+ * every error response from the server. A lost socket rejects its pending
+ * queries `disconnected` with `sent: true` (the round is then stale, and
+ * `socket_closed` drives what follows); a request not written is
+ * `disconnected` with `sent: false`; an unanswered one is `timeout`. Other
+ * local failures (a malformed or protocol-violating response) are terminal.
+ */
+function transportFailure(e: unknown): "closed" | "timeout" | "send_failed" | null {
+  if (!(e instanceof ProtocolFailure) || !e.local) return null;
+  const { code, details } = e.error;
+  if (code === "timeout") return "timeout";
+  if (code !== "disconnected") return null;
+  const sent = (details as { sent?: unknown } | undefined)?.sent;
+  return sent === false ? "send_failed" : "closed";
+}
+
 const codeOf = (e: unknown) => (e instanceof ProtocolFailure ? e.error.code : undefined);
 
 class Recovery {
@@ -320,7 +338,6 @@ class Recovery {
       return;
     }
     for (const sub of subs) {
-      const sentAt = Date.now();
       client.requestDuringRecovery("subscribe", sub.params).then(
         (result) => {
           if (this.#stale(epoch)) sub.markRecovering();
@@ -328,7 +345,7 @@ class Recovery {
           settled();
         },
         (e: unknown) => {
-          const transport = this.#transportFailure(e, epoch, Date.now() - sentAt);
+          const transport = transportFailure(e);
           if (transport === null) {
             // An error response from the server, whatever its code: terminal (§8).
             sub.fail(e instanceof ProtocolFailure ? e : new ProtocolFailure("internal", String(e)));
@@ -345,41 +362,6 @@ class Recovery {
         },
       );
     }
-  }
-
-  /**
-   * Classifies a resubscribe failure: a transport failure the client produced
-   * locally, or `null` for an error response from the server. The client
-   * rejects pending requests of a closed socket only after emitting nothing
-   * else, and emits `socket_closed` synchronously in the same call, so a local
-   * socket-loss `disconnected` always finds this round stale. A local send
-   * failure (`sent: false`) and a local timeout carry the client's own
-   * details and message; a server response with the same code is told apart
-   * by those, by the round still being current, and, for a timeout, by the
-   * time elapsed since the send reaching (half of) the timeout the message
-   * names, which a prompt server answer does not.
-   */
-  #transportFailure(
-    e: unknown,
-    epoch: number,
-    elapsedMs: number,
-  ): "closed" | "timeout" | "send_failed" | null {
-    if (!(e instanceof ProtocolFailure)) return null;
-    const { code, message, details } = e.error;
-    const keys = details !== null && typeof details === "object" ? Object.keys(details) : [];
-    const sent =
-      keys.length === 1 && keys[0] === "sent" ? (details as { sent: unknown }).sent : undefined;
-    if (code === "disconnected") {
-      if (this.#stale(epoch) && sent !== undefined) return "closed";
-      if (sent === false && message.startsWith("cannot send subscribe")) return "send_failed";
-      return null;
-    }
-    if (code === "timeout") {
-      const match = /^subscribe: no response within (\d+) ms$/.exec(message);
-      if (sent === true && match && elapsedMs >= Number(match[1]) / 2) return "timeout";
-      return null;
-    }
-    return null;
   }
 
   #rebind(sub: Subscription, result: SubscribeResult): void {
@@ -426,7 +408,7 @@ function uncertain(
   message: string,
   extra: Record<string, unknown> = {},
 ): ProtocolFailure {
-  return new ProtocolFailure("uncertain", message, { txn_id, reason, ...extra });
+  return new ProtocolFailure("uncertain", message, { txn_id, reason, ...extra }, { local: true });
 }
 
 type ReadyOutcome = "ready" | "not_ready" | "unauthorized" | "wrong_table";

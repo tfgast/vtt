@@ -340,6 +340,131 @@ describe("result validation", () => {
   });
 });
 
+/** The `ProtocolFailure` a promise rejects with. */
+async function rejection(promise: Promise<unknown>): Promise<ProtocolFailure> {
+  try {
+    await promise;
+  } catch (e) {
+    expect(e).toBeInstanceOf(ProtocolFailure);
+    return e as ProtocolFailure;
+  }
+  throw new Error("expected a rejection");
+}
+
+describe("local failures are tagged", () => {
+  test("ProtocolFailure is not local unless constructed so", () => {
+    expect(new ProtocolFailure("not_found", "x").local).toBe(false);
+    expect(new ProtocolFailure("timeout", "x", { sent: true }).local).toBe(false);
+    const local = new ProtocolFailure("timeout", "x", { sent: true }, { local: true });
+    expect(local.local).toBe(true);
+    expect(local.error).toEqual({ code: "timeout", message: "x", details: { sent: true } });
+  });
+
+  test("an error response from the server is not local", async () => {
+    const { server, client } = await connected();
+    const p = client.request("zones", { board: "nope" });
+    server.peer.respondError(server.peer.lastRequest().id, { code: "not_found", message: "no" });
+    const e = await rejection(p);
+    expect(e.error.code).toBe("not_found");
+    expect(e.local).toBe(false);
+  });
+
+  test("a request while not connected fails local disconnected", async () => {
+    const { client } = setup();
+    const e = await rejection(client.request("get_objects", { ids: ["a"] }));
+    expect(e.error).toMatchObject({ code: "disconnected", details: { sent: false } });
+    expect(e.local).toBe(true);
+  });
+
+  test("a send that throws fails local disconnected", async () => {
+    const { server, client } = await connected();
+    vi.spyOn(server.peer.socket, "send").mockImplementation(() => {
+      throw new Error("socket refused the write");
+    });
+    const e = await rejection(client.request("get_objects", { ids: ["a"] }));
+    expect(e.error).toMatchObject({ code: "disconnected", details: { sent: false } });
+    expect(e.local).toBe(true);
+  });
+
+  test("timeouts are local: timeout for a query, uncertain for a write", async () => {
+    vi.useFakeTimers();
+    const { client } = await connected({ requestTimeoutMs: 1000 });
+    const q = rejection(client.request("get_objects", { ids: ["a"] }));
+    const t = rejection(client.transact([{ type: "remove", object: "a" }], { txn_id: "t-1" }));
+    vi.advanceTimersByTime(1000);
+    const [eq, et] = await Promise.all([q, t]);
+    expect(eq.error.code).toBe("timeout");
+    expect(eq.local).toBe(true);
+    expect(et.error.code).toBe("uncertain");
+    expect(et.local).toBe(true);
+  });
+
+  test("a dropped socket's failures are local: disconnected and uncertain", async () => {
+    const { server, client } = await connected();
+    const q = rejection(client.request("get_objects", { ids: ["a"] }));
+    const t = rejection(client.transact([{ type: "remove", object: "a" }], { txn_id: "t-1" }));
+    server.peer.drop();
+    const [eq, et] = await Promise.all([q, t]);
+    expect(eq.error).toMatchObject({ code: "disconnected", details: { sent: true } });
+    expect(eq.local).toBe(true);
+    expect(et.error.code).toBe("uncertain");
+    expect(et.local).toBe(true);
+  });
+
+  test("a malformed result fails local internal, also through rebind", async () => {
+    const ctx = await connected();
+    const p = ctx.client.request("get_objects", { ids: ["a"] });
+    ctx.server.peer.respond(ctx.server.peer.lastRequest().id, {});
+    const e = await rejection(p);
+    expect(e.error.code).toBe("internal");
+    expect(e.local).toBe(true);
+    const a = await subscribed(ctx, subscribeResult("s1", 0));
+    const info = { from_revision: 0, to_revision: 0, session_changed: false };
+    let thrown: unknown;
+    try {
+      a.rebind("s2", { subscription: "s2" } as unknown as SubscribeResult, info);
+    } catch (x) {
+      thrown = x;
+    }
+    expect(thrown).toBeInstanceOf(ProtocolFailure);
+    expect((thrown as ProtocolFailure).local).toBe(true);
+  });
+
+  test("connection failures are local", async () => {
+    const { server, client } = setup();
+    server.accepting = false;
+    const e = await rejection(client.connect());
+    expect(e.error.code).toBe("disconnected");
+    expect(e.local).toBe(true);
+  });
+
+  test.each(["disconnected", "timeout"] as const)(
+    "a server response coded %s (client-only) fails the request internal, protocol",
+    async (code) => {
+      const { server, client, warnings } = await connected();
+      const p = client.request("get_objects", { ids: ["a"] });
+      server.peer.respondError(server.peer.lastRequest().id, {
+        code,
+        message: "server says so",
+        details: { sent: true },
+      });
+      const e = await rejection(p);
+      expect(e.error).toEqual({
+        code: "internal",
+        message: expect.stringContaining(code),
+        details: { type: "protocol", method: "get_objects" },
+      });
+      expect(e.local).toBe(true);
+      expect(client.state).toBe("open");
+      expect(server.peer.closedByClient).toBeNull();
+      expect(warnings).toEqual([]);
+      const later = client.request("get_objects", { ids: ["a"] });
+      server.peer.respond(server.peer.lastRequest().id, getObjectsResult(0));
+      expect(await later).toEqual(getObjectsResult(0));
+    },
+  );
+});
+
 describe("forward compatibility and envelopes", () => {
   test("unknown event kinds and message types are ignored with a warning", async () => {
     const { server, client, warnings } = await connected();
