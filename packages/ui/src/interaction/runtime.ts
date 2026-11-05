@@ -126,6 +126,13 @@ export interface InteractionView {
 export interface InteractionRuntime {
   /** Reduces one event and executes its effects (`BoardCanvas`'s `onEvent`). */
   dispatch(event: InteractionEvent): void;
+  /**
+   * Executes effects built outside the machine (the inspector's Run,
+   * vtt-1xv.19) as a data-drop handler's are: stamped as their builder
+   * stamped them, cancelled with the active tool, and nothing settles back
+   * to a tool. Does nothing after `dispose`.
+   */
+  execute(effects: readonly Effect[]): void;
   /** The current view; the same object until it changes. */
   getView(): InteractionView;
   /** Adds a listener called after every view change; returns its remover. */
@@ -549,6 +556,10 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
 
   return {
     dispatch,
+    execute(effects) {
+      if (disposed) return;
+      run(effects, "handler");
+    },
     getView: () => view,
     subscribe(listener) {
       listeners.add(listener);

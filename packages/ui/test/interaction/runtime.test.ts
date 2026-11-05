@@ -1103,3 +1103,53 @@ describe("extension lookup", () => {
     },
   );
 });
+
+describe("execute (vtt-1xv.19)", () => {
+  const STAMP: InteractionStamp = {
+    interactionId: "run-1",
+    board: "main",
+    viewer: GM,
+    baseRevision: 4,
+  };
+
+  test("runs effects from outside the machine: extensions get their stamp, notices and writes reach their ports, nothing settles back to a tool", async () => {
+    const seen: unknown[] = [];
+    const h = setup({
+      extensions: {
+        effects: {
+          ping: async (effect) => {
+            seen.push(effect.stamp, effect.payload);
+            return "pong";
+          },
+        },
+      },
+    });
+    h.runtime.execute([
+      { type: "notice", level: "info", text: "hello" },
+      { type: "extension", name: "ping", stamp: STAMP, payload: 7 },
+      {
+        type: "write",
+        stamp: STAMP,
+        ops: [createOp("main", [0, 0], "token")],
+        label: "Create",
+        continuations: [{ type: "select", ids: ["tok"] }],
+      },
+    ]);
+    expect(h.notices).toEqual([{ level: "info", text: "hello" }]);
+    expect(h.writes).toHaveLength(1);
+    expect(h.lastWrite().opts).toEqual({ baseRevision: 4, label: "Create" });
+    h.lastWrite().result.resolve(committed());
+    await flush();
+    expect(seen).toEqual([STAMP, 7]);
+    expect(h.ui.getState().selection).toEqual(["tok"]);
+    expect(h.settledOf("token")).toEqual([]);
+    expect(h.settledOf("select")).toEqual([]);
+  });
+
+  test("after dispose it does nothing", () => {
+    const h = setup();
+    h.runtime.dispose();
+    h.runtime.execute([{ type: "notice", level: "info", text: "hello" }]);
+    expect(h.notices).toEqual([]);
+  });
+});
