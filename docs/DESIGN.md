@@ -106,10 +106,10 @@ The atomic unit. An object has:
 - **Cells.** A named set of values. Each cell holds a literal or a formula,
   and may carry an override and a per-cell visibility. Image, shape, color,
   ink, tags, visibility, and the owning `contents` list are all cells.
-- **Actions.** Named lists of steps (see 4.6).
+- **Actions.** Named lists of steps (see 4.5).
 - **Face layout.** Which cells and buttons appear on the object's surface,
-  where, and under what conditions. The face is data, part of the template,
-  and editable. See 4.7.
+  where, and under what conditions. The face is data (the object field
+  `face`), part of the template, and editable. See 4.6.
 - **Flags.** `is_template` and `is_character`, both false by default. They
   are fields of the object, not cells (FORMULAS.md 3.1), so formulas do not
   read them. A spawned copy carries both from its original, except that the
@@ -117,7 +117,8 @@ The atomic unit. An object has:
 
 Cell values can be numbers, text, booleans, lists, dice expressions, roll
 results, **ink** (freehand strokes, so scrawl in the margin travels with the
-object), and **references to other objects**.
+object; an object's own ink is its cell `ink`, 4.6), and **references to
+other objects**.
 
 **Containment.** Every object has one owning cell, `contents`, which is a list
 of the objects inside it. An object is inside at most one container, and the
@@ -198,15 +199,18 @@ Spawn, precisely (also FORMULAS.md 8.3):
   from.
 - **Flags.** The root copy has `is_template` false; descendants keep their
   originals' `is_template`. `is_character` is copied.
-- **What is copied.** Every cell, plus `is_zone`, `tag`, `shape`, actions, and
-  per-cell visibility (4.4). Formula source is copied verbatim, never
-  rewritten.
+- **What is copied.** Every cell, plus `is_zone`, `tag`, `shape`, actions,
+  the face layout (4.6), and per-cell visibility (4.4). Formula source and
+  the face layout are copied verbatim, never rewritten (a face names cells
+  and actions, not objects).
 - **Remapping.** A reference inside a copied cell value (directly, in a list,
   or in a viewers value) or inside per-cell visibility that names an object in
   the copied subtree is remapped to that object's copy; any other reference is
   kept.
 - **Initial cells** may be literals or formulas, and replace what was copied
-  into the root copy.
+  into the root copy. A `spawn` step's record gives evaluated values; a
+  formula initial cell comes only through the protocol's `spawn` op
+  (FORMULAS.md 8.3).
 - **Order.** A container destination without an index appends, so successive
   spawns into one container within one transaction append in call order.
 
@@ -443,7 +447,7 @@ The contract:
   ones before it. Any error aborts the whole action with nothing applied.
 - An action may carry a **`when` precondition**. If it is false the action
   refuses to run and says why. This is what stops Apply from applying twice;
-  show-when (4.7) only hides the button and is not an execution guard.
+  show-when (4.6) only hides the button and is not an execution guard.
 - Formulas recompute once, after the action commits.
 - **One undo reverses one whole action**, including every row of an Apply
   All.
@@ -453,6 +457,14 @@ The contract:
 Actions appear on an object's face as **buttons**. The inspector shows an
 action's steps and precondition and lets the GM edit them, exactly as it does
 for formulas.
+
+**Pressing buttons in the UI.** The UI never invokes an action on a template:
+templates are not mutated by play (4.7), so a template's buttons (and the
+inspector's Run) refuse with the reason; the agent may still invoke one. In
+view-as a button press is the GM driving that character: the invocation's
+actor is the viewed character, and the log records it; other edits remain
+the GM's (4.6, **View as in the UI**). A disabled button (its `when` false or
+an error) sends nothing and shows the reason.
 
 ### 4.6 How cells are shown
 
@@ -466,17 +478,19 @@ surface. A d20 shows `total` large in the middle. A token shows `image`, with
 like paper, with dozens of cells and an ink margin. An index card shows `title`
 and `body`. The face is what you see at the table.
 
-**Edit in place.** Double-click a cell on the face to edit it there, like a
-spreadsheet cell or a sticky note. Literals change directly. Formula cells open
-in the formula bar. This is the path for most of play: change HP, scribble a
-note, rename something.
+**Edit in place.** Click a cell's editor element on the face, or
+double-click its value element, to edit it there, like a spreadsheet cell or
+a sticky note (**Gestures** below). Literals change directly. Formula cells
+open in the formula bar. This is the path for most of play: change HP,
+scribble a note, rename something.
 
 **Zoom as level of detail.** The canvas is infinite, so zoom gives a free
 gradient between glance and scrutiny. Zoomed out, a token is a small circle
 showing only its image. Zoomed in, there is room for name, HP, and conditions.
 The face layout carries rules of the form "show this element above this
-size." A character sheet is an object you literally lean into. This avoids
-most modal windows.
+size": an element's `min_size`, the minimum on-screen height of its rect in
+CSS px, applied by the UI. A character sheet is an object you literally lean
+into. This avoids most modal windows.
 
 **Face elements.** A face layout is a list of elements. V1 needs four kinds:
 a cell shown as its value; a cell shown as an in-place editor; a **button**
@@ -484,15 +498,56 @@ bound to an action; and a **contents** element that renders the objects in
 this object's `contents` inline, each drawn with its own face. The contents
 element is one mechanism serving three needs: the rows of a multi-target card,
 the entries in a binder, and the cards in a hand. Every element can carry a
-**show-when** condition: a formula over the object's cells plus two
-presentation inputs, the viewer's zoom and whether the object is collapsed.
-Those two inputs are local to a viewer, are not cells, and cannot be read by
-game formulas. The layout stays deliberately simple: elements at positions
-with sizes and show-when rules, nothing more.
+**show-when** condition: a formula over the object's cells only, evaluated by
+the authority and sent to each viewer as a boolean. The two presentation
+inputs are not formula inputs: zoom is the element's `min_size`, applied by
+the UI, and the collapsed input is the separate collapsed element list. They
+are local to a viewer, are not cells, and cannot be read by game formulas.
+Character views get neither the `show_when` source nor hidden elements nor
+elements naming cells they cannot read. The layout stays deliberately
+simple: elements at positions with sizes and show-when rules, nothing more.
 
 **Collapsed face.** Every object can have a compact face, by default just its
 `name`, used when it sits in a binder or a tight container. Expanding it shows
 the full face.
+
+**Face layouts** (the encoding; docs/PROTOCOL.md §5, FIXTURES.md §3). An
+object's layout is its field `face?: FaceLayout`:
+
+- `FaceLayout = {elements: FaceElement[]; collapsed?: FaceElement[];
+  default_action?: string}`.
+- `FaceElement` = `{type: "value" | "editor"; cell; rect; show_when?;
+  min_size?; style?}` | `{type: "button"; action; rect; label?; show_when?;
+  min_size?}` | `{type: "contents"; rect; entries?: "collapsed" | "full";
+  show_when?; min_size?}`.
+- `rect: [x, y, w, h]`, finite, `w`, `h` > 0, in board units in the
+  object's unrotated local frame (origin at the anchor, y down). The
+  full-face frame is the shape's bounding box (shapeless: `[-1, -0.5, 2,
+  1]`); the collapsed frame is `[0, 0, 6, 0.6]`, scaled to the container
+  row.
+- `style = {size?: "small" | "normal" | "large" | "huge"; align?: "left" |
+  "center" | "right"; caption?: boolean}`.
+- At most 200 elements per list and one `contents` element per list;
+  `show_when` non-blank, at most 10,000 characters.
+- The whole layout is replaced by `set_face` (conflict key
+  `face:<object>`), copied verbatim on spawn, and carried in create and
+  remove snapshots; absent means no layout. There is no `schema_version`
+  change.
+
+The Attack card face:
+
+```json
+{"elements": [
+  {"type": "value", "cell": "name", "rect": [-1.2, -1.7, 2.4, 0.4], "style": {"size": "large"}},
+  {"type": "editor", "cell": "target", "rect": [-1.2, -1.2, 2.4, 0.4], "style": {"caption": true}},
+  {"type": "value", "cell": "total", "rect": [-1.2, -0.7, 1.1, 0.5], "style": {"caption": true}},
+  {"type": "value", "cell": "hit", "rect": [0.1, -0.7, 1.1, 0.5], "style": {"caption": true}},
+  {"type": "value", "cell": "dmg", "rect": [-1.2, -0.1, 2.4, 0.4], "style": {"caption": true}},
+  {"type": "button", "action": "Roll", "rect": [-1.2, 0.5, 1.1, 0.45], "show_when": "roll = empty"},
+  {"type": "button", "action": "Roll damage", "rect": [0.1, 0.5, 1.1, 0.45], "show_when": "hit and dmg = empty"},
+  {"type": "button", "action": "Apply", "rect": [-1.2, 1.1, 2.4, 0.45], "show_when": "not applied"}],
+ "default_action": "Roll"}
+```
 
 **The inspector.** A side panel. Select an object and it lists every cell as
 name and value, formulas shown as formulas with the computed result alongside,
@@ -562,6 +617,46 @@ tracing highlights the objects referenced by a hovered formula (from
 `explain_cell`, with the current viewer) and a hovered zone's contents (from
 `zones`, likewise), so both are filtered by the viewer (docs/PROTOCOL.md §9).
 
+**Default face.** An object without a layout draws the default rendering
+above plus its `ink` cell, a strip of its action buttons below its frame,
+and a collapsed list of its contents below that; a template object on a
+board also shows a gear (4.7).
+
+**Gestures.**
+
+- A single click on an editor element and a double-click on a value element
+  edit that cell in place. A double-click elsewhere on an object with an
+  enabled `default_action` invokes it (else the default edit in place).
+- Dropping an object on another object's editor element sets that cell to a
+  reference to it (nothing moves). Dropping on a contents element inserts
+  there (copy versus move is the intent fixed at drag start, M4-D8), except
+  that dropping a template onto a binder's contents element gives a template
+  (4.7).
+- A drop resolves, in order, to an editor element under the pointer, else
+  the innermost contents element under it (at the row's index, or the end),
+  else the board.
+- Contents elements scroll: a per-session, never-stored scroll offset per
+  (object, element), changed by the wheel over the element (before any
+  camera zoom), clipped to the element's rect. The wheel scrolls the
+  innermost enclosing list that overflows. An entry expanded near the bottom
+  is scrolled into view (the whole row when it fits, else its top aligned
+  with the list's top).
+- A collapsed entry shows its collapsed face (its own `collapsed` list, else
+  its `name`). An expanded contained object is drawn exactly as on a board
+  (its base drawing: shape, fill, image, text, label, face-down back, then
+  its face), each scaled into its row.
+- Clicking a row (or an expanded child's empty area) selects that contained
+  object for the inspector.
+- A cell dragged from the inspector onto an object adds a value element
+  (layout mode).
+
+**Ink and text.** Ink is the cell `ink` (strokes in object-local board
+units, origin at the anchor, y down, unrotated), drawn with one fixed pen
+(0.04 units, dark). The ink tool appends a stroke to the topmost object under
+the pointer or creates an `ink_<n>` object (a transparent rect). The text
+tool creates a `text_<n>` transparent rect with an empty `text` and opens
+the editor.
+
 **Typing into a cell.** The formula bar, the inspector and the in-place
 editor share one input grammar:
 
@@ -599,7 +694,8 @@ editor share one input grammar:
 
 **View as in the UI.** View-as (4.4) switches the viewer of what is drawn,
 inspected and traced. The inspector and formula bar are read-only there and
-show the character's view. Canvas edits are still the GM's.
+show the character's view. Canvas edits are still the GM's, except that a
+button pressed in view-as invokes as the viewed character (4.5).
 
 ### 4.7 Procedure cards and the binder
 
@@ -636,9 +732,8 @@ in the binder (expanding it and pressing Roll for a quick check) acts on a
 **working copy** that sits beneath the template inside the binder until it is
 discarded; the template itself is never mutated by play. The working copy can
 be dragged onto the table like any card. Editing the template is a separate,
-deliberate affordance (a gear, a right-click "edit template," a "save to
-template" on a working copy; the exact UI is undecided). Dragging a template
-straight onto the table creates a copy there.
+deliberate affordance: the gear (below). Dragging a template straight onto
+the table creates a copy there.
 
 This avoids the software placing cards on the shared board on its own, which
 would get messy. Where a card lands is where a person dropped it. Cards on the
@@ -653,6 +748,156 @@ everyone, and its targets are `contents(zone)`. No targeting mode. A
 multi-target card should be used on the table rather than in a binder, because
 rows inside a character's binder are visible only to that character.
 
+**Binders, sheets and hands on the canvas** (M5-D13, M5-D14, M5-D16–M5-D18).
+
+- Binders, sheets and hands are canvas objects with a contents element;
+  there is no DOM binder panel. A character's binder or sheet is used
+  through the character's face or default contents list, or dragged out onto
+  a board.
+- Contents entries are expanded and collapsed per session, locally.
+  Expanding a template entry spawns a working copy right after it (index +
+  1) and expands and selects it, or expands an existing non-template entry
+  of that container whose `template` refers to it. The template entry
+  itself never expands.
+- Edit-template is the gear: it selects the template for editing with an
+  "Editing template" banner. There is no "save to template" in v1.
+- Card lifetime is manual (Discard actions or Delete); there is no
+  ephemeral flag.
+- Shared templates live in the GM binder.
+- A **binder** is an object whose `tag` contains `"binder"`. Dropping a
+  template (an entry or a board template) onto a binder's contents element
+  **gives a template**: one `transact` `[spawn {template, to: {type:
+  "container", container: binder, index}, as: "$copy"}, set_template_flag
+  {object: "$copy", value: true}]`, so the recipient holds a reusable
+  template (copy-versus-move intent is ignored for this drop; Alt held at
+  drag start moves the template instead). Dropping onto any other contents
+  element copies an instance (4.6, **Gestures**).
+
+**Example templates** (M5-D19). The GM binder of a new table (7, **New
+tables and ownership**) is stocked with these complete records; the
+implementation copies them verbatim and chooses nothing else. Notation:
+`shape` (frames: a rect w × h has frame `[-w/2, -h/2, w, h]`, a circle r `[-r, -r, 2r, 2r]`); `tag`;
+flags; cells (`name: literal`, `name = formula`; `""` is empty text, `empty`
+the empty value, `@id` a reference); actions (`Name [when]: steps`, steps
+separated by ` ; `); face elements as `kind cell|action [x, y, w, h]` with
+options (`L` style size large, `H` huge, `C` caption, `m=N` min_size N px,
+`sw="…"` show_when); `default_action`. Every record not marked otherwise
+is a template (`is_template: true`) with default `visible_to`. Ids never end
+in `_<digits>`.
+
+- `gm_binder` (not a template; on `gm_board` at `[0, 0]`): rect 7 × 10; tag
+  binder; `name: "GM binder"`, `visible_to: [gm]` (viewers); face: `value
+  name [-3.3, -4.8, 6.6, 0.6] L`, `contents [-3.3, -4.0, 6.6, 8.8]` (entries
+  collapsed). Contents in this order: `tpl_character`, `tpl_attack`,
+  `tpl_damage`, `tpl_area_save`, `tpl_save_row`, `tpl_token`, `tpl_zone`,
+  `tpl_card`, `tpl_note`, `tpl_sheet`, `tpl_hand`, `tpl_binder`,
+  `tpl_stack`, `tpl_d20` (the last is directly playable through a working
+  copy, which the scrolling tests use).
+- `tpl_d20`: circle r 0.5; tag die, d20; `name: "d20"`, `sides: 20`,
+  `modifier: empty`, `value: empty`, `total = value + modifier`; `Roll:
+  roll(1d20) -> value`; face `value total [-0.4, -0.35, 0.8, 0.5] H`,
+  `button Roll [-0.4, 0.18, 0.8, 0.25] m=10`; `default_action: "Roll"`.
+- `tpl_token`: circle r 0.5; tag creature; `name: "Token"`, `image: ""`,
+  `ac: empty`, `max_hp: empty`, `damage_taken: 0`, `hp = max_hp -
+  damage_taken`; face `value image [-0.5, -0.5, 1, 1]`, `value name [-0.8,
+  0.55, 1.6, 0.3] m=12`, `value hp [0.2, -0.6, 0.5, 0.3] m=12`.
+- `tpl_zone`: rect 4 × 4, `is_zone`; `name: "Zone"`; no face.
+- `tpl_card`: rect 2.5 × 3.5; `name: "Card"`, `title: ""`, `body: ""`; face
+  `editor title [-1.15, -1.65, 2.3, 0.5] L`, `editor body [-1.15, -1.05,
+  2.3, 2.7]`.
+- `tpl_note`: rect 2 × 2; `name: "Note"`, `color: "#fff3a0"`, `text: ""`,
+  `ink: empty`; face `value ink [-1, -1, 2, 2]`, `editor text [-0.9, -0.9,
+  1.8, 0.6]`.
+- `tpl_sheet`: rect 6 × 8; `name: "Sheet"`, `owner: empty`, `ac: empty`,
+  `max_hp: empty`, `hp = max_hp - owner.damage_taken`, `attack_bonus:
+  empty`, `damage_dice: 1d8`, `dex_save: empty`, `spell_dc: empty`, `notes:
+  ""`, `ink: empty`; face `editor name [-2.8, -3.8, 5.6, 0.6] L`, then
+  `C m=12` elements `editor ac [-2.8, -3.0, 2.7, 0.5]`, `editor max_hp [0.1,
+  -3.0, 2.7, 0.5]`, `value hp [-2.8, -2.4, 2.7, 0.5]`, `editor attack_bonus
+  [0.1, -2.4, 2.7, 0.5]`, `editor damage_dice [-2.8, -1.8, 2.7, 0.5]`,
+  `editor dex_save [0.1, -1.8, 2.7, 0.5]`, `editor spell_dc [-2.8, -1.2,
+  2.7, 0.5]`, then `editor notes [-2.8, -0.6, 5.6, 2.4]`, `value ink [-2.8,
+  1.9, 5.6, 1.9]`.
+- `tpl_stack`: rect 2.5 × 3.5; `name: "Stack"`, `count = len(contents)`;
+  `Shuffle: shuffle(this)`; face `value name [-1.15, -1.65, 2.3, 0.5] L`,
+  `value count [-1.15, -1.0, 2.3, 0.8] H C`, `button Shuffle [-1.15, 1.1,
+  2.3, 0.5]`.
+- `tpl_hand`: rect 6 × 2; tag hand; `name: "Hand"`, `owner: empty`,
+  `visible_to = owner`; face `value name [-2.9, -0.95, 5.8, 0.35]`,
+  `contents [-2.9, -0.55, 5.8, 1.5]` (entries collapsed).
+- `tpl_binder`: rect 7 × 10; tag binder; `name: "Binder"`, `owner: empty`,
+  `visible_to = owner`; face as `gm_binder`'s.
+- `tpl_character`: circle r 0.5; `is_character`; tag pc, creature; `name:
+  "Character"`, `image: ""`, `sheet: @tpl_character_sheet`, `damage_taken:
+  0`, `ac = sheet.ac`, `hp = sheet.hp`, `attack_bonus =
+  sheet.attack_bonus`, `damage_dice = sheet.damage_dice`, `dex_save =
+  sheet.dex_save`, `spell_dc = sheet.spell_dc`; contents
+  `tpl_character_sheet`, `tpl_character_binder`; face `value image [-0.5,
+  -0.5, 1, 1]`, `value name [-0.8, 0.55, 1.6, 0.3] m=12`, `value hp [0.2,
+  -0.6, 0.5, 0.3] m=12`, `contents [-1.5, 0.9, 3, 1.2] m=24` (entries
+  collapsed).
+  - `tpl_character_sheet` (**not** a template): `tpl_sheet`'s record with
+    `owner: @tpl_character`.
+  - `tpl_character_binder` (**not** a template): `tpl_binder`'s record with
+    `owner: @tpl_character`; contents `tpl_character_attack`.
+  - `tpl_character_attack` (template): `tpl_attack`'s record with
+    `attacker: @tpl_character`, `owner: @tpl_character`. Spawning the
+    character remaps all three references to the new character.
+- `tpl_attack`: rect 2.5 × 3.5; `name: "Attack"`, `owner: empty`, `attacker:
+  empty`, `target: empty`, `roll: empty`, `dmg: empty`, `applied: false`,
+  `bonus = attacker.attack_bonus`, `total = roll + bonus`, `hit = roll !=
+  empty and total >= target.ac`; `Roll [target != empty and roll = empty]:
+  roll(1d20) -> roll`; `Roll damage [hit and dmg = empty]:
+  roll(attacker.damage_dice) -> dmg`; `Apply [hit and dmg != empty and not
+  applied]: add(target.damage_taken, dmg) ; set(applied, true)`; `Discard:
+  remove(this)`; face: the Attack card face (**Face layouts**, 4.6).
+- `tpl_damage`: rect 2.5 × 3.5; `name: "Damage"`, `target: empty`,
+  `dmg_dice: 1d6`, `dmg: empty`, `applied: false`; `Roll damage [target !=
+  empty and dmg = empty]: roll(dmg_dice) -> dmg`; `Apply [dmg != empty and
+  not applied]: add(target.damage_taken, dmg) ; set(applied, true)`;
+  `Discard: remove(this)`; face `value name [-1.2, -1.7, 2.4, 0.4] L`,
+  `editor target [-1.2, -1.2, 2.4, 0.4] C`, `editor dmg_dice [-1.2, -0.7,
+  2.4, 0.4] C`, `value dmg [-1.2, -0.2, 2.4, 0.5] C`, `button "Roll damage"
+  [-1.2, 0.5, 2.4, 0.45] sw="dmg = empty"`, `button Apply [-1.2, 1.1, 2.4,
+  0.45] sw="not applied"`.
+- `tpl_area_save`: rect 2.5 × 3.5; contents `tpl_area_save_zone`; `name:
+  "Area save"`, `caster: empty`, `zone: @tpl_area_save_zone`, `save_row:
+  @tpl_save_row`, `dc = caster.spell_dc`, `damage_dice: 8d6`, `damage:
+  empty`, `locked: false`, `applied: false`, `targets =
+  contents(zone).where(tag has "creature")`, `rows = contents.where(tag has
+  "save_row")`; `Lock targets [not locked]: each(targets, spawn(save_row,
+  this, {target: it, owner: it.owner})) ; set(locked, true)`; `Roll damage
+  [locked and damage = empty]: roll(damage_dice) -> damage`; `Apply all
+  [locked and damage != empty and all(rows.save_roll != empty) and not
+  applied]: each(rows, add(it.target.damage_taken, it.damage_dealt)) ;
+  set(applied, true)`; `Discard: remove(zone) ; remove(this)`; face `value
+  name [-1.2, -1.7, 2.4, 0.4] L`, `editor caster [-1.2, -1.25, 1.15, 0.35]
+  C`, `value dc [0.05, -1.25, 1.15, 0.35] C`, `value damage [-1.2, -0.85,
+  2.4, 0.35] C`, `contents [-1.2, -0.45, 2.4, 1.4]` (entries collapsed),
+  `button "Lock targets" [-1.2, 1.0, 1.15, 0.35] sw="not locked"`, `button
+  "Roll damage" [0.05, 1.0, 1.15, 0.35] sw="locked and damage = empty"`,
+  `button "Apply all" [-1.2, 1.4, 1.15, 0.3] sw="not applied"`, `button
+  Discard [0.05, 1.4, 1.15, 0.3]`. **Caster initialization:** `caster` is
+  `empty` in the GM binder and in every copy made from it (spawning keeps
+  external references and an empty value stays empty); the GM sets it by
+  dropping the caster's token on the `caster` editor (4.6, **Gestures**). Until then `dc`
+  is `empty` and the save rows' Roll save is disabled by `card.caster !=
+  empty` in its guard. A copy given into a character's binder keeps `caster`
+  empty (no inference).
+  - `tpl_area_save_zone` (**not** a template): circle r 2, `is_zone`;
+    `name: "Area"`.
+- `tpl_save_row` (beside `tpl_area_save` in the binder, outside its
+  subtree): rect 2.5 × 0.8; tag save_row; `name: "Save"`, `owner: empty`,
+  `target: empty`, `save_roll: empty`, `card = container`, `save_bonus =
+  target.dex_save`, `passed = save_roll + save_bonus >= card.dc`,
+  `damage_dealt = if(passed, floor(card.damage / 2), card.damage)`; `Roll
+  save [save_roll = empty and card.caster != empty]: roll(1d20) ->
+  save_roll`; face `value target [-1.2, -0.35, 1.0, 0.3]`, `value save_roll
+  [-0.15, -0.35, 0.6, 0.3]`, `value passed [0.5, -0.35, 0.7, 0.3]`, `button
+  "Roll save" [-1.2, 0.05, 2.4, 0.3] sw="save_roll = empty"`.
+
+These are examples, not game content.
+
 ### 4.8 The log, and why there is no chat panel
 
 A VTT chat panel does three jobs: it is a log, it is the procedure UI, and it
@@ -666,6 +911,14 @@ is a communication channel. Here:
   of finished cards is an optional physical history on top of it.
 - **Communication is deferred.** Plain text and whispers can be added to the
   log panel later, when there is more than one person connected.
+
+**The log panel** (M5-D21) renders the log window's group views as one
+header and one sentence per effect, with names as captured at commit. It
+filters by actor, kind and text, links sentences to live objects, undoes any
+group by index (`undo {type: "group"}`; Ctrl+Z stays `mine`, 7), pages older
+groups with `log`, reloads loaded pages when visibility or undone state may
+have changed, and is filtered by the viewer. Action definitions are not
+recorded in groups (`explain_group` keeps returning the current one).
 
 What is given up relative to a guided chat card: a stepped reveal of one
 button at a time. Show-when conditions on face elements recover most of it. A
@@ -724,11 +977,11 @@ launches; it attaches to the running authority as an ordinary protocol client
 whose actor is `agent`, so the agent is a peer of the UI and the table
 outlives agent sessions. Its tools follow the four groups above: query
 (`table_info`, `list_objects`, `get_objects`, `evaluate`, `zones`,
-`at_position`, `changes_since`, `log`), write (`transact`, `undo`, `save`,
-and `import_asset`, which uploads a local image file for an `image` cell),
+`at_position`, `changes_since`, `log`), write (`transact`, `invoke`, which
+invokes an action as a button press does, `undo`, `save`, and
+`import_asset`, which uploads a local image file for an `image` cell),
 explain (`explain_cell`, `explain_group`, `explain_action`), and subscribe
-(`subscribe`, `poll_changes`, `unsubscribe`); invoking actions arrives with
-M5.
+(`subscribe`, `poll_changes`, `unsubscribe`).
 
 - **Stale writes.** Every `transact` (the batched write command) carries the
   revision it was based on. It is refused as `stale_write` when a group
@@ -799,8 +1052,9 @@ plus an ordered stream of committed operations** from the start:
 
 - its resolved effects, in order: cell states before and after, each with a
   cause, `edit` or `roll`; per-cell visibility changes; field changes
-  (`tag`, `shape`, `is_template`, `is_character`, and `actions`, an object's
-  whole action list before and after); placements; creation and removal of whole subtrees; reorders; board changes;
+  (`tag`, `shape`, `is_template`, `is_character`, `actions`, an object's
+  whole action list before and after, and `face`, its whole face layout
+  before and after); placements; creation and removal of whole subtrees; reorders; board changes;
   id allocation; id retirement;
 - the actor; its kind, `edit`, `action`, or `undo`; a label; its origin; and,
   for an undo, `undoes`, the index of the group it reverses;
@@ -840,6 +1094,8 @@ H is not undone, and the two share a touched key:
 - a cell write touches the cell's key, and so does a change to that cell's
   per-cell visibility;
 - replacing an object's action list touches its `actions:<object>` key, which
+  conflicts with itself and with creating or removing that object;
+- replacing an object's face layout touches its `face:<object>` key, which
   conflicts with itself and with creating or removing that object;
 - a move touches the `contents` key of the container at both ends;
 - creating or removing objects touches every key on those objects, and the
@@ -933,7 +1189,10 @@ reports `{saved, revision, error?}`, and always releases the lock. There is
 no automatic compaction in v1.
 
 **New tables and ownership.** Opening a missing file creates it with one
-board, `gm_board` named "GM", and no objects. One authority owns a table at a
+board, `gm_board` named "GM". `vtt-serve` puts on it the GM binder stocked
+with the example templates (4.7), or, with `--empty`, no objects; the host's
+own default stays the empty table, which tests keep (M5-D19, amending
+M3-D25). One authority owns a table at a
 time through a lock file `<file>.lock`, created exclusively and released only
 by its owner; a lock left by a dead process is refused, never taken over
 automatically, and removing it is a human decision (`vtt-serve
@@ -982,12 +1241,18 @@ holds.
 **Smaller decisions.**
 
 - The `table` destination (FORMULAS.md 8.2) is resolved by M5 into a board
-  destination; M2's primitives take only board and container destinations.
+  destination: the `table` parameter of `invoke` (docs/PROTOCOL.md §4), the
+  board and point the invoker names (the UI's active board and viewport
+  centre); without it the step is a step error. `beside(r)` places right of
+  `r` (or of its outermost container on a board), touching plus 0.25 by
+  footprint widths (FORMULAS.md 8.2). M2's primitives take only board and
+  container destinations.
 - Renaming a cell does not rewrite formulas that name it. It is refused when
   either name is structural (FORMULAS.md 3.1) or the destination cell exists.
   Any per-cell visibility recorded for the (absent) destination is replaced
   with the source's.
-- Spawn initial cells may be literals or formulas (4.1).
+- Spawn initial cells may be literals or formulas (4.1); a `spawn` step's
+  record gives values (FORMULAS.md 8.3).
 - Reordering `contents` by `shuffle` is allowed despite the membership
   protection of FORMULAS.md 3.1: it changes order, not membership.
 
@@ -1012,12 +1277,13 @@ inputs. The UI and the agent are two clients of the same
 protocol, so the protocol is designed first, not deferred.
 
 In the tab, the scene is drawn on a canvas and the chrome (inspector, formula
-bar, binder, log) is DOM. In-place editing is a DOM overlay positioned over
+bar, log) is DOM; binders are canvas objects (4.7). In-place editing is a DOM overlay positioned over
 the cell. Canvas2D with viewport culling and an image cache; per-object
 render caching is deferred until profiling asks (vtt-qf5.10). The renderer
 sits behind a small renderer interface; PixiJS is the known upgrade if
 profiling demands it. Objects are never DOM nodes. Canvas text is weak at
-small sizes, which show-when zoom thresholds already accommodate. Very large
+small sizes, which face elements' `min_size` zoom thresholds already
+accommodate. Very large
 map images are a tiling problem and stay in Later.
 
 **Protocol.** The wire protocol is specified in docs/PROTOCOL.md: JSON
@@ -1057,9 +1323,12 @@ must prove the core model works and is pleasant:
 - Example templates: die, token, zone, card, sheet, sticky note, stack, hand,
   binder, character, and Attack, Damage, and Area Save cards. These are
   **examples, not shipped game content**: they use generic cell names and
-  the GM is expected to edit or discard them.
+  the GM is expected to edit or discard them. `vtt-serve` stocks them into
+  the GM binder of a new table (4.7, **Example templates**; 7, **New tables
+  and ownership**).
 - A log panel rendered from the operation stream.
-- Freehand drawing and text, so improvisation is cheap.
+- Freehand drawing and text, so improvisation is cheap (the ink and text
+  tools; ink is the cell `ink`, 4.6).
 - Save and load to a readable text format with assets, atomic saves, schema
   version.
 - A local MCP server exposing query, write, explain, and subscribe.
@@ -1159,16 +1428,13 @@ a separate player window, shipped game-system content.
 
 ## 9. Open questions
 
-- **Card lifetime.** Should table cards be able to mark themselves ephemeral
-  (discard automatically once applied), or is discard always a person's
-  action? Leaning manual in v1.
+- **Card lifetime.** Decided: manual (M5-D16, 4.7).
 - **Template propagation.** When a binder template is edited, do the copies
   already on the table change? Not by default; worth an explicit "update from
   template" action later.
-- **Shared templates.** Where does a template every character should have
-  live? Probably the GM binder plus a "give a copy to each character" action,
-  or a table-level binder everyone can read.
-- **Edit-template UI.** Gear icon, right-click, or a mode. Not committed.
+- **Shared templates.** Decided: the GM binder, giving a template by
+  dropping it on a binder (M5-D18, 4.7).
+- **Edit-template UI.** Decided: a gear (M5-D17, 4.7).
 - **Rendering stack and platform.** Decided (section 7 and CLAUDE.md: React, a hand-written Pratt parser, Node). Still open within it: desktop shell.
 
 ## 10. Decision log
@@ -1192,7 +1458,7 @@ a separate player window, shipped game-system content.
 | 2026-11-04 | Two presentations of cells: the face (layout on the object, edit in place, zoom as level of detail) and the inspector (side panel). One formula bar. | Tokens look like tokens; every value remains one click from its formula. |
 | 2026-11-04 | Procedures are cards (objects with cells and buttons), not chat messages. No chat panel. A log panel is rendered from the operation stream; communication deferred. | Procedures stay editable templates rather than per-system code; the table is the UI. |
 | 2026-11-04 | Cards live in per-character binders as templates. In-binder use acts on a working copy; editing the template is a separate affordance. Drag out to copy onto the table. | People place cards, not the software. Templates are never mutated by play. |
-| 2026-11-04 | Face elements: value, editor, button, contents; all with show-when conditions over cells plus viewer-local zoom and collapsed inputs. | Covers multi-target procedures and stepped reveal without a wizard mode; presentation state never leaks into game formulas. |
+| 2026-11-04 | Face elements: value, editor, button, contents; all with show-when conditions over cells plus viewer-local zoom and collapsed inputs. Amended by M5-D8. | Covers multi-target procedures and stepped reveal without a wizard mode; presentation state never leaks into game formulas. |
 | 2026-11-04 | Derived state is formulas; accumulated state is written by actions. Formulas may read hidden cells; viewers see results, not inputs; formula authors are trusted. | Damage is history. Hit/miss should show without leaking AC. |
 | 2026-11-04 | Formula language: pure expression language, lowercase functions, broadcasting over lists, dice as a value type, `where(expr)` as the only filter, no keyword-filter shorthand. Actions are a fixed set of step kinds. Specified in FORMULAS.md. | One way to say each thing; small enough for a GM to learn and an agent to hold in context. |
 | 2026-11-04 | Visibility and ownership are keyed to characters, not people. The GM is a principal, not a character. V1 has one person with a "view as character" mode. Participants are a later mapping; union visibility is intentional. | The in-fiction question is what the GM decides; multiplayer then changes rights, not the table. |
@@ -1297,7 +1563,7 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M3-D22. Ordering: each connection's messages are handled one at a time in arrival order; every method except `save` is handled synchronously, so commits are totally ordered by revision, every connection receives every commit event in revision order, and the committer receives the commit event before its response; `save` awaits file I/O while other connections proceed. PROTOCOL §8. | With the response first, clients would have to handle a known revision whose delta has not arrived. |
 | 2026-11-05 | M3-D23. Reconnection: no server-side resumption; the client re-sends `hello` with the same `client.instance`, resubscribes and replaces its mirrors with full views (`resync`); requests never written to a socket fail `disconnected`, while a write already sent whose outcome cannot be settled reports `uncertain` (M3-D8); a resubscribe failing for a transport reason leaves the subscription `recovering` for the next connection, while an error response from the server makes it terminal (an `error` report, mirror emptied, the subscription object or MCP handle kept); the client is ready for ordinary callers only once every live subscription is resubscribed or terminal, reporting `disconnected` with `recovering: true` until then; every live mirror's revision advances on every processed commit, including commits with no delta for it; ping every 15 s, two missed pongs terminate. PROTOCOL §8. | Resuming from a revision with buffered deltas is complex, and full views are cheap locally; distinguishing transport from server failures keeps a flaky socket from killing subscriptions. |
 | 2026-11-05 | M3-D24. Autosave: 2 s after the last commit, at most 10 s after the first unsaved commit, on `save`, and on shutdown. Saves are serialized; each captures its snapshot and revision synchronously when it starts and marks only that revision saved; the asset list loaded with the file is kept through every save; a failed save is retried after 1 s, 5 s, 30 s, then every 60 s until that revision or a later one is saved; `saved_not_durable` does not mark the revision saved (it is retried like a failure); results are broadcast; shutdown awaits outstanding saves and its final save, never throws for a save failure, reports `{saved, revision, error?}`, and always releases the lock. No automatic compaction in v1. Replaces "autosave cadence is M3's" in §7. Amended by M4 (vtt-3l6.25): the asset list grows by import, an import schedules a save like a commit, and saved state is the pair (revision, assets generation). DESIGN §7. | Saving per commit would fsync constantly during drags; a periodic save alone loses up to a period of work. Capturing the revision at the start keeps "saved" truthful while commits continue. |
-| 2026-11-05 | M3-D25. New table and files: a missing file is created with one board `gm_board` named "GM" and no objects; default port 4747; lock and identity paths derived from the canonical (realpath) table path, so symlink aliases share them; lock file `<file>.lock` created exclusively (`wx`), cleaned up on any failure after creation, released only by its owner (nonce check), released on every failed open; table identity file `<file>.table-id` holding a random id, created under the held lock (temp file and rename) and never rewritten; an empty or malformed identity file fails the open. DESIGN §7; PROTOCOL §2. | A fixed default port keeps the UI URL stable; the identity file lets clients recognise a table across restarts without changing the table file format, which has no id. |
+| 2026-11-05 | M3-D25. New table and files: a missing file is created with one board `gm_board` named "GM" and no objects; default port 4747; lock and identity paths derived from the canonical (realpath) table path, so symlink aliases share them; lock file `<file>.lock` created exclusively (`wx`), cleaned up on any failure after creation, released only by its owner (nonce check), released on every failed open; table identity file `<file>.table-id` holding a random id, created under the held lock (temp file and rename) and never rewritten; an empty or malformed identity file fails the open. Amended by M5-D19. DESIGN §7; PROTOCOL §2. | A fixed default port keeps the UI URL stable; the identity file lets clients recognise a table across restarts without changing the table file format, which has no id. |
 | 2026-11-05 | M3-D26. Step 5 acceptance writes the hatch as an ordinary cell `pattern: "hatch"` (M4 decides appearance cells) and authors the Fireball card from scratch. DESIGN §8.4. | "Hatch it" names no cell and appearance cells are M4's; authoring the card from scratch exercises "define actions" rather than spawning a prepared template. |
 | 2026-11-05 | M3-D27. Runtime dependencies: `ws` 8.22.0 (with `@types/ws` 8.18.2), `@modelcontextprotocol/server` 2.3.1 (with `@modelcontextprotocol/client` 2.3.1 for tests), `tsx` 4.23.15 to run the binaries, `zod` 4.6.7. New runtime dependencies are pinned exactly and recorded in the decision log. DESIGN §7. | Node has a WebSocket client but no server, and hand-rolled framing is a security-sensitive parser to own; the v2 MCP server package uses zod 4 without v1's HTTP framework tree; extensionless relative imports do not run under Node's type stripping, hence tsx. |
 | 2026-11-05 | M3-D28. `evaluate` (ad hoc formulas) is GM-only. PROTOCOL §9. | Evaluating arbitrary source as a character would be an oracle for hidden values, and its result cannot be filtered meaningfully. |
@@ -1323,3 +1589,27 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M4-D15. Per-object render caching is deferred until profiling asks; v1 ships viewport culling and an image cache (vtt-qf5.10). Replaces "per-object render caching" in §7 Platform. DESIGN §7. | Bitmap caches add invalidation logic before any profile shows a need; principle 8 (§3) allows deferring performance work. |
 | 2026-11-05 | M4-D16. Covers are drawn above every object and object-related overlay; only viewer-independent chrome is drawn above them, and the in-place editor never shows over a cover (its rectangle must intersect none). DESIGN §4.4, §4.6. | A selection outline, handle, ghost or editor drawn over a cover would reveal the shape or position of a covered object; chrome such as the marquee carries nothing about the table. |
 | 2026-11-05 | M4-D17. "Replace formula with value" is `set_value` with `replace: true`: one cell effect from the formula (and any override) to the literal, valid on structural cells, undoable. PROTOCOL §5; DESIGN §4.2, §4.6. | `delete_cell` is refused on structural cells such as `visible_to` (a zone's re-hiding formula), and `delete_cell` + `set_value` would be two effects; one invariant-preserving cell effect keeps the replacement one exact undo. |
+| 2026-11-05 | M5-D1. `invoke` takes `object`, `action`, `base_revision` and optional `txn_id`, `retry`, `actor` (character), `label` and `table` (the board and point the `table` destination resolves to); it declares `obj:<object>` and `actions:<object>`, is stale-checked on its effects like `transact`, shares `transact`'s deduplication (the method is part of the fingerprint), and evaluates `when` at the current revision; results carry the created ids or the refusal with its step index; the command runs the action inside its own transaction (`runAction`) and checks stale keys before commit. PROTOCOL §4, §6. | Actions consume randomness, so a lost response must be resendable exactly once; the log must name the character the GM drove; the authority cannot know the GM's viewport. |
+| 2026-11-05 | M5-D2. Action steps have a step-level grammar in `@vtt/formula`: `set(path, expr)`, `add(path, expr)`, `append(path, expr)`, `roll(expr) -> path`, `move(expr, dest)`, `spawn(expr, dest, {name: expr})`, `remove(expr)`, `shuffle(expr)`, `each(expr, step)` whose second argument is parsed recursively as a step (one level); expression arguments are parsed with the expression parser's prefix mode and `->` is step syntax, never an expression operator; paths are names or `….name`; destinations are `table`, `board(b, p)`, `beside(r)` or a reference; none of these words is reserved. FORMULAS §8.4. | Steps reuse the one expression grammar; reserving words would break cells named `board` or `table`. |
+| 2026-11-05 | M5-D3. Step semantics: `add` treats rolls as their totals and `empty` as 0 and writes a number; `append` appends one item to a list or `empty`; `each` over `empty` runs nothing and over a scalar once; `set` refuses protected cells and `shape`; expression errors abort with their code. FORMULAS §8.3. | FORMULAS §8.3 was ambiguous about `empty`, and the Attack card's Apply adds a roll. |
+| 2026-11-05 | M5-D4. `beside(r)` places right of `r` (or of its outermost container on a board), touching-plus-0.25 by footprint widths; `table` resolves to the `table` parameter of `invoke` and is a step error without it. FORMULAS §8.2; DESIGN §7 Smaller decisions. | The authority cannot know the GM's viewport; `beside` had no placement rule. |
+| 2026-11-05 | M5-D5. Limits: `max_each_items` 1,000 and `max_action_writes` 10,000 per invocation (`#LIMIT`); `max_face_elements` 200 per list. PROTOCOL §10. | A runaway `each` over `objects()` must not stall the table. |
+| 2026-11-05 | M5-D6. Action refusals: `when_false`, `when_error` (with code; `#SYNTAX` for an unparsable guard), `step_error` (step index, optional code; `#SYNTAX` for an unparsable step, found before any step runs); primitive refusals inside a step keep their own type. Schema `Rejection`; FIXTURES §6; FORMULAS §8.1. | FIXTURES §6 predicts these reasons; primitive reasons stay distinguishable. |
+| 2026-11-05 | M5-D7. A face layout is an object field `face` (`elements`, `collapsed`, `default_action`) replaced whole by `set_face` (conflict key `face:<object>`), copied verbatim on spawn and carried in create/remove snapshots; element rects are board units in the object's unrotated local frame (the shape's bounding box; collapsed faces in a fixed 6 × 0.6 row frame). DESIGN §4.1, §4.6; PROTOCOL §5, §7.2. | Faces are data like actions: one effect per edit, an exact undo, no new value type. |
+| 2026-11-05 | M5-D8. Show-when is a formula over cells evaluated by the authority and sent as a boolean; zoom is an element's `min_size` (on-screen px) applied by the UI; collapsed is a separate element list; character views get neither source nor hidden elements. Amends the face-elements row of 2026-11-04. DESIGN §4.6; PROTOCOL §7.2. | Formulas evaluate only in the authority and their sources are GM-only; zoom changes continuously and locally. |
+| 2026-11-05 | M5-D9. Objects with guards or show-when are re-viewed after every commit; dependency tracking for them is deferred. PROTOCOL §8. | Simple and exact; tracked expressions are a Polish optimization (vtt-qf5.25). |
+| 2026-11-05 | M5-D10. Objects without a face layout show their action buttons and contents below them; contents elements scroll per session (never stored); an expanded contained object is drawn as on a board, scaled into its row; a single click on an editor element and a double-click on a value element edit in place; a double-click on an object with a `default_action` invokes it; dropping an object on an editor element sets that cell to a reference to it; dropping on a contents element inserts it there (a single template without Alt is copied). DESIGN §4.6, §4.7. | Actions and contents must be reachable without authoring a face; §8.4 steps 9 and 10 name these gestures. |
+| 2026-11-05 | M5-D11. In view-as, pressing a button invokes as the viewed character (`actor`); other edits remain the GM's. DESIGN §4.4, §4.5. | FIXTURES §1: a character actor is the GM driving that character, and the log records it. |
+| 2026-11-05 | M5-D12. The UI never invokes actions on templates; templates change only by editing. DESIGN §4.7. | 'The template itself is never mutated by play.' |
+| 2026-11-05 | M5-D13. Binders are canvas objects with a contents element; there is no DOM binder panel. DESIGN §4.7, §7. | One face renderer and one interaction stack; drag-out and drop-onto-cell are canvas gestures. |
+| 2026-11-05 | M5-D14. Expanding a template entry makes (or reuses) a working copy right after it and expands that copy. DESIGN §4.7. | §8.4 step 10: 'expand the Attack card … (a working copy appears)'. |
+| 2026-11-05 | M5-D15. The fixture format gains setup `face` and the `face_element` expectation (shown in a viewer's face); Attack card scenario asserts its show-when. FIXTURES §6, §7, §11. | FORMULAS §10 and FIXTURES §9 anticipate show-when in the format. |
+| 2026-11-05 | M5-D16. Card lifetime is manual: cards are discarded by an action or by hand. | DESIGN §9 leaned manual; nothing in v1 needs automation here. |
+| 2026-11-05 | M5-D17. Edit-template is a gear that selects the template for editing; no save-to-template in v1. | The least surprising affordance; propagation is vtt-y1w.3. |
+| 2026-11-05 | M5-D18. Shared templates live in the GM binder. A binder is an object tagged `binder`; dropping a template onto a binder's contents element gives a template (one `transact`: `spawn` as `$copy`, then `set_template_flag` `$copy` true), while dropping onto any other contents element copies an instance. | The recipient must hold a reusable template that makes working copies; one atomic group keeps undo whole. |
+| 2026-11-05 | M5-D19. `vtt-serve` creates new tables with a GM binder stocked with the example templates (`--empty` for none). Amends M3-D25. DESIGN §7, §8.1, §8.4 step 1. | §8.4 step 1 expects a stocked GM binder; tests keep the empty table. |
+| 2026-11-05 | M5-D20. Ink is the cell `ink` in object-local units; the ink tool draws onto the object under the pointer or creates an ink object; the text tool creates a text object. DESIGN §4.1, §4.6, §8.1. | 'Scrawl in the margin travels with the object' (DESIGN §4.1). |
+| 2026-11-05 | M5-D21. The log panel renders resolved effects as sentences, filters by actor, kind and text, and undoes any group by index; action definitions are not recorded in groups. DESIGN §4.8. | The log is the record of resolved effects (§4.5, §4.8); recording definitions would be a schema change. |
+| 2026-11-05 | M5-D22. `@vtt/authority` exposes its scenario runner helpers at the dev-only subpath `./test-runner`. CLAUDE.md Conventions. | The UI acceptance test needs the runner's setup helper without duplicating it. |
+| 2026-11-05 | M5-D23. Object views carry action definitions (`ActionDefinitionView`: name, and for the GM `when` and steps; also used in effects and snapshots) and, separately, live action state (`ActionStateView`: name, enabled, reason) only in live views; face element views carry `index`, their position in the stored layout, which the fixture `face_element.element` names. PROTOCOL §7.2, §7.6; FIXTURES §7. | Historical effects must not need live evaluation; character filtering must not renumber elements. |
+| 2026-11-05 | M5-D24. MCP tools: the request-surface server has 15 tools (14 plus `invoke`); the composed `vtt-mcp` process has 19 (with `subscribe`, `poll_changes`, `unsubscribe` and `import_asset`). PROTOCOL §11. | `import_asset` (M4-D3) already exists; counting the composed process avoids deleting it. |

@@ -230,6 +230,13 @@ and the same literal viewer sets.
 source text in the action language, exactly as the GM would type them. Names
 are unique per object. Spawned copies carry their template's actions.
 
+**Face** (M5). An object may carry an optional `face`: a face layout in the
+encoding of DESIGN §4.6 (`{elements, collapsed?, default_action?}`; value,
+editor, button and contents elements with `rect`, optional `show_when` and
+`min_size`). It maps one to one onto the object's `face` field and is copied
+verbatim on spawn, as actions are. `show_when` is source text like `when`.
+An object without `face` has no layout.
+
 ## 4. Formula source and step source
 
 Source text (formulas, `when`, action steps) is opaque to this package. The
@@ -342,8 +349,11 @@ engine treats them differently: the engine's `writeValue` on a formula cell
 creates an override, as a hand edit would, and clearing a missing override is
 refused by the engine. A runner implements the rejection
 protocol above for every step type it supports: the M2 runner for `set`,
-`override`, `clear_override`, `move`, `spawn`, and `undo`; M5 adds the action
-rejections `when_false`, `when_error`, and `step_error`.
+`override`, `clear_override`, `move`, `spawn`, and `undo`; M5 adds `invoke`
+with the action rejections `when_false`, `when_error`, and `step_error`
+(FORMULAS §8.1). A primitive's own refusal inside an action step keeps its
+reason (`protected_cell`, `containment_cycle`); a `type_error` is the reason
+`step_error` with code `#TYPE`.
 
 ## 7. Expectations
 
@@ -366,6 +376,7 @@ step. One discriminated union on `type`:
 | `log_groups` | `count` | The log holds this many groups. |
 | `log_includes` | `group, effect` | The group at that index records the effect. Step-level only. |
 | `replay` | | Applying the recorded effects of every group in the log, in order, to the document as it was right after setup reproduces the current stored state, and consumes no dice-script entries and no randomness. Top level or step level. See section 11. |
+| `face_element` | `object, element, list?, viewer?, shown` | `element` is the index of an element in the object's stored face list `list` (`"full"`, the default, for `elements`; `"collapsed"` for `collapsed`). `shown: true` holds when that element is present in the viewer's face view with its `show_when` true (or absent), `shown: false` when it is not (docs/PROTOCOL.md §7.2). `viewer` defaults to `gm`. |
 
 Rejection reasons: `{"type":"when_false"}`, `{"type":"when_error","code":"#REF"}`,
 `{"type":"step_error","code":"#TYPE"}` (code optional),
@@ -550,9 +561,29 @@ shown disabled and an attempted invocation is refused:
 ```
 
 `undo` of Apply restores `target.damage_taken` and `applied`. `hit` is visible
-to Aldric while the goblin's `ac` is not (`cell_visible`). Show-when on the
-face is out of scope (M5 extends the format additively); the guards are what
-the fixture tests.
+to Aldric while the goblin's `ac` is not (`cell_visible`). The guards are
+what make a second Apply impossible.
+
+The face (M5) is part of the scenario: the `attack_card` template carries the
+Attack card face of DESIGN §4.6, which `attack1` copies on spawn:
+
+```json
+{"elements": [
+  {"type": "value", "cell": "name", "rect": [-1.2, -1.7, 2.4, 0.4], "style": {"size": "large"}},
+  {"type": "editor", "cell": "target", "rect": [-1.2, -1.2, 2.4, 0.4], "style": {"caption": true}},
+  {"type": "value", "cell": "total", "rect": [-1.2, -0.7, 1.1, 0.5], "style": {"caption": true}},
+  {"type": "value", "cell": "hit", "rect": [0.1, -0.7, 1.1, 0.5], "style": {"caption": true}},
+  {"type": "value", "cell": "dmg", "rect": [-1.2, -0.1, 2.4, 0.4], "style": {"caption": true}},
+  {"type": "button", "action": "Roll", "rect": [-1.2, 0.5, 1.1, 0.45], "show_when": "roll = empty"},
+  {"type": "button", "action": "Roll damage", "rect": [0.1, 0.5, 1.1, 0.45], "show_when": "hit and dmg = empty"},
+  {"type": "button", "action": "Apply", "rect": [-1.2, 1.1, 2.4, 0.45], "show_when": "not applied"}],
+ "default_action": "Roll"}
+```
+
+Its show-when is asserted with `face_element` expectations before and after
+Roll and Apply: the Roll button (element 5) is shown until `roll` is set, and
+the Apply button (element 7) is shown until `applied`. Show-when only hides;
+the refused second Apply is still the guard's `when_false`.
 
 Scenario: [`scenarios/attack-card.json`](../packages/fixtures/scenarios/attack-card.json)
 
@@ -703,3 +734,13 @@ Recorded extensions:
   schema is `ReplayExpectationSchema` in the `ExpectationSchema` union.
   Additive; existing variants are unchanged. Every scenario asserts it in its
   last step, and Fireball also asserts it after its first step, the spawn.
+- **Setup `face`** (M5, M5-D15). Setup objects take an optional `face`, the
+  face layout encoding of DESIGN §4.6 (section 3). Additive; objects without
+  it are unchanged.
+- **`face_element` expectation** (M5, M5-D15). `{"type":"face_element",
+  "object", "element", "list"?, "viewer"?, "shown"}` (section 7): `element`
+  is the index in the stored list (`list` `"full"` by default, or
+  `"collapsed"`), and `shown` means present in that viewer's face view with
+  `show_when` true. Unknown keys are rejected as for every variant. The
+  Attack card scenario carries its face and asserts its show-when (section
+  9). Additive; existing variants are unchanged.

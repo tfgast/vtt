@@ -474,6 +474,25 @@ Apply:
 - **Precondition.** `when` is a formula evaluated before the first step. If
   false or an error, the action does not run and the button reports why.
   Show-when on a button (DESIGN.md 4.6) hides the button; `when` is the guard.
+- **Evaluation order.** Invoking an action checks, in order:
+  1. The object exists and has an action of exactly that name; otherwise the
+     refusal `invalid`.
+  2. `when`, if present, is evaluated with `this` = the object at the current
+     revision: `true` runs; an error (`#SYNTAX` when it does not parse)
+     refuses `when_error` with its code; any other value refuses
+     `when_false`.
+  3. Every step is parsed (8.4), and the first that does not parse refuses
+     `step_error` `#SYNTAX` with its 0-based index before any step runs.
+  4. The steps run in order in one transaction.
+- **Refusals.** An evaluation error is `step_error {step, code, message}`. A
+  primitive's own refusal inside a step keeps its type (`protected_cell`,
+  `containment_cycle`, `type_error`) with the step index alongside; a
+  primitive's `invalid` becomes `step_error` without code. The index of a
+  failure inside `each` is the `each`'s. A refused action changes nothing
+  and consumes no randomness.
+- **Limits.** At most 1,000 `each` items and 10,000 primitive calls per
+  invocation; beyond either the action refuses `step_error` `#LIMIT`
+  (docs/PROTOCOL.md §10: `max_each_items`, `max_action_writes`).
 - **Snapshot iteration.** `each` evaluates its list once, before running.
 - **Reads inside an action.** A cell this action has written reads as
   written, including a formula cell that an earlier step overrode. Any other
@@ -484,7 +503,8 @@ Apply:
 - **Undo** reverses the whole action.
 - **Logged** as one entry: the action, its object, who invoked it, and each
   step as a sentence with the resolved values (the dice rolled, the id
-  spawned).
+  spawned). An action is one `action` group labelled with its name (or the
+  invoke's `label`), origin `{object, action}`.
 
 ### 8.2 Cell paths and destinations
 
@@ -495,19 +515,39 @@ Step arguments come in three syntactic kinds:
   *where* to write: `damage_taken`, `target.damage_taken`, `it.save_roll`;
 - a **destination**, one of: a reference to a container (goes into its
   `contents`, at the end), `board(ref, position)` (onto a board at a point),
-  `beside(ref)` (onto the same board next to an object), `table` (the GM's
-  current board at the viewport center; UI-only convenience, not for
-  templates).
+  `beside(ref)` (onto the same board next to an object), `table` (the board
+  and point the invoker names: the UI sends its active board and viewport
+  centre; a UI convenience, not for templates).
 
 Writing to a cell that holds a formula creates an override, exactly as a hand
 edit would. Writing to a protected cell is an error.
+
+**Paths.** A bare name is a cell of `this`. Otherwise the path's object part
+must evaluate to one reference to an existing object: `empty` → `#REF`, a
+list or any other kind → `#TYPE`, an error → its code. Any expression
+evaluating to an error refuses `step_error` with that code.
+
+**Destinations**, precisely:
+
+- A **container** destination is one reference (`empty` → `#REF`, a list →
+  `#TYPE`) and appends to its `contents`.
+- `board(b, p)` needs `b` a board (else `#REF`) and `p` two finite numbers
+  (else `#TYPE`). Placement follows the landing rule of 3.1.
+- `beside(r)` places on the board of `r`'s outermost on-board container
+  chain (`r` itself when it is on a board; else `step_error` "not on a
+  board"), at that object's anchor + `[wr/2 + wm/2 + 0.25, 0]`, where `wr`
+  and `wm` are the widths of the literal footprint bounds of that object and
+  of the placed object (0 when shapeless).
+- `table` resolves to the `table` parameter of `invoke` (docs/PROTOCOL.md
+  §4); without it the step is `step_error` (no code) "the table destination
+  needs the invoker's board and viewport centre".
 
 ### 8.3 Steps
 
 | Step | Meaning |
 |---|---|
 | `set(path, expr)` | Write a value. |
-| `add(path, expr)` | Numeric increment. `#TYPE` if either side is not a number or empty. |
+| `add(path, expr)` | Numeric increment: a roll counts as its total and `empty` as 0 on either side; anything else is `#TYPE`. |
 | `append(path, expr)` | Push onto a list cell. |
 | `roll(dice_expr) -> path` | Roll a dice value, write the roll result. The only source of randomness. |
 | `move(ref, destination)` | Remove the object from its container or board and place it at the destination, atomically. Moving onto a board ends containment; a move never changes `owner`. Placement follows the landing rule of 3.1. Refused if it would create a containment cycle. |
@@ -516,21 +556,65 @@ edit would. Writing to a protected cell is an error.
 | `shuffle(ref)` | Randomly reorder the object's `contents`. |
 | `each(list, step)` | Run one step per item of the snapshotted list, with the item as `it`. One level only; `each` inside `each` is not allowed. |
 
+**Semantics**, precisely:
+
+| Step | Accepts | Writes | Errors |
+|---|---|---|---|
+| `set(path, v)` | any storable value | `writeValue` (an override on a formula cell); `tag` takes a list of text via `setTag`; `name` takes text | `id`, `contents`, `container`, `board`, `is_zone`, `template`, `shape` → `protected_cell`; a record → `#TYPE` |
+| `add(path, v)` | current value and `v` each a number, a roll (its total) or `empty` (0) | the resulting number | anything else `#TYPE` |
+| `append(path, v)` | current value a list or `empty` (as `[]`) | the list with `v` appended as one item | other current value `#TYPE` |
+| `roll(d) -> path` | a dice value | the roll result (cause `roll`) | not dice `#TYPE` |
+| `shuffle(r)` | one reference | its contents reordered by a drawn permutation | |
+| `move(r, dest)` | one reference | M2 `move`, landing rule | `containment_cycle` |
+| `spawn(t, dest, rec)` | one reference; record values storable | M2 `spawn` with the record as initial cells | record value an error → its code |
+| `remove(r)` | one reference | recursive removal; later reads `#REF` | |
+| `each(list, step)` | a list; `empty` runs nothing; a scalar runs once (the aggregate rule) | the inner step per item with `it` bound; the list is evaluated once before running | more than 1,000 items `#LIMIT` |
+
+Paths, destinations and errors follow 8.2; refusals and limits follow 8.1.
+
 **Spawned copies** (DESIGN.md 4.1). Each copy gets an id `<original id>_<n>`
 from the document counter, never a reserved id. Every copy's `template`
 refers to its own original; the root copy is not a template, and descendants
 keep their `is_template`. `is_zone`, `is_character`, `tag`, `shape`, actions,
-and per-cell visibility are copied. A reference in a copied cell value or in
+and per-cell visibility are copied, and so is the face layout (DESIGN.md 4.6),
+verbatim. A reference in a copied cell value or in
 per-cell visibility that names an object in the copied subtree points at that
 object's copy; other references are kept; formula source is copied verbatim.
-Initial cells may be literals or formulas. A container destination appends,
-so `each(targets, spawn(save_row, this, ...))` creates rows in the order of
-`targets`.
+Initial cells may be literals or formulas in the primitive; a `spawn` step's
+record gives evaluated values, so a formula initial cell is possible only
+through the protocol's `spawn` op (docs/PROTOCOL.md §5). A container
+destination appends, so `each(targets, spawn(save_row, this, ...))` creates
+rows in the order of `targets`.
 
 There are no conditional steps. A step either always runs or the whole action
 is guarded by `when`. A procedure that needs "do X only if Y" is two actions
 with two preconditions, or a value-level `if` inside a `set`. If that proves
 too limiting in practice the fix is a new step kind, not a script.
+
+### 8.4 Step syntax
+
+Each step is one source string (an entry of the action's `steps`) with a
+step-level grammar, parsed by `@vtt/formula`:
+
+```
+step  := name "(" args ")" [ "->" path ]        -- "->" only after roll, required there
+set(path, expr)   add(path, expr)   append(path, expr)   roll(expr) -> path
+move(expr, dest)  spawn(expr, dest [, record])  remove(expr)  shuffle(expr)
+each(expr, step)                                 -- the second argument is parsed as a step
+path  := a bare name | an expression ending in ".name"   (`this` when bare)
+dest  := table | board(expr, expr) | beside(expr) | expr (a container reference)
+record:= "{" name ":" expr ("," name ":" expr)* "}"
+```
+
+Each `expr` argument is parsed with the expression parser in prefix mode (it
+stops at `,` `)` or `->`); `->` is step syntax and never an expression
+operator. `each`'s second argument is parsed recursively as a step, which may
+not be `each` (one level), so `each(targets, roll(1d20) -> it.save_roll)` is
+valid. The expression limits of 3.2 apply to the whole step source. Step
+names and `table`, `board`, `beside` are contextual, not reserved: a cell
+named `table` used as a destination is written `this.table`. A spawn record
+gives evaluated values; a formula initial cell is possible only through the
+protocol's `spawn` op.
 
 ## 9. Visibility of inputs
 

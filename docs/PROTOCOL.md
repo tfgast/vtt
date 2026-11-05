@@ -7,12 +7,12 @@ document is the contract every implementation follows. Decisions are cited
 as D1–D33; each is the DESIGN.md §10 decision-log row that starts `M3-D<n>.`
 (D13, D20 and D31 have no row of their own: D13 is the face-down exemption
 set of §7.4, already stated in DESIGN.md §4.4; D20 and D31 are the
-`setActions` and `removeBoard` primitives, logged with M2). M4's additions
-cite their rows in full, `M4-D<n>`.
+`setActions` and `removeBoard` primitives, logged with M2). M4's and M5's
+additions cite their rows in full, `M4-D<n>` and `M5-D<n>`.
 
 **Conventions.** Types are written in TypeScript notation. `ObjectId`,
 `BoardId`, `Shape`, `ErrorCode`, `ActionDef`, `Actor`, `Board`, `Snapshot`,
-`OpGroup`, `Rejection` and the scalar value types (`NumberValue`,
+`OpGroup`, `Rejection`, `FaceLayout`, `FaceElement` and the scalar value types (`NumberValue`,
 `TextValue`, `BooleanValue`, `EmptyValue`, `DiceValue`, `RollValue`,
 `InkValue`, `ShapeValue`) are those of `@vtt/schema` (DESIGN.md §4, §7;
 FORMULAS.md §2). Client-to-server messages are parsed strictly: unknown keys
@@ -160,9 +160,12 @@ only the serving authority (or the development server, from
 - Before the first `welcome`, every client reports the connection error
   `disconnected`.
 
-**New table (D25).** `vtt-serve` on a missing file creates it with one board
-`gm_board` named "GM", no objects, revision 0, and an empty log. The default
-port is 4747.
+**New table (D25, M5-D19).** `vtt-serve` on a missing file creates it with
+one board `gm_board` named "GM", revision 0, and an empty log, holding the
+GM binder `gm_binder` on `gm_board`, stocked with the example templates
+(DESIGN.md §4.7); with `--empty` it holds no objects. The table host's own
+default for a missing file stays the empty table, which tests use. The
+default port is 4747.
 
 **Canonical path.** `<file>` below is the canonical table path: the
 `realpath` of the table file, or, when the file does not exist yet, the
@@ -203,14 +206,15 @@ Decision: D9.
 - `client.kind: "agent"` → `{type:"agent", name: agent_name ?? client.name}`.
 - `client.kind: "ui"` or `"test"` → `{type:"gm"}`.
 - A non-agent connection may pass `actor: {type:"character", id}` on
-  `transact`, naming an existing object whose `is_character` is true (the GM
-  driving a character). An agent passing `actor` is `bad_request`.
+  `transact` and `invoke`, naming an existing object whose `is_character` is
+  true (the GM driving a character; M5-D11: a button pressed in view-as). An
+  agent passing `actor` is `bad_request`.
 - Every connection has GM authority; `viewer` parameters select whose view is
   computed.
 
 ## 4. Requests, responses, methods
 
-Decisions: D6, D19, D28, D29, D30.
+Decisions: D6, D19, D28, D29, D30; M5-D1.
 
 ```ts
 { type: "request"; id: string /* 1–64 chars */; method: M; params: Params<M> }
@@ -227,7 +231,7 @@ brackets.
 |---|---|---|
 | transact [write] | `base_revision: number`, `ops: WireOp[]` (1..max_ops), `label?: string` (≤ 200), `txn_id?: string` (1–64), `retry?: true` (only with `txn_id`; set on a client resend, §6), `actor?: Actor` (character only, §3) | `TransactResult` = `{status:"committed", revision, index, created: {op_index, id}[], copies: {op_index, root, copies: Record<ObjectId,ObjectId>}[], bindings: Record<BindingName, ObjectId>}` or `{status:"rejected", rejection: ProtocolRejection, op_index?: number}` |
 | undo [write] | `target: {type:"latest"} \| {type:"mine"} \| {type:"actor", actor: Actor} \| {type:"group", index: number}`, `expect_index?: number`, `label?: string` | `TransactResult`; `created`, `copies`, `bindings` empty |
-| invoke [write] | `object: ObjectId`, `action: string`, `base_revision: number` | always error `unsupported` until M5 (D19) |
+| invoke [write] | `object: ObjectId`, `action: string`, `base_revision: number`, `txn_id?: string` (1–64), `retry?: true` (only with `txn_id`, §6), `actor?: Actor` (character only, non-agent connections, §3), `label?: string` (≤ 200), `table?: {board: BoardId, position: [number, number]}` (what the `table` destination resolves to, FORMULAS.md §8.2) | `InvokeResult` = `{status:"committed", revision, index, created: ObjectId[]}` or `{status:"rejected", rejection: ProtocolRejection, step?: number}` |
 | save [write] | `{}` | `{status: "saved" \| "saved_not_durable" \| "failed", revision: number, message?: string}` (`revision` = the revision the save captured) |
 | list_objects [query] | `viewer?`, `filter?: {board?, container?, tag?, name?, is_template?, is_zone?, is_character?}`, `cells?: "all" \| "structural" \| string[]` (default `"structural"`), `cursor?: string`, `limit?: number` (default 50, ≤ max_page) | `{revision, objects: ObjectView[], next_cursor: string \| null}` |
 | get_objects [query] | `ids: ObjectId[]` (1..max_ids), `viewer?`, `cells?` (default `"all"`) | `{revision, objects: ObjectView[], missing: ObjectId[]}` |
@@ -260,6 +264,11 @@ Method rules:
   reason.
 - `log`: `before` is an exclusive absolute index; `first_index`,
   `next_index`, and `undo_barrier` are as in DESIGN.md §7.
+- `invoke` (M5-D1): runs the object's named action (FORMULAS.md §8) as one
+  `action` group labelled with the action's name (or `label`), origin
+  `{object, action}`. `created` lists the ids the action spawned, in
+  creation order. `step` is the 0-based index of the refusing step
+  (FORMULAS.md §8.1). Processing, stale checks and deduplication are in §6.
 - `not_found` applies only to the target ids of query, explain and subscribe
   methods (unknown board, object or subscription ids in their params), except
   `get_objects` ids and `objects` scope ids, which are ignored when absent.
@@ -268,10 +277,12 @@ Method rules:
   and stale checks, then primitive refusals) and the M2 primitives' rejection
   semantics. So an unknown object in an op is a rejection `invalid` with its
   `op_index`, and an object removed since `base_revision` is `stale_write`.
+  The same holds for `invoke`: an unknown object or action is rejected
+  `invalid`, and an object removed since `base_revision` is `stale_write`.
 
 ## 5. Ops, bindings, input values
 
-Decisions: D6; D20 and D31 (the `set_actions` and `remove_board` primitives come from vtt-75c.18); M4-D12, M4-D17.
+Decisions: D6; D20 and D31 (the `set_actions` and `remove_board` primitives come from vtt-75c.18); M4-D12, M4-D17; M5-D7.
 
 ```ts
 type InputValue = NumberValue | TextValue | BooleanValue | EmptyValue | DiceValue | RollValue | InkValue | ShapeValue
@@ -281,10 +292,11 @@ type InputCellContent = InputValue | { type: "formula"; source: string };
 type Destination = { type: "board"; board: BoardId; position: [number, number] }
                  | { type: "container"; container: ObjRef; index?: number };
 type ObjectInit = { is_template?: boolean; is_zone?: boolean; is_character?: boolean; tag?: string[]; shape?: Shape;
-                    cells?: Record<string, InputCellContent>; cell_visibility?: Record<string, InputViewers>; actions?: ActionDef[] };
+                    cells?: Record<string, InputCellContent>; cell_visibility?: Record<string, InputViewers>; actions?: ActionDef[];
+                    face?: FaceLayout };   // M5-D7
 ```
 
-`WireOp` is one of the 19 kinds in the table below, each written
+`WireOp` is one of the 20 kinds in the table below, each written
 `{type: <op>, ...its fields}`. Every `object`, `container` and `template`
 field is an `ObjRef`. Each op maps to one M2 primitive and declares
 intended-write keys (§6), computed from its fields before execution. A key
@@ -305,6 +317,7 @@ destination.
 | set_template_flag | object, value: boolean | setTemplateFlag | `cell:<object>/is_template` |
 | set_character_flag | object, value: boolean | setCharacterFlag | `cell:<object>/is_character` |
 | set_actions | object, actions: ActionDef[] | setActions | `actions:<object>` |
+| set_face | object, face: FaceLayout \| null | setFace | `face:<object>` |
 | reorder | container, permutation: number[] | reorder | `cell:<container>/contents` |
 | add_board | id, name? | addBoard | `board:<id>` |
 | rename_board | id, name | renameBoard | `board:<id>` |
@@ -331,6 +344,26 @@ absent cell it behaves as without it. The guards and type checks are
 `container`, `board`, `is_zone`) stay refused. This is the UI's "Replace
 formula with value" (DESIGN.md §4.6, **Typing into a cell**).
 
+**Face layouts (M5-D7).** `set_face` replaces an object's whole layout
+(`null` removes it) in one `field: "face"` effect; its key `face:<object>`
+conflicts with itself and with `obj:<object>`. The layout is copied verbatim
+on spawn and carried in create and remove snapshots; absent means no layout;
+there is no `schema_version` change. The encoding (DESIGN.md §4.6):
+
+```ts
+type FaceLayout = { elements: FaceElement[]; collapsed?: FaceElement[]; default_action?: string };
+type FaceElement =
+  | { type: "value" | "editor"; cell: string; rect: Rect; show_when?: string; min_size?: number; style?: FaceStyle }
+  | { type: "button"; action: string; rect: Rect; label?: string; show_when?: string; min_size?: number }
+  | { type: "contents"; rect: Rect; entries?: "collapsed" | "full"; show_when?: string; min_size?: number };
+type Rect = [x: number, y: number, w: number, h: number];   // finite, w and h > 0
+type FaceStyle = { size?: "small" | "normal" | "large" | "huge"; align?: "left" | "center" | "right"; caption?: boolean };
+```
+
+At most `max_face_elements` (200) elements per list and one `contents`
+element per list; `show_when` is non-blank and at most 10,000 characters. A
+layout breaking these is rejected `invalid`.
+
 **Bindings.**
 
 - `as` on `create_object` binds the created id; `as` on `spawn` binds the
@@ -349,7 +382,7 @@ formula with value" (DESIGN.md §4.6, **Typing into a cell**).
 
 ## 6. Revisions, stale writes, deduplication
 
-Decisions: D7, D8.
+Decisions: D7, D8; M5-D1.
 
 **Revisions.** Each commit increments the revision by one (DESIGN.md §7).
 `base_revision` must be an integer between 0 and the current revision
@@ -382,6 +415,19 @@ one after a hand edit), the floor is the current revision.
    aborted with nothing applied and no randomness consumed.
 7. Commit.
 
+**Processing order of an `invoke`** (M5-D1) is the same: structural
+validation (`txn_id`, `label`, `actor` allowed for the connection kind,
+`retry` only with `txn_id`), deduplication, state validation (`actor` an
+existing character), floor, then the declared keys `obj:<object>` and
+`actions:<object>` against the groups after `base_revision`. The command
+then opens the transaction itself and runs the action inside it (the
+executor's `runAction`): the `when` guard is evaluated at the current
+revision, not at `base_revision`; a refusal aborts with nothing applied
+(rejected, with `step`); and, when `base_revision` < current, the touched
+keys of the action's effects are checked before commit (→ `stale_write`).
+So a refused or stale invoke commits nothing, notifies no listener, and
+consumes no randomness.
+
 **Conflicts.** Keys conflict when equal, or when one is `obj:<id>` and the
 other names `<id>` (DESIGN.md §7). A conflict entry lists the group's own keys
 that conflict with the checked set, so a write to an object removed since
@@ -401,38 +447,42 @@ different selected target (or none) is rejected
 
 **Deduplication (D8).**
 
-- The key is (`client.instance`, `txn_id`). The fingerprint is the canonical
-  JSON (keys sorted) of the full `transact` params except `retry`.
+- `transact` and `invoke` share one store. The key is (`client.instance`,
+  `txn_id`). The fingerprint is the canonical JSON (keys sorted) of the full
+  `transact` params except `retry`; for `invoke` it is the canonical JSON of
+  `{method: "invoke", params}` with `params` except `retry`, so the method is
+  part of the fingerprint and a `txn_id` reused across the two methods is
+  "reused with different params".
 - Committed and rejected results are stored, the last
   `max_txn_ids_per_client` (1,000) per instance, oldest evicted.
 - Same key and fingerprint: the stored result is returned and nothing
   executes.
 - Same key, different fingerprint:
   `{status:"rejected", rejection: {type:"invalid", message:"txn_id reused with different params"}}`.
-- A `transact` with `retry: true` whose key is not retained (evicted, never
-  received, or lost on restart) is answered with error `retry_unknown` and
-  does not execute.
+- A `transact` or `invoke` with `retry: true` whose key is not retained
+  (evicted, never received, or lost on restart) is answered with error
+  `retry_unknown` and does not execute.
 - The store is in memory and is lost on restart, which changes `session`.
   (Persistent deduplication is Later.)
 
 **Client retries.**
 
-- A client may resend a `transact` whose response was lost only after
-  reconnecting to an authority with the same `session`, once, with the same
-  `txn_id` and `retry: true`. A stored result is returned as usual.
-- Once a write (`transact` or `undo`) has been written to a socket, every
-  outcome not settled by a response is reported as error `uncertain` when safe
-  recovery is exhausted: a response timeout; socket loss before the response
-  (for `undo`, and for a `transact` without retry); loss of the single
-  resend's response; `retry_unknown`; a `session` change before the resend;
-  terminal `unauthorized` or `wrong_table`.
+- A client may resend a `transact` or `invoke` whose response was lost only
+  after reconnecting to an authority with the same `session`, once, with the
+  same `txn_id` and `retry: true`. A stored result is returned as usual.
+- Once a write (`transact`, `invoke` or `undo`) has been written to a socket,
+  every outcome not settled by a response is reported as error `uncertain`
+  when safe recovery is exhausted: a response timeout; socket loss before the
+  response (for `undo`, and for a `transact` or `invoke` without retry); loss
+  of the single resend's response; `retry_unknown`; a `session` change before
+  the resend; terminal `unauthorized` or `wrong_table`.
 - The client never resends twice.
 - For writes, `disconnected` is reserved for requests that were never written
   to a socket.
 
 ## 7. Views, values, redaction, covers, group views
 
-Decisions: D11, D12, D13 (face-down, referenced), D14, D15; M4-D12.
+Decisions: D11, D12, D13 (face-down, referenced), D14, D15; M4-D12; M5-D8, M5-D23.
 
 ### 7.1 Values
 
@@ -450,9 +500,15 @@ type WireResult = WireValue | WireError;
 ```ts
 type CellView = { value: WireResult; kind: "literal" | "formula" | "structural";
                   source?: string; overridden?: boolean; visibility?: WireViewers };
-type ActionView = { name: string; when?: string; steps?: string[] };
+type ActionDefinitionView = { name: string; when?: string; steps?: string[] };   // ActionView: deprecated alias
+type ActionStateView = { name: string; enabled: boolean; reason?: "when_false" | "when_error" };
+type FaceElementView = FaceElement & { index: number; shown: boolean;
+                       reason?: "show_when_false" | "show_when_error" | "no_action"; error?: ErrorCode };
+type FaceView = { elements: FaceElementView[]; collapsed?: FaceElementView[]; default_action?: string };
 type ObjectView = { id: ObjectId; is_template: boolean; is_character: boolean;
-                    cells: Record<string, CellView>; actions: ActionView[];
+                    cells: Record<string, CellView>; actions: ActionDefinitionView[];
+                    action_states: ActionStateView[];   // live object views only (M5-D23)
+                    face?: FaceView;                    // M5-D8
                     absent_cell_visibility?: Record<string, WireViewers> };   // GM views only (M4-D12)
 type BoardView = { id: BoardId; name?: string };
 ```
@@ -477,6 +533,28 @@ type BoardView = { id: BoardId; name?: string };
   `name` only.
 - `cells: "structural"` restricts a view to `STRUCTURAL_VIEW_CELLS`; a list
   restricts it to those names.
+- `actions` are `ActionDefinitionView`s (the shape formerly called
+  `ActionView`: `name`, and for the GM `when` and `steps`), the same type
+  used in field effects and snapshots (§7.6). They never carry live state.
+- `action_states` (M5-D23), for every viewer: one `ActionStateView` per
+  action, in the order of `actions`, `enabled` as `explain_action` computes
+  it (§9) and `reason` only when not enabled. It appears only in live object
+  views (subscribe results, deltas, `get_objects`, `list_objects`, `zones`
+  views), never in effects or snapshots.
+- `face` (M5-D8) is present when the view's `cells` is `"all"` and the object
+  has a layout. Every element carries `index`, its position in the stored
+  list, and `shown`. `show_when` is evaluated by the authority on the object
+  with `this` = the object. The GM view keeps every stored element with its
+  `show_when`: `shown` is true when `show_when` is absent or evaluates to
+  `true` and, for a button, its action exists; otherwise `shown` is false
+  with `reason` `show_when_false`, `show_when_error` (with its `error`
+  code), or `no_action` for a button naming no action. Character views keep
+  only the elements that are shown and whose cell (for a value or editor
+  element) they can read, without `show_when`, each keeping its stored
+  `index`; `default_action` is kept only when it names an existing action.
+- An element is visible to a viewer exactly when it is present in that
+  viewer's view with `shown: true` (`faceElementVisible`; FIXTURES.md §7
+  `face_element`).
 
 ### 7.3 Redaction
 
@@ -539,14 +617,18 @@ type CellStateView = { kind: "literal"; value: WireValue } | { kind: "formula"; 
 type LocationView = { type: "board"; board: BoardId } | { type: "container"; container: ObjectId | null; index: number };
 type ObjectSnapshotView = { id: ObjectId; is_template: boolean; is_zone: boolean; is_character: boolean;
   tag?: string[]; shape?: Shape | null; contents?: (ObjectId | null)[];
-  cells: Record<string, CellStateView>; cell_visibility?: Record<string, WireViewers>; actions: ActionView[] };
+  cells: Record<string, CellStateView>; cell_visibility?: Record<string, WireViewers>; actions: ActionDefinitionView[];
+  face?: FaceLayoutView | null };   // M5-D7
+type FaceLayoutView = { elements: (FaceElement & { index: number })[]; collapsed?: (FaceElement & { index: number })[];
+  default_action?: string };   // the stored layout with each element's index; no live `shown`
 type EffectView =
   | { type: "cell"; object: ObjectId; cell: string; before: CellStateView | null; after: CellStateView | null; cause: "edit" | "roll" }
   | { type: "cell_visibility"; object: ObjectId; cell: string; before: WireViewers | null; after: WireViewers | null }
   | { type: "field"; object: ObjectId; field: "tag"; before: string[]; after: string[] }
   | { type: "field"; object: ObjectId; field: "shape"; before: Shape | null; after: Shape | null }
   | { type: "field"; object: ObjectId; field: "is_template" | "is_character"; before: boolean; after: boolean }
-  | { type: "field"; object: ObjectId; field: "actions"; before: ActionView[]; after: ActionView[] }
+  | { type: "field"; object: ObjectId; field: "actions"; before: ActionDefinitionView[]; after: ActionDefinitionView[] }
+  | { type: "field"; object: ObjectId; field: "face"; before: FaceLayoutView | null; after: FaceLayoutView | null }
   | { type: "place"; object: ObjectId; before: LocationView; after: LocationView }
   | { type: "create" | "remove"; location: LocationView; objects: ObjectSnapshotView[] }
   | { type: "reorder"; container: ObjectId; before: (ObjectId | null)[]; after: (ObjectId | null)[] }
@@ -558,7 +640,9 @@ type EffectView =
 **GM group views:** the group's fields plus `undone`, with effects converted
 losslessly: literal content → `{kind:"literal", value}`, formula content →
 `{kind:"formula", source, override?}`, snapshots with every field, actions
-with `when` and `steps`.
+with `when` and `steps`, faces losslessly (every element, `show_when` kept).
+`FaceLayoutView` is the wire type of historical faces; `FaceLayout` stays the
+storage and op type.
 
 **Character group views** are filtered by visibility at the view's revision
 (D15: current visibility, not historical). An object that does not exist at
@@ -571,12 +655,16 @@ that revision counts as invisible. Per effect variant:
 | `field` `tag`, `shape` | that cell is readable | — |
 | `field` `is_template`, `is_character` | the object is visible | — |
 | `field` `actions` | the object is visible | action names only |
+| `field` `face` | the object is visible | no `show_when`; elements naming a cell the viewer cannot read omitted (the others keep their `index`) |
 | `place` | the object is visible and its `board` and `container` cells readable | a container the viewer cannot see shown as `null` |
-| `create`, `remove` | at least one of its objects is visible | `objects` limited to the visible ones, each with only readable cells, no `source`, no `cell_visibility`, actions names only; `tag`, `shape`, `contents` omitted when unreadable; invisible `contents` ids as `null`; a hidden location container as `null` |
+| `create`, `remove` | at least one of its objects is visible | `objects` limited to the visible ones, each with only readable cells, no `source`, no `cell_visibility`, actions names only, `face` reduced as for `field` `face`; `tag`, `shape`, `contents` omitted when unreadable; invisible `contents` ids as `null`; a hidden location container as `null` |
 | `reorder` | the container is visible and its `contents` readable | invisible ids as `null` |
 | `board` | always | — |
 | `allocate`, `retire` | never (dropped) | — |
 
+- Visibility is current (D15): a removed object is invisible, so its remove
+  snapshot (and its face) is omitted from a character's group view until an
+  undo restores the object, after which it appears filtered.
 - `names[id]` is present only when the viewer can see object `id` and read its
   `name` cell.
 - `label` is kept only when every effect of the group other than
@@ -643,6 +731,10 @@ type SubscriptionDelta = { subscription: string; objects: ObjectView[]; removed:
 what the changed subscribed views need: their cells, those cells' transitive
 dependencies, and the visibility and geometry inputs the views and covers
 need, even outside the scope. Every other dirty cell stays dirty until read.
+Objects in scope with a `when` or a `show_when`, and objects whose face
+changed (including its removal or undo), are re-viewed after every commit
+(M5-D9), so guard and show-when results that read other objects stay current
+without dependency tracking; views are still sent only when they changed.
 
 **Ordering (D22).**
 
@@ -690,7 +782,7 @@ client's revision.
 
 ## 9. Explain, evaluate, at_position, changes_since, document
 
-Decisions: D16, D28, D29, D30.
+Decisions: D16, D28, D29, D30; M5-D1.
 
 ```ts
 type DepNode = { type: "cell"; object: ObjectId | null; cell: string; value?: WireResult; hidden?: true; dependencies?: DepNode[] }
@@ -702,7 +794,9 @@ type ExplainCellResult = { revision: number; object: ObjectId; cell: string; vie
   last_write?: GroupHeader & { cause: "edit" | "roll" } };
 type ExplainGroupResult = { group: GroupView; action?: { object: ObjectId; name: string; when?: string; steps: string[]; current: true } };
 type ExplainActionResult = { object: ObjectId; action: string; enabled: boolean; reason?: "when_false" | "when_error";
-  guard?: { source?: string; value: WireResult }; steps?: string[] };   // guard present only when the action has a `when`
+  guard?: { source?: string; value: WireResult }; steps?: string[];   // guard present only when the action has a `when`
+  when_parses?: boolean; when_syntax_error?: string;                   // GM only
+  step_status?: ({ ok: true } | { ok: false; message: string; offset: number })[] };   // GM only
 ```
 
 **`explain_cell`.**
@@ -735,6 +829,10 @@ the origin object still exists, the origin action's current definition
 - `guard` is present only when there is a `when`, with its `value` and, for
   the GM, its `source`.
 - `steps` are GM only.
+- `when_parses`, `when_syntax_error` (the parser's message when `when` does
+  not parse) and `step_status` (one entry per step, in order, from the step
+  parser of FORMULAS.md §8.4, with the error's message and offset) are GM
+  only.
 - An action without `when` gives `{enabled: true}` with no `reason` and no
   `guard`, for every viewer.
 
@@ -777,7 +875,7 @@ unfiltered. It has no MCP tool.
 
 ## 10. Errors, rejections, limits
 
-Decisions: D21, D32.
+Decisions: D21, D32; M5-D5, M5-D6.
 
 ```ts
 type ProtocolError = { code: ProtocolErrorCode; message: string; details?: unknown };
@@ -790,20 +888,32 @@ type Rejection =   // @vtt/schema, complete
   | { type: "undo_conflict"; target: number; conflicting: number[]; message: string }
   | { type: "nothing_to_undo" }
   | { type: "type_error"; object: ObjectId; cell: string; expected: string }
-  | { type: "invalid"; message: string };
+  | { type: "invalid"; message: string }
+  | { type: "when_false"; object: ObjectId; action: string }                                        // M5-D6
+  | { type: "when_error"; object: ObjectId; action: string; code: ErrorCode; message?: string }
+  | { type: "step_error"; object: ObjectId; action: string; step: number; code?: ErrorCode; message: string };
 type ProtocolRejection = Rejection
   | { type: "stale_write"; base_revision: number; revision: number; floor: number; truncated: boolean;
       conflicts: { index: number; revision: number; actor: Actor; label: string; keys: string[] }[] }
   | { type: "undo_target_changed"; expected: number; actual: number | null };
 type Limits = { max_message_bytes: 1048576; max_ops: 1000; max_page: 200; max_ids: 200; max_subscriptions: 16;
   max_explain_depth: 4; max_explain_nodes: 200; max_source_length: 10000; max_groups: 500; max_log_window: 200;
-  max_txn_ids_per_client: 1000; max_requests_per_second: 200; max_buffered_bytes: 67108864 };
+  max_txn_ids_per_client: 1000; max_requests_per_second: 200; max_buffered_bytes: 67108864;
+  max_each_items: 1000; max_action_writes: 10000; max_face_elements: 200 };   // M5-D5
 ```
 
 **Errors and rejections.**
 
 - Errors are protocol failures: the request was not processed as a command.
   Rejections are command outcomes (`status: "rejected"`).
+- Action refusals (M5-D6, FORMULAS.md §8.1): `when_false` and `when_error`
+  (with the guard's code; `#SYNTAX` for an unparsable guard) come from the
+  guard; `step_error` carries the 0-based step index, an optional code
+  (`#SYNTAX` for an unparsable step, found before any step runs; `#LIMIT`
+  past `max_each_items` or `max_action_writes`) and a message. A primitive's
+  own refusal inside a step keeps its type (`protected_cell`,
+  `containment_cycle`, `type_error`), and `invoke`'s result carries the step
+  index alongside it.
 - `disconnected`, `timeout`, `uncertain` and `wrong_table` are produced by the
   client library only. `disconnected` is the code for a request never written
   to a socket; a write already written to a socket never reports it (§6),
@@ -840,6 +950,12 @@ type Limits = { max_message_bytes: 1048576; max_ops: 1000; max_page: 200; max_id
 | `max_txn_ids_per_client` | 1,000 | deduplication entries per client instance |
 | `max_requests_per_second` | 200 | requests per connection (token bucket); excess answered `busy` |
 | `max_buffered_bytes` | 67,108,864 (64 MiB) | a connection's unsent buffer; beyond it the connection is closed 4429 |
+| `max_each_items` | 1,000 | items one `each` step iterates (`step_error` `#LIMIT` beyond) |
+| `max_action_writes` | 10,000 | primitive calls in one action invocation (`step_error` `#LIMIT` beyond) |
+| `max_face_elements` | 200 | elements per face element list (`set_face` rejected `invalid` beyond) |
+
+The `limits` the `welcome` message advertises (§2) carry every row of this
+table, the three M5 rows (M5-D5) included.
 
 Server-to-client messages have no size limit: the initial view of a
 few-thousand-object table is one response (chunked delivery is Later).
@@ -847,13 +963,16 @@ Formula cost stays under the engine budget (FORMULAS.md §7).
 
 ## 11. MCP
 
-Decisions: D1, D17, D18, D19; M4-D3.
+Decisions: D1, D17, D18, D19; M4-D3; M5-D24.
 
 `vtt-mcp` is a separate stdio process launched by the agent host. It attaches
 to the running authority as a protocol client with `client.kind: "agent"`
 (D1).
 
-**Tools (18).**
+**Tools.** The request-surface server (`createMcpServer`) has 15 tools: the
+14 query, explain and write tools below plus `invoke`. The composed `vtt-mcp`
+process has 19: those 15 plus `subscribe`, `poll_changes`, `unsubscribe` and
+`import_asset` (M5-D24).
 
 | Tool | Behaviour |
 |---|---|
@@ -861,6 +980,7 @@ to the running authority as a protocol client with `client.kind: "agent"`
 | list_objects, get_objects, evaluate, zones, at_position, changes_since, log | the same-named methods |
 | explain_cell, explain_group, explain_action | the same-named methods |
 | transact | `transact` with `base_revision` required; `txn_id` always generated by the MCP server; a lost response is retried per §6 within 10 s; `uncertain` is reported as an error |
+| invoke | `{object, action, base_revision, label?, table?}` → `invoke`; `txn_id` always generated by the MCP server; a lost response is retried as for `transact`; a rejection is `isError: true` with the rejection and `step`; `uncertain` is reported as an error |
 | undo | `undo` (targets `latest`, `mine`, `group`; `expect_index`) |
 | save | `save` |
 | subscribe | `subscribe` (scopes `board`, `objects`, `all`; GM viewer); returns `{subscription: <handle>, revision, objects: <count>}` |
@@ -868,20 +988,24 @@ to the running authority as a protocol client with `client.kind: "agent"`
 | unsubscribe | `unsubscribe`; drops the buffer and the handle |
 | import_asset | `{path: string, slug?: string}` → `{path}`: uploads a local image file with `POST /assets` (§1), below |
 
-`invoke` has no tool until M5 adds one together with the UI's buttons (D19);
+`invoke`'s tool arrives with the UI's buttons (D19); its description says
+that actions are defined with `transact` `set_actions` and that `table` is
+the board and point the agent wants the `table` destination to mean.
 `document` has no tool (D30).
 
 **Input schemas and results.**
 
 - Input schemas are explicit MCP schemas derived from the protocol params
   schemas, strict (unknown keys are an MCP input error), with
-  transport-managed fields removed (`transact`: no `actor`, `retry`,
-  `txn_id`) and variants narrowed (`undo` target: `latest`, `mine`, `group`).
+  transport-managed fields removed (`transact` and `invoke`: no `actor`,
+  `retry`, `txn_id`) and variants narrowed (`undo` target: `latest`, `mine`,
+  `group`).
   An input that fails them reaches no handler and sends nothing to the
   authority.
 - Results are `structuredContent` plus one JSON text block.
 - A `ProtocolError` → `isError: true` with `{code, message}`.
-- `status: "rejected"` → `isError: true` with the rejection and `op_index`.
+- `status: "rejected"` → `isError: true` with the rejection and `op_index`
+  (for `invoke`, `step`).
 
 **`import_asset` (M4-D3).** The input schema is strict and is not derived
 from a protocol method (asset upload is HTTP, §1). The MCP process reads the
@@ -917,14 +1041,15 @@ type ChangeRecord =
       objects: { object: ObjectId; before?: ObjectFacts; after?: ObjectFacts }[] }
   | { type: "resync"; from_revision: number; to_revision: number; session_changed: boolean }
   | { type: "failed"; code: ProtocolErrorCode; message: string };   // the subscription became terminal (§8)
-type ObjectFacts = { is_template: boolean; is_character: boolean; actions: ActionView[] };
+type ObjectFacts = { is_template: boolean; is_character: boolean; actions: ActionDefinitionView[];
+                     face?: FaceLayoutView | null };   // M5
 ```
 
 - Per subscription, a buffer of at most 1,000 records. Beyond that the oldest
   is dropped and the next `poll_changes` result has `overflowed: true` (then
   reset).
-- `objects` lists every object whose flags or actions differ between before
-  and after.
+- `objects` lists every object whose flags, actions or face differ between
+  before and after.
 - Each buffered record sends `notifications/resources/updated` for
   `vtt://subscriptions/<handle>`. Reading that resource returns
   `{subscription, revision, overflowed, failed: {code, message} | null, objects: ObjectView[] /* current mirror */, changes: ChangeRecord[]}`
@@ -939,7 +1064,7 @@ type ObjectFacts = { is_template: boolean; is_character: boolean; actions: Actio
 
 **Resources.** `vtt://docs/formulas`, `vtt://docs/design`,
 `vtt://docs/protocol` (the docs' text), `vtt://schema/ops` (the JSON Schema of
-`WireOp`, 19 kinds), `vtt://subscriptions/<handle>`.
+`WireOp`, 20 kinds), `vtt://subscriptions/<handle>`.
 
 **Tool descriptions** say: ids should be human-meaningful (DESIGN.md §5.3);
 writes need the latest `revision`; one `transact` is one undoable group;
@@ -967,8 +1092,15 @@ formulas and actions follow docs/FORMULAS.md.
 Decision: D32.
 
 Protocol v1 grows only additively: new optional fields, new methods, new ops,
-new event kinds. M5 adds `invoke` behaviour, its MCP tool, and face-layout
-fields on views this way. M4 added `create_object.id_base`,
+new event kinds. M5 added `invoke` behaviour (its optional params `txn_id`,
+`retry`, `actor`, `label`, `table` and `InvokeResult`), the MCP tool
+`invoke`, the op `set_face` and `ObjectInit.face`, the `field: "face"`
+effect and `ObjectSnapshotView.face` (`FaceLayoutView`),
+`ObjectView.action_states` and `ObjectView.face`, the rejection variants
+`when_false`, `when_error` and `step_error`, the limits `max_each_items`,
+`max_action_writes` and `max_face_elements`, the GM-only parse status fields
+of `explain_action`, and `ObjectFacts.face` this way; `ActionView` was
+renamed `ActionDefinitionView` with the same wire shape. M4 added `create_object.id_base`,
 `set_value.replace`, `ObjectView.absent_cell_visibility`, the HTTP routes of
 §1 and the MCP tool `import_asset` this way. A change that breaks a v1 client
 bumps `protocol`.
