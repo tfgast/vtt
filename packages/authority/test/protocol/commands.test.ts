@@ -980,6 +980,30 @@ describe("undo", () => {
     expect(r.rejection.type).toBe("undo_conflict");
   });
 
+  test("an undo with a label labels its group with it", () => {
+    const t = fixture();
+    run(t, [setHp("goblin1", 1)]);
+    committed(executeUndo(context(t), { target: { type: "latest" }, label: "never mind" }));
+    expect(t.store.history.get(1)?.label).toBe("never mind");
+  });
+
+  test("an undo without a label gets the default", () => {
+    const t = fixture();
+    run(t, [setHp("goblin1", 1)]);
+    committed(executeUndo(context(t), { target: { type: "latest" } }));
+    expect(t.store.history.get(1)?.label).toBe("Undo set_value goblin1.hp");
+  });
+
+  test("an undo label over 200 characters is bad_request with no group", () => {
+    const t = fixture();
+    run(t, [setHp("goblin1", 1)]);
+    const e = failure(() =>
+      executeUndo(context(t), { target: { type: "latest" }, label: "x".repeat(201) }),
+    );
+    expect(e.error.code).toBe("bad_request");
+    expect(groups(t)).toBe(1);
+  });
+
   test("undo is never stale-checked", () => {
     const t = fixture();
     commit(t, (tx) => writeValue(tx, "goblin1", "hp", num(1)));

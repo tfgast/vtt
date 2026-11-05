@@ -17,6 +17,7 @@ import {
   parseResult,
   parseServerMessage,
   TransactParamsSchema,
+  UndoParamsSchema,
   type Welcome,
   type WireOp,
   WireOpSchema,
@@ -953,6 +954,13 @@ describe("parseClientMessage is strict", () => {
   test("rejects retry without txn_id", () => {
     const ops = [{ type: "remove", object: "x" }];
     expectClientError(JSON.stringify(request("transact", { base_revision: 0, ops, retry: true })));
+  });
+
+  test("rejects an undo label over 200 characters and accepts one of 200", () => {
+    const target = { type: "latest" };
+    expectClientError(JSON.stringify(request("undo", { target, label: "x".repeat(201) })));
+    expect(UndoParamsSchema.safeParse({ target, label: "x".repeat(201) }).success).toBe(false);
+    expect(UndoParamsSchema.safeParse({ target, label: "x".repeat(200) }).success).toBe(true);
   });
 
   test("rejects a list_objects with limit above max_page", () => {

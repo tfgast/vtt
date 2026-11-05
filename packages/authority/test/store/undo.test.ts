@@ -63,8 +63,13 @@ function write(
   return result.group.index;
 }
 
-function undone(store: DocumentStore, actor: Actor, selector?: UndoSelector) {
-  const result = undo(store, actor, selector);
+function undone(
+  store: DocumentStore,
+  actor: Actor,
+  selector?: UndoSelector,
+  opts?: { label?: string },
+) {
+  const result = undo(store, actor, selector, opts);
   if (!result.ok) throw new Error(`unexpected rejection: ${JSON.stringify(result.rejection)}`);
   return result;
 }
@@ -334,6 +339,14 @@ describe("conflicts", () => {
       ],
     });
     expect(group.label).toContain("GM damages goblin");
+  });
+
+  test("an undo group takes a given label, else Undo <target label>", () => {
+    const store = DocumentStore.fromSnapshot(scene());
+    write(store, gm, "goblin1", "damage_taken", 4, "GM damages goblin");
+    write(store, gm, "goblin1", "ac", 13, "GM armours goblin");
+    expect(undone(store, gm, undefined, { label: "oops" }).group.label).toBe("oops");
+    expect(undone(store, gm, undefined, {}).group.label).toBe("Undo GM damages goblin");
   });
 });
 
