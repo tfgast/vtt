@@ -415,10 +415,9 @@ with a link by the transcription bead named.
 `damage_taken` moves `hp`; an `override` on `hp` freezes it and the `override`
 expectation shows the inspector's marker; a further `set` on `damage_taken` is
 asserted *not* to change `hp`; `clear_override` restores tracking. An `undo`
-of the clear brings the override back. The complete sample is
-`packages/fixtures/test/samples/hit-points.json`.
+of the clear brings the override back.
 
-Scenario: (pending, vtt-1me.9)
+Scenario: [`hit-points.json`](../packages/fixtures/scenarios/hit-points.json)
 
 ### A die with a modifier
 
@@ -438,10 +437,9 @@ each a `spawn`:
   `setup.characters`.
 
 Each roll is a script entry `{"type":"roll","expr":"1d20",...}`; the
-`log_includes` roll effect asserts it was recorded. The sample
-`test/samples/die-with-modifier.json` covers the first two variants.
+`log_includes` roll effect asserts it was recorded.
 
-Scenario: (pending, vtt-1me.9)
+Scenario: [`die-with-modifier.json`](../packages/fixtures/scenarios/die-with-modifier.json)
 
 ### A goblin that shows HIT when a die on it beats its AC
 
@@ -468,7 +466,7 @@ The visibility subtlety is asserted directly:
 { "type": "cell_visible", "object": "goblin1", "cell": "hit", "viewer": "aldric", "visible": true }
 ```
 
-Scenario: (pending, vtt-1me.9)
+Scenario: [`goblin-hit.json`](../packages/fixtures/scenarios/goblin-hit.json)
 
 ### A dice tray that totals itself
 
@@ -484,7 +482,7 @@ in the zone tray, enters that one: the zone/container distinction (DESIGN §4.3)
 is visible in one scenario. Die values are roll results from the script; the
 sums are numbers.
 
-Scenario: (pending, vtt-1me.9)
+Scenario: [`dice-tray.json`](../packages/fixtures/scenarios/dice-tray.json)
 
 ### Difficult terrain
 
@@ -493,7 +491,7 @@ An `is_zone` object tagged `difficult` with a shape; a token with `base_speed: 3
 Nothing new is needed; `rotation` of the zone, if a variant wants it, is an
 ordinary cell.
 
-Scenario: (pending, vtt-1me.9)
+Scenario: [`difficult-terrain.json`](../packages/fixtures/scenarios/difficult-terrain.json)
 
 ### An Attack card
 
@@ -625,7 +623,7 @@ formula. A goblin marked `all` stands inside.
   the PC out no longer re-hides the room. That is "Setting `visible_to` by hand
   would create an override and stop the formula; the inspector says so."
 
-Scenario: (pending, vtt-1me.9)
+Scenario: [`re-hiding-room.json`](../packages/fixtures/scenarios/re-hiding-room.json)
 
 ## 10. For transcription beads
 
