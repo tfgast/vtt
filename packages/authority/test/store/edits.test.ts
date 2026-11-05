@@ -21,8 +21,8 @@ import {
   type Actor,
   bool,
   type Cell,
-  EMPTY,
   type Effect,
+  EMPTY,
   list,
   num,
   type Rejection,
@@ -34,7 +34,7 @@ import {
   type ViewersValue,
 } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
-import { at, lit, must, named, obj, table } from "./helpers";
+import { at, lit, must, obj, table } from "./helpers";
 
 const gm: Actor = { type: "gm" };
 const edit = { kind: "edit", label: "edit" } as const;
@@ -268,9 +268,7 @@ describe("writeValue", () => {
 
   test("a rename of name is captured in the group's names", () => {
     const store = DocumentStore.fromSnapshot(scene());
-    const result = store.transact(gm, edit, (tx) =>
-      writeValue(tx, "goblin", "name", text("Grub")),
-    );
+    const result = store.transact(gm, edit, (tx) => writeValue(tx, "goblin", "name", text("Grub")));
     expect(result.ok && result.group.names).toEqual({ goblin: "Grub" });
   });
 });
@@ -435,7 +433,14 @@ describe("deleteCell", () => {
     const store = DocumentStore.fromSnapshot(scene());
     const overridden = must(cellOf(store, "goblin", "ac"));
     expect(run(store, (tx) => deleteCell(tx, "goblin", "ac"))).toEqual([
-      { type: "cell", object: "goblin", cell: "ac", before: overridden, after: null, cause: "edit" },
+      {
+        type: "cell",
+        object: "goblin",
+        cell: "ac",
+        before: overridden,
+        after: null,
+        cause: "edit",
+      },
     ]);
     expect(cellOf(store, "goblin", "ac")).toBeUndefined();
     // Visibility is metadata of the object, independent of content.
