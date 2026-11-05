@@ -146,6 +146,51 @@ describe("evaluation order", () => {
   });
 });
 
+describe("the expression budget", () => {
+  /** `xs`: a literal list of 10,001 references to `box`; `fx`: a formula reading it twice. */
+  const refs = { type: "list", items: Array.from({ length: 10_001 }, () => ref("box")) } as const;
+
+  test("reference checks in a read value are charged, as in formula evaluation", () => {
+    const table = tableOf([{ name: "Go", steps: ["set(out, [xs, xs])"] }], {
+      xs: c(refs),
+      fx: { content: { type: "formula", source: "[xs, xs]" } },
+    });
+    expect(table.value("o", "fx")).toMatchObject({ type: "error", code: "#LIMIT" });
+    const dice = new ScriptedDiceSource([]);
+    const start = observe(table, dice);
+    const r = core.invokeAction(table, dice, { object: "o", action: "Go", actor: gm });
+    expect(r).toMatchObject({
+      ok: false,
+      step: 0,
+      rejection: { type: "step_error", step: 0, code: "#LIMIT" },
+    });
+    expect(observe(table, dice)).toEqual(start);
+  });
+
+  test("one read of the list stays within the budget", () => {
+    const table = tableOf([{ name: "Go", steps: ["set(out, len(xs))"] }], { xs: c(refs) });
+    const r = core.invokeAction(table, new ScriptedDiceSource([]), {
+      object: "o",
+      action: "Go",
+      actor: gm,
+    });
+    expect(r.ok).toBe(true);
+    expect(table.value("o", "out")).toEqual(num(10_001));
+  });
+
+  test("a value written earlier in the action is charged too", () => {
+    const table = tableOf([{ name: "Go", steps: ["set(ys, xs)", "set(out, [ys, ys])"] }], {
+      xs: c(refs),
+    });
+    const r = core.invokeAction(table, new ScriptedDiceSource([]), {
+      object: "o",
+      action: "Go",
+      actor: gm,
+    });
+    expect(r).toMatchObject({ ok: false, step: 1, rejection: { code: "#LIMIT" } });
+  });
+});
+
 describe("refused invocations change nothing", () => {
   test("a when_false, and a step_error in the second step after a roll in the first", () => {
     const table = tableOf([
