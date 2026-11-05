@@ -495,7 +495,7 @@ the UI's Ctrl+Z uses it. `expect_index` works with it as with `mine`. With
 
 ## 7. Views, values, redaction, covers, group views
 
-Decisions: D11, D12, D13 (face-down, referenced), D14, D15; M4-D12; M5-D8, M5-D23.
+Decisions: D11, D12, D13 (face-down, referenced), D14, D15; M4-D12; M5-D8, M5-D23, M5-D25.
 
 ### 7.1 Values
 
@@ -553,7 +553,10 @@ type BoardView = { id: BoardId; name?: string };
   action, in the order of `actions`, `enabled` as `explain_action` computes
   it (§9) and `reason` only when not enabled. It appears only in live object
   views (subscribe results, deltas, `get_objects`, `list_objects`, `zones`
-  views), never in effects or snapshots.
+  views), never in effects or snapshots. The authority always sends
+  `action_states` in live object views; the wire schema treats it as
+  optional per §12 (additive growth), and clients read a missing list as
+  empty (M5-D25).
 - `face` (M5-D8) is present when the view's `cells` is `"all"` and the object
   has a layout. Every element carries `index`, its position in the stored
   list, and `shown`. `show_when` is evaluated by the authority on the object
@@ -561,7 +564,9 @@ type BoardView = { id: BoardId; name?: string };
   `show_when`: `shown` is true when `show_when` is absent or evaluates to
   `true` and, for a button, its action exists; otherwise `shown` is false
   with `reason` `show_when_false`, `show_when_error` (with its `error`
-  code), or `no_action` for a button naming no action. Character views keep
+  code), or `no_action` for a button naming no action (`show_when` is
+  checked first, so a hidden button with no action reports
+  `show_when_false` or `show_when_error`). Character views keep
   only the elements that are shown and whose cell (for a value or editor
   element) they can read, without `show_when`, each keeping its stored
   `index`; `default_action` is kept only when it names an existing action.

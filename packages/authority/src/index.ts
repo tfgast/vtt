@@ -16,6 +16,7 @@ export * from "./persist/index";
 export * from "./protocol/commands";
 export * from "./protocol/conflicts";
 export * from "./protocol/explain";
+export * from "./protocol/face-visibility";
 export * from "./protocol/log-window";
 export * from "./protocol/queries";
 export * from "./protocol/subscriptions";
