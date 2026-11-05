@@ -1,0 +1,40 @@
+1. **vtt-5su.2, vtt-5su.4 — blocker: stale-lock takeover does not guarantee one owner.**  
+   Both processes can read the stale lock; A renames its replacement, rereads A’s nonce and proceeds; B then renames its replacement, rereads B’s nonce and also proceeds. The required test can pass by chance while the algorithm remains unsafe. Replace this with a locking protocol that provides mutual exclusion during takeover, or refuse automatic stale takeover in v1. Require a deterministic test that forces this interleaving. Canonicalize the table path before choosing lock and identity-file paths so symlink aliases cannot acquire separate locks.
+
+2. **vtt-5su.2, vtt-5su.3, vtt-5su.7 — blocker: successful responses cannot be validated unambiguously.**  
+   Responses contain an id and result, but no method; `parseServerMessage(text)` receives no pending-request context. With loose result schemas, `{}` for `unsubscribe` can accept—and strip—an otherwise malformed result. Similar result shapes also make union selection unsafe. Add a method discriminator to successful responses, or parse only the envelope initially and validate the result against the pending request’s method in the client. Require tests for malformed results and results valid for the wrong method.
+
+3. **vtt-5su.9 — blocker: incremental GM views miss changes to literal references.**  
+   A subscribed object with a literal reference to another object changes from a ref to `#REF` when the target is removed, even though the subscribed object was not written. The existing engine validates literal references on reads; these are not memoized formula dependencies returned by `invalidate`. The proposed candidate set therefore misses the holder. Undoing removal has the reverse problem. Include reference-existence dependencies in presentation invalidation, or conservatively rebuild affected views on existence changes. Test direct, nested-list and viewers references, including removal and restoration outside the subscription scope.
+
+4. **vtt-5su.2, vtt-5su.6 — should-fix: cover visibility needs an explicit distinction from final object visibility.**  
+   The existing `Visibility` API distinguishes `isEffectivelyVisible` from `canSeeObject`, which additionally applies opaque cover. The new contract repeatedly says an opaque zone “the viewer cannot effectively see” produces a cover, without explicitly naming which predicate applies. Using `canSeeObject` can turn an otherwise visible opaque zone into an additional cover merely because another zone covers its anchor, disagreeing with M2’s cover oracle. Specify the exact predicate and add an overlapping-zone test comparing returned covers with M2 object visibility.
+
+5. **vtt-5su.2, vtt-5su.7 — should-fix: same-session retry is insufficient once deduplication entries expire.**  
+   The cache evicts after 1,000 transactions per instance, but the retry rule treats the same session as sufficient evidence that replay is safe. An evicted committed transaction can execute again. Specify that retries require a retained result; a retry cache miss must return `uncertain`, or introduce another mechanism that proves execution is safe. Test eviction before retry. Persistent deduplication can remain deferred.
+
+6. **vtt-5su.7, vtt-5su.11, vtt-5su.15, vtt-5su.17 — should-fix: MCP connection-error behavior has no assigned implementation owner.**  
+   `.17` requires every tool to return `disconnected`, `unauthorized` or `wrong_table` in the corresponding state. However, `.11`’s `table_info` reads cached fields, `.15`’s polls read local buffers, and neither bead requires a readiness gate. `.17` is forbidden from editing their implementations. Define a public client connection-error accessor and assign a shared tool gate to `.11`, consumed by `.15`. Alternatively, explicitly exempt local tools in the contract. Test `table_info` and `poll_changes`, not just a forwarded query.
+
+7. **vtt-5su.2, vtt-5su.16 — should-fix: `last_write` can bypass character log filtering.**  
+   `explain_cell.last_write` is specified as the newest writing group’s header, while character group views must suppress labels when any effect is hidden or reduced. A group writing both a public cell and a secret cell could therefore expose its label through explain after the log correctly returns `label: null`. Require `last_write` to use the same filtered header policy and test a mixed-visibility group.
+
+8. **vtt-5su.2, vtt-5su.8 — should-fix: spatial-query error behavior is unspecified.**  
+   `zones` converts `contents(zone)` into `ObjectId[]`, but that formula can return `#TYPE`, `#CYCLE` or `#LIMIT`. `at_position` likewise encounters erroneous evaluated geometry or `z`. The beads do not say whether to return an error, omit a candidate, or fail the request. Define these outcomes and their wire representation, including deterministic handling when several candidates fail. Add acceptance cases with formula geometry errors and exhausted evaluation budgets.
+
+9. **vtt-5su.2, vtt-5su.3 — should-fix: the supposedly exact contract contradicts itself.**  
+   Its opening requires every wire object to reject unknown keys, while §12 requires server messages to strip them. It also says results never contain bindings, while `TransactResult.bindings` explicitly has binding-name keys. Because `.2` forbids adding or dropping rules, the documentation agent cannot resolve these contradictions. Restrict strict parsing to client messages and clarify that results contain binding mappings but never unresolved binding references.
+
+10. **vtt-5su.3, vtt-5su.6, vtt-5su.12 — should-fix: `CellView.kind` lacks a classification rule.**  
+    A structural cell such as `visible_to` or `position` may hold a formula. The contract offers `"literal"`, `"formula"` and `"structural"` without defining precedence. `.12` then depends on `kind` to distinguish fixture `set` from `override`. Specify that stored formulas remain `"formula"` even on structural cells, and define how stored literals and defaulted/field-backed cells are classified. Test a structural formula and its override.
+
+11. **vtt-5su.4 — should-fix: a prerequisite is checked only after implementation starts.**  
+    Save correctness requires `vtt-75c.17.saveTable` to serialize before its first await, but `.4` says to stop if that contract is absent. A dependency should guarantee the interface its consumer needs. Amend `vtt-75c.17` with that explicit contract and its same-tick mutation test before releasing `.4`, rather than making discovery of the missing guarantee a planned implementation blocker.
+
+12. **vtt-5su.7 — should-fix: the client bead is oversized.**  
+    It combines mirror application, request correlation, compatibility parsing, connection lifecycle, credential rotation, retry safety and subscription recovery. These are independently reviewable state machines, and failures in one complicate reviewing the others. Split into mirror/basic client and reconnect/retry/subscription recovery beads, with separate owned modules and an explicit dependency. Make the real-server consumers depend on recovery completion.
+
+13. **vtt-5su.4 — should-fix: locking and autosave should be separate beads.**  
+    Filesystem ownership and the serialized debounce/retry/shutdown save scheduler have independent correctness requirements and substantial fault-injection suites. Split lock/path/identity handling from `TableHost` persistence scheduling, with the host depending on the lock bead. This also makes the corrected ownership protocol reviewable before other code relies on it.
+
+**Overall verdict: not ready to implement.** Resolve the locking, response-validation and subscription-invalidation blockers first. Then reconcile the contradictory contracts, assign ownership of cross-layer error handling, and split the two largest state-machine beads before dispatching independent agents.
