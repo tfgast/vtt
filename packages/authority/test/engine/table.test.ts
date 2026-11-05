@@ -244,6 +244,8 @@ describe("visibility through the real cover query", () => {
     const table = world(f("1 / 0"));
     expect(errCode(table.value("fog", "opaque"))).toBe("#DIV0");
     expect(table.visibility.canSeeObject(ALDRIC, "chest")).toBe(false);
+    // Treated as opaque, not undetermined: only its region is covered.
+    expect(table.visibility.canSeeObject(ALDRIC, "tree")).toBe(true);
     expect(table.visibility.canSeeObject(GM, "chest")).toBe(true);
   });
 

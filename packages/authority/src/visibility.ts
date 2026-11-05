@@ -21,9 +21,11 @@ export interface VisibilityReader {
 
 /**
  * Opaque zones over an object's anchor on its board. `covering`: zones whose
- * region contains the anchor and whose `opaque` is true. `undetermined`: zones
- * on that board whose `opaque`, `is_zone` or geometry could not be evaluated
- * to valid values.
+ * region contains the anchor and which are opaque, either because `opaque` is
+ * true or because it is treated as opaque for being an error or not a boolean
+ * (DESIGN.md §4.4). `undetermined`: zones on that board whose `is_zone` or
+ * geometry could not be evaluated to valid values, and, when the object's own
+ * anchor cannot be read, every zone on the board that might be opaque.
  */
 export interface CoverResult {
   covering: ObjectId[];

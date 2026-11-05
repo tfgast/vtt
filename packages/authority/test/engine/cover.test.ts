@@ -1,6 +1,6 @@
 /** EngineCover (vtt-75c.12): opaque zones over an object, failing closed. */
-import { Table, writeValue } from "@vtt/authority";
-import { bool, num, ref, text } from "@vtt/schema";
+import { remove, Table, type Viewer, writeValue } from "@vtt/authority";
+import { bool, num, ref, text, type ViewersValue } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { c, commit, f, obj, placed, snapshot, zone } from "./helpers";
 
@@ -53,20 +53,38 @@ describe("opaqueZonesCovering", () => {
     expect(cover(table, "gem").covering).toEqual(["dark"]);
   });
 
-  test("an error or a wrong type from any zone read is undetermined", () => {
+  test("an erroneous or non-boolean opaque is opaque: it covers exactly its region", () => {
     const table = Table.fromSnapshot(
       snapshot([
         zone("bad_opaque", 0, 0, 10, { cells: { opaque: f("1 / 0") } }),
-        zone("num_opaque", 30, 30, 2, { cells: { opaque: f("3") } }),
+        zone("num_opaque", 0, 0, 10, { cells: { opaque: f("3") } }),
+        zone("text_opaque", 0, 0, 10, { cells: { opaque: f('"yes"') } }),
+        zone("far_bad", 30, 30, 2, { cells: { opaque: f("1 / 0") } }),
+        zone("ok", 0, 0, 10, { cells: { opaque: f("true") } }),
+        placed("chest", 1, 1),
+        placed("rock", 20, 20),
+      ]),
+    );
+    expect(cover(table, "chest")).toEqual({
+      covering: ["bad_opaque", "num_opaque", "ok", "text_opaque"],
+      undetermined: [],
+    });
+    expect(cover(table, "rock")).toEqual({ covering: [], undetermined: [] });
+  });
+
+  test("an error or a wrong type from a zone's geometry is undetermined", () => {
+    const table = Table.fromSnapshot(
+      snapshot([
         zone("bad_pos", 0, 0, 10, { cells: { opaque: c(bool(true)), position: f("nope") } }),
         zone("bad_rot", 0, 0, 10, { cells: { opaque: c(bool(true)), rotation: f('"x"') } }),
+        zone("bad_both", 0, 0, 10, { cells: { opaque: f("1 / 0"), position: f("nope") } }),
         zone("ok", 0, 0, 10, { cells: { opaque: f("true") } }),
         placed("chest", 1, 1),
       ]),
     );
     expect(cover(table, "chest")).toEqual({
       covering: ["ok"],
-      undetermined: ["bad_opaque", "bad_pos", "bad_rot", "num_opaque"],
+      undetermined: ["bad_both", "bad_pos", "bad_rot"],
     });
   });
 
@@ -95,10 +113,11 @@ describe("opaqueZonesCovering", () => {
       snapshot([
         zone("dark", 50, 50, 2, { cells: { opaque: c(bool(true)) } }),
         zone("clear", 50, 50, 2),
+        zone("murky", 50, 50, 2, { cells: { opaque: f("1 / 0") } }),
         obj("ghost", { board: "table", cells: { position: f('"here"') } }),
       ]),
     );
-    expect(cover(table, "ghost")).toEqual({ covering: [], undetermined: ["dark"] });
+    expect(cover(table, "ghost")).toEqual({ covering: [], undetermined: ["dark", "murky"] });
   });
 
   test("objects on another board are never covered by this board's zones", () => {
@@ -118,5 +137,54 @@ describe("opaqueZonesCovering", () => {
       ),
     );
     expect(cover(table, "chest")).toEqual({ covering: [], undetermined: [] });
+  });
+});
+
+describe("an erroneous opaque through Visibility (DESIGN §4.4)", () => {
+  const ALDRIC: Viewer = { type: "character", id: "aldric" };
+  const GM: Viewer = { type: "gm" };
+  const viewers = (...v: ViewersValue["viewers"]): ViewersValue => ({
+    type: "viewers",
+    viewers: v,
+  });
+  const errCode = (r: { type: string; code?: string }) => (r.type === "error" ? r.code : undefined);
+  const world = (fog: Record<string, ReturnType<typeof c>>) =>
+    Table.fromSnapshot(
+      snapshot([
+        placed("aldric", -20, -20, { is_character: true }),
+        zone("fog", 0, 0, 10, { cells: { visible_to: c(viewers("gm")), ...fog } }),
+        placed("chest", 1, 1),
+        placed("tree", 30, 30),
+        placed("lamp", 50, 50, { cells: { lit: c(bool(true)) } }),
+      ]),
+    );
+
+  test("an opaque formula evaluating to #REF hides inside its region only", () => {
+    const table = world({ lamp: c(ref("lamp")), opaque: f("lamp.lit") });
+    expect(table.value("fog", "opaque")).toEqual(bool(true));
+    commit(table, (tx) => remove(tx, "lamp"));
+    expect(errCode(table.value("fog", "opaque"))).toBe("#REF");
+    expect(table.visibility.canSeeObject(ALDRIC, "chest")).toBe(false);
+    expect(table.visibility.canSeeObject(ALDRIC, "tree")).toBe(true);
+    expect(table.visibility.canSeeObject(GM, "chest")).toBe(true);
+  });
+
+  // Validation keeps a stored `opaque` literal (content or override) boolean,
+  // so a non-boolean literal reaches the cover query as a formula's value.
+  test("an opaque whose value is a non-boolean literal hides inside its region only", () => {
+    const table = world({ opaque: f('"yes"') });
+    expect(table.value("fog", "opaque")).toEqual(text("yes"));
+    expect(table.visibility.canSeeObject(ALDRIC, "chest")).toBe(false);
+    expect(table.visibility.canSeeObject(ALDRIC, "tree")).toBe(true);
+    expect(table.visibility.canSeeObject(GM, "chest")).toBe(true);
+  });
+
+  test("a zone whose position is an error still hides everything on its board", () => {
+    const table = world({ opaque: c(bool(true)), position: f("1 / 0") });
+    expect(errCode(table.value("fog", "position"))).toBe("#DIV0");
+    expect(cover(table, "tree")).toEqual({ covering: [], undetermined: ["fog"] });
+    expect(table.visibility.canSeeObject(ALDRIC, "chest")).toBe(false);
+    expect(table.visibility.canSeeObject(ALDRIC, "tree")).toBe(false);
+    expect(table.visibility.canSeeObject(GM, "tree")).toBe(true);
   });
 });
