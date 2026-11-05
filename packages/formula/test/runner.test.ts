@@ -1,4 +1,4 @@
-import type { Expectation, Scenario } from "@vtt/fixtures";
+import type { Expectation, RollValue, Scenario, Value } from "@vtt/fixtures";
 import { describe, expect, test } from "vitest";
 import { fixtureValueEquals, runFormulaScenario } from "./support/runner";
 import { loadScenarios } from "./support/scenarios";
@@ -83,7 +83,7 @@ describe("runFormulaScenario", () => {
 });
 
 describe("fixtureValueEquals (FIXTURES §7)", () => {
-  const roll = { type: "roll", expr: "1d20", dice: [7], dropped: [], total: 7 } as const;
+  const roll: RollValue = { type: "roll", expr: "1d20", dice: [7], dropped: [], total: 7 };
   test("numbers exact, and never equal to a roll", () => {
     expect(fixtureValueEquals(num(3), num(3))).toBe(true);
     expect(fixtureValueEquals(num(3), num(3.0000001))).toBe(false);
@@ -96,7 +96,7 @@ describe("fixtureValueEquals (FIXTURES §7)", () => {
     expect(fixtureValueEquals(roll, { ...roll, expr: "d20" })).toBe(false);
   });
   test("lists elementwise and recursive, refs by object, viewers as sets", () => {
-    const l = { type: "list", items: [num(1), { type: "list", items: [num(2)] }] } as const;
+    const l: Value = { type: "list", items: [num(1), { type: "list", items: [num(2)] }] };
     expect(fixtureValueEquals(l, structuredClone(l))).toBe(true);
     expect(
       fixtureValueEquals(l, { type: "list", items: [num(1), { type: "list", items: [num(3)] }] }),

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { runFormulaScenario } from "./support/runner";
 import { SCENARIO_COVERAGE } from "./scenario-coverage";
+import { runFormulaScenario } from "./support/runner";
 import { loadScenarios } from "./support/scenarios";
 
 const scenarios = await loadScenarios();
