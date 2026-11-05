@@ -627,3 +627,81 @@ describe("pending writes", () => {
     expect(ghostOf(failed.effects)).not.toEqual(MOVED);
   });
 });
+
+describe("stationary clicks (Codex review)", () => {
+  /** A token whose hp element is off the 0.05 grid, as cell drops make them. */
+  const OFF: Rect = [-0.97, -0.93, 1, 0.5];
+  const offGrid = () =>
+    world([
+      view("tok", {
+        at: [7, 3],
+        shape: rect(2, 2),
+        rotation: 90,
+        face: { elements: [value("hp", OFF, 0)] },
+      }),
+    ]);
+
+  test("a click on an off-grid element body selects it and writes nothing", () => {
+    const tool = createLayoutTool();
+    const { effects, state } = drive(tool, [down([-0.5, -0.7]), up([-0.5, -0.7])], {
+      input: offGrid,
+    });
+    expect(writes(effects)).toEqual([]);
+    expect(state.phase.selected).toEqual({ object: "tok", index: 0 });
+  });
+
+  test("a click on a resize handle of an off-grid element writes nothing", () => {
+    const tool = createLayoutTool();
+    // hp already selected (no earlier click, whose write would hide the defect).
+    const init = tool.init({});
+    const selected = {
+      state: { ...init, phase: { ...init.phase, selected: { object: "tok", index: 0 } } },
+    };
+    // The se corner (0.03, -0.43).
+    const { effects, state } = drive(
+      tool,
+      [down([0.03, -0.43]), move([0.03, -0.43]), up([0.03, -0.43])],
+      { state: selected.state, input: offGrid },
+    );
+    expect(writes(effects)).toEqual([]);
+    expect(state.phase.gesture).toBeNull();
+    expect(state.phase.selected).toEqual({ object: "tok", index: 0 });
+  });
+
+  test("once the pointer has really moved, the rect snaps", () => {
+    const tool = createLayoutTool();
+    const { effects } = drive(tool, [down([-0.5, -0.7]), move([-0.4, -0.7]), up([-0.5, -0.7])], {
+      input: offGrid,
+    });
+    const face = writtenFace(writes(effects)[0] as Extract<Effect, { type: "write" }>);
+    expect(face.elements[0]?.rect).toEqual([-0.95, -0.95, 1, 0.5]);
+  });
+});
+
+describe("late write results after the tool is left (Codex review)", () => {
+  const committed = (interactionId: string): InteractionEvent => ({
+    type: "settled",
+    interactionId,
+    outcome: {
+      type: "write",
+      result: { status: "committed", revision: 8, index: 3, created: [], copies: [], bindings: {} },
+    },
+  });
+
+  test.each(["escape", "tool_switch"] as const)(
+    "after %s a delayed write response draws no overlays",
+    (reason) => {
+      const tool = createLayoutTool();
+      const written = drive(tool, [down([-0.5, -0.75]), move([0, -0.75]), up([0, -0.75])]);
+      const write = writes(written.effects)[0] as Extract<Effect, { type: "write" }>;
+      const left = drive(tool, [{ cancel: reason }], { state: written.state });
+      expect(left.effects).toContainEqual({ type: "overlays", overlays: [] });
+      const late = drive(tool, [committed(write.stamp.interactionId)], { state: left.state });
+      expect(late.effects).toEqual([]);
+      expect(late.state.phase.pending?.revision).toBe(8);
+      // Back in the layout tool, the next event draws again.
+      const back = drive(tool, [move([1, 1])], { state: late.state });
+      expect(lastOverlays(back.effects)?.length).toBeGreaterThan(0);
+    },
+  );
+});

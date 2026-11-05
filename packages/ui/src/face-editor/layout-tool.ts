@@ -172,8 +172,10 @@ export interface LayoutGesture {
   start: Rect;
   /** The pressed point in the object's frame. */
   grab: Point;
-  /** The rect the gesture would write now. */
+  /** The rect the gesture would write now (`start` until the pointer has moved). */
   rect: Rect;
+  /** Whether the pointer has moved off the pressed point (only then is the rect snapped). */
+  moved: boolean;
 }
 
 /** A written layout not yet seen by the client. */
@@ -191,12 +193,24 @@ export interface LayoutPhase {
   pending: PendingLayout | null;
   /** The key of the overlays last emitted (null: none shown). */
   shown: string | null;
+  /**
+   * False after Escape or a tool switch until the tool next receives an
+   * event other than `settled`: a late write result then updates `pending`
+   * without drawing overlays over the active tool's.
+   */
+  active: boolean;
 }
 
 type S = ToolState<LayoutPhase, "layout">;
 type R = ToolResult<LayoutPhase, "layout">;
 
-const INITIAL: LayoutPhase = { selected: null, gesture: null, pending: null, shown: null };
+const INITIAL: LayoutPhase = {
+  selected: null,
+  gesture: null,
+  pending: null,
+  shown: null,
+  active: true,
+};
 
 /** `target` with the pending layout shown in place of its stored one while it is unseen. */
 function withPending(target: LayoutTarget, phase: LayoutPhase, revision: number): LayoutTarget {
@@ -377,6 +391,7 @@ export function createLayoutTool(): Tool<LayoutPhase, "layout"> {
         start,
         grab: local,
         rect: start,
+        moved: false,
       };
       return result(
         state,
@@ -398,11 +413,14 @@ export function createLayoutTool(): Tool<LayoutPhase, "layout"> {
   const drag = (gesture: LayoutGesture, board: Point): LayoutGesture => {
     const local = apply(invert(gesture.target.toBoard), board);
     const delta: Point = [local[0] - gesture.grab[0], local[1] - gesture.grab[1]];
+    // A press without movement keeps the rect as it is, on the grid or not.
+    const moved = gesture.moved || Math.hypot(delta[0], delta[1]) > 1e-9;
+    if (!moved) return { ...gesture, rect: gesture.start };
     const rect =
       gesture.kind === "move"
         ? movedRect(gesture.start, delta)
         : resizedRect(gesture.start, gesture.corner ?? "se", delta);
-    return { ...gesture, rect };
+    return { ...gesture, rect, moved };
   };
 
   const release = (state: S, gesture: LayoutGesture, input: ReducerInput): R => {
@@ -461,10 +479,14 @@ export function createLayoutTool(): Tool<LayoutPhase, "layout"> {
       p.stamp.interactionId !== event.interactionId ||
       event.outcome.type !== "write"
     ) {
+      if (!state.phase.active) return { state, effects: [] };
       return result(state, state.phase, [], input);
     }
     const outcome = event.outcome.result;
     const pending = outcome.status === "committed" ? { ...p, revision: outcome.revision } : null;
+    // Inactive: record the outcome only; the active tool owns the overlays.
+    if (!state.phase.active)
+      return { state: { ...state, phase: { ...state.phase, pending } }, effects: [] };
     return result(state, { ...state.phase, pending }, [], input);
   };
 
@@ -474,6 +496,7 @@ export function createLayoutTool(): Tool<LayoutPhase, "layout"> {
       gesture: null,
       shown: null,
       ...(reason === "board_change" || reason === "viewer_change" ? { selected: null } : {}),
+      ...(reason === "escape" || reason === "tool_switch" ? { active: false } : {}),
     };
     const effects: Effect[] =
       state.phase.shown === null ? [] : [{ type: "overlays", overlays: [] }];
@@ -485,7 +508,12 @@ export function createLayoutTool(): Tool<LayoutPhase, "layout"> {
     id: "layout",
     init: (options) => ({ tool: "layout", options, phase: INITIAL }),
     cursor: (state) => (state.phase.gesture === null ? "default" : "move"),
-    reduce(state, event, input) {
+    reduce(current, event, input) {
+      // Only the active tool receives events other than `settled`.
+      const state =
+        event.type === "settled" || current.phase.active
+          ? current
+          : { ...current, phase: { ...current.phase, active: true } };
       const gesture = state.phase.gesture;
       switch (event.type) {
         case "pointer_down":
