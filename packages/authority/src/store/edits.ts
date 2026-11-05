@@ -94,8 +94,26 @@ function cellEffect(
   return { type: "cell", object, cell, before, after, cause };
 }
 
+/** A dense array of strings; a hole fails (`every` would skip it). */
 function isTextList(x: unknown): x is string[] {
-  return Array.isArray(x) && x.every((t) => typeof t === "string");
+  if (!Array.isArray(x)) return false;
+  for (let i = 0; i < x.length; i++) {
+    if (!(i in x) || typeof x[i] !== "string") return false;
+  }
+  return true;
+}
+
+/** Whether `p` is a dense permutation of `0..n-1`; a hole fails. */
+function isPermutation(p: unknown, n: number): p is number[] {
+  if (!Array.isArray(p) || p.length !== n) return false;
+  const seen = new Set<number>();
+  for (let k = 0; k < p.length; k++) {
+    const i: unknown = p[k];
+    if (!(k in p) || typeof i !== "number" || !Number.isInteger(i)) return false;
+    if (i < 0 || i >= n || seen.has(i)) return false;
+    seen.add(i);
+  }
+  return seen.size === n;
 }
 
 function writeLiteral(
@@ -286,16 +304,8 @@ export function setCharacterFlag(tx: Transaction, obj: ObjectId, value: boolean)
 export function reorder(tx: Transaction, container: ObjectId, permutation: number[]): void {
   const o = requireObject(tx, container);
   const old = o.contents;
-  const seen = new Set<number>();
-  const ok =
-    Array.isArray(permutation) &&
-    permutation.length === old.length &&
-    permutation.every((i) => {
-      if (!Number.isInteger(i) || i < 0 || i >= old.length || seen.has(i)) return false;
-      seen.add(i);
-      return true;
-    });
-  if (!ok) invalid(`not a permutation of ${old.length} for "${container}"`);
+  if (!isPermutation(permutation, old.length))
+    invalid(`not a permutation of ${old.length} for "${container}"`);
   const after = permutation.map((i) => old[i] as ObjectId);
   tx.record({ type: "reorder", container, before: [...old], after });
 }

@@ -624,6 +624,13 @@ describe("field primitives", () => {
       type: "type_error",
       cell: "tag",
     });
+    expectRefused(store, (tx) => setTag(tx, "goblin", new Array<string>(2)), {
+      type: "type_error",
+      cell: "tag",
+    });
+    const holey = ["a"];
+    holey.length = 2;
+    expectRefused(store, (tx) => setTag(tx, "goblin", holey), { type: "type_error", cell: "tag" });
   });
 
   test("setShape changes the shape with a field effect", () => {
@@ -694,6 +701,14 @@ describe("reorder", () => {
       expectRefused(store, (tx) => reorder(tx, "bag", p), { type: "invalid" });
     }
     expectRefused(store, (tx) => reorder(tx, "nobody", []), { type: "invalid" });
+  });
+
+  test("a sparse permutation is invalid", () => {
+    const store = DocumentStore.fromSnapshot(scene());
+    expectRefused(store, (tx) => reorder(tx, "bag", new Array(2)), { type: "invalid" });
+    const holey = [1];
+    holey.length = 2;
+    expectRefused(store, (tx) => reorder(tx, "bag", holey), { type: "invalid" });
   });
 });
 
