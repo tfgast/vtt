@@ -1,0 +1,1354 @@
+{
+  "title": "Fireball spawns its zone, locks the creatures inside, applies saves, and discards everything",
+  "source": "A Fireball card with a circle zone",
+  "description": "Aldric (spell_dc 14) spawns a Fireball card whose zone (circle, radius 4) is copied with it and remapped, drags the zone onto the map over goblin1 and goblin2 but not goblin3, and locks one save row per target. The zone is nudged (targets change, rows do not). 8d6 rolls 27; goblin1 (dex +2) rolls 13 and passes for floor(27/2) = 13, goblin2 (dex +0, 3 damage already) rolls 9 and fails for 27. Apply all is group 7. Lowering goblin1's dex_save to -5 drifts its row's live damage_dealt to 27 while group 7 still records 13. Discard removes the zone, the card, and both rows. Log groups: 0 spawn, 1 move zone, 2 Lock targets, 3 nudge zone, 4 Roll damage, 5-6 Roll save, 7 Apply all, 8 set dex_save, 9 Discard.",
+  "setup": {
+    "boards": [
+      {
+        "id": "map",
+        "name": "Map"
+      },
+      {
+        "id": "shelf",
+        "name": "Binder shelf"
+      }
+    ],
+    "characters": ["aldric", "goblin1", "goblin2", "goblin3"],
+    "objects": [
+      {
+        "id": "aldric",
+        "note": "The caster, at x=2 on the y=10 line, well outside every placement of the circle. Each creature is a character that owns itself, so it.owner is set (DESIGN §4.4: owner points at a character).",
+        "tag": ["pc", "creature"],
+        "shape": {
+          "type": "circle",
+          "radius": 0.5
+        },
+        "placement": {
+          "board": "map",
+          "position": [2, 10]
+        },
+        "cells": {
+          "name": {
+            "type": "text",
+            "value": "Aldric"
+          },
+          "owner": {
+            "type": "ref",
+            "object": "aldric"
+          },
+          "z": {
+            "type": "number",
+            "value": 0
+          },
+          "dex_save": {
+            "type": "number",
+            "value": 1
+          },
+          "damage_taken": {
+            "type": "number",
+            "value": 0
+          },
+          "spell_dc": {
+            "type": "number",
+            "value": 14
+          }
+        }
+      },
+      {
+        "id": "goblin1",
+        "note": "Inside the circle once the zone lands at [10, 10] (distance 1 < radius 4).",
+        "tag": ["creature", "goblin"],
+        "shape": {
+          "type": "circle",
+          "radius": 0.5
+        },
+        "placement": {
+          "board": "map",
+          "position": [9, 10]
+        },
+        "cells": {
+          "name": {
+            "type": "text",
+            "value": "Goblin 1"
+          },
+          "owner": {
+            "type": "ref",
+            "object": "goblin1"
+          },
+          "z": {
+            "type": "number",
+            "value": 0
+          },
+          "dex_save": {
+            "type": "number",
+            "value": 2
+          },
+          "damage_taken": {
+            "type": "number",
+            "value": 0
+          }
+        }
+      },
+      {
+        "id": "goblin2",
+        "note": "Inside the circle at [10, 10] (distance 2 < 4). Starts with 3 damage so Apply all's logged write is visibly the resulting sum.",
+        "tag": ["creature", "goblin"],
+        "shape": {
+          "type": "circle",
+          "radius": 0.5
+        },
+        "placement": {
+          "board": "map",
+          "position": [12, 10]
+        },
+        "cells": {
+          "name": {
+            "type": "text",
+            "value": "Goblin 2"
+          },
+          "owner": {
+            "type": "ref",
+            "object": "goblin2"
+          },
+          "z": {
+            "type": "number",
+            "value": 0
+          },
+          "dex_save": {
+            "type": "number",
+            "value": 0
+          },
+          "damage_taken": {
+            "type": "number",
+            "value": 3
+          }
+        }
+      },
+      {
+        "id": "goblin3",
+        "note": "Outside the circle at [10, 10] (distance 6 > 4); inside after the nudge to [17, 10] (distance 1).",
+        "tag": ["creature", "goblin"],
+        "shape": {
+          "type": "circle",
+          "radius": 0.5
+        },
+        "placement": {
+          "board": "map",
+          "position": [16, 10]
+        },
+        "cells": {
+          "name": {
+            "type": "text",
+            "value": "Goblin 3"
+          },
+          "owner": {
+            "type": "ref",
+            "object": "goblin3"
+          },
+          "z": {
+            "type": "number",
+            "value": 0
+          },
+          "dex_save": {
+            "type": "number",
+            "value": 1
+          },
+          "damage_taken": {
+            "type": "number",
+            "value": 0
+          }
+        }
+      },
+      {
+        "id": "aldric_binder",
+        "tag": ["binder"],
+        "placement": {
+          "board": "shelf",
+          "position": [0, 0]
+        },
+        "contents": ["fireball", "save_row_t"],
+        "cells": {
+          "name": {
+            "type": "text",
+            "value": "Aldric's binder"
+          },
+          "owner": {
+            "type": "ref",
+            "object": "aldric"
+          }
+        }
+      },
+      {
+        "id": "fireball",
+        "note": "FORMULAS §10: the card template owns the zone in its contents. save_row is the reference the prose's spawn(save_row, this, ...) needs but does not list (FIXTURES §9).",
+        "is_template": true,
+        "tag": ["card", "fireball"],
+        "contents": ["fireball_zone"],
+        "cells": {
+          "name": {
+            "type": "text",
+            "value": "Fireball"
+          },
+          "caster": {
+            "type": "empty"
+          },
+          "zone": {
+            "type": "ref",
+            "object": "fireball_zone"
+          },
+          "save_row": {
+            "type": "ref",
+            "object": "save_row_t"
+          },
+          "dc": {
+            "type": "formula",
+            "source": "caster.spell_dc"
+          },
+          "damage": {
+            "type": "empty"
+          },
+          "locked": {
+            "type": "boolean",
+            "value": false
+          },
+          "applied": {
+            "type": "boolean",
+            "value": false
+          },
+          "targets": {
+            "type": "formula",
+            "source": "contents(zone).where(tag has \"creature\")"
+          },
+          "rows": {
+            "type": "formula",
+            "source": "contents.where(tag has \"save_row\")"
+          }
+        },
+        "actions": [
+          {
+            "name": "Lock targets",
+            "when": "not locked",
+            "steps": [
+              "each(targets, spawn(save_row, this, {target: it, owner: it.owner}))",
+              "set(locked, true)"
+            ]
+          },
+          {
+            "name": "Roll damage",
+            "when": "locked and damage = empty",
+            "steps": ["roll(8d6) -> damage"]
+          },
+          {
+            "name": "Apply all",
+            "when": "locked and damage != empty and all(rows.save_roll != empty) and not applied",
+            "steps": [
+              "each(rows, add(it.target.damage_taken, it.damage_dealt))",
+              "set(applied, true)"
+            ]
+          },
+          {
+            "name": "Discard",
+            "steps": ["remove(zone)", "remove(this)"]
+          }
+        ]
+      },
+      {
+        "id": "fireball_zone",
+        "note": "A circle zone of radius 4, held in the card template's contents, so it has no placement.",
+        "is_zone": true,
+        "tag": ["fireball_zone"],
+        "shape": {
+          "type": "circle",
+          "radius": 4
+        },
+        "cells": {
+          "name": {
+            "type": "text",
+            "value": "Fireball area"
+          }
+        }
+      },
+      {
+        "id": "save_row_t",
+        "note": "Outside the card's subtree (beside it in the binder): inside, it would be copied with the card and match the card's own rows query (FIXTURES §9).",
+        "is_template": true,
+        "tag": ["save_row"],
+        "cells": {
+          "name": {
+            "type": "text",
+            "value": "Save row"
+          },
+          "target": {
+            "type": "empty"
+          },
+          "save_roll": {
+            "type": "empty"
+          },
+          "card": {
+            "type": "formula",
+            "source": "container"
+          },
+          "save_bonus": {
+            "type": "formula",
+            "source": "target.dex_save"
+          },
+          "passed": {
+            "type": "formula",
+            "source": "save_roll + save_bonus >= card.dc"
+          },
+          "damage_dealt": {
+            "type": "formula",
+            "source": "if(passed, floor(card.damage / 2), card.damage)"
+          }
+        },
+        "actions": [
+          {
+            "name": "Roll save",
+            "when": "save_roll = empty",
+            "steps": ["roll(1d20) -> save_roll"]
+          }
+        ]
+      }
+    ]
+  },
+  "dice": [
+    {
+      "type": "roll",
+      "expr": "8d6",
+      "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+      "dropped": [],
+      "total": 27
+    },
+    {
+      "type": "roll",
+      "expr": "1d20",
+      "dice": [13],
+      "dropped": [],
+      "total": 13
+    },
+    {
+      "type": "roll",
+      "expr": "1d20",
+      "dice": [9],
+      "dropped": [],
+      "total": 9
+    }
+  ],
+  "expect": [
+    {
+      "type": "cell",
+      "object": "fireball",
+      "cell": "zone",
+      "value": {
+        "type": "ref",
+        "object": "fireball_zone"
+      },
+      "note": "\"zone: (non-owning reference to the zone object)\"; in the template it points at the template's own zone."
+    },
+    {
+      "type": "contents",
+      "object": "fireball",
+      "contents": ["fireball_zone"],
+      "note": "\"template owns the zone in its contents\"."
+    },
+    {
+      "type": "contents",
+      "object": "aldric_binder",
+      "contents": ["fireball", "save_row_t"],
+      "note": "The card template and, outside its subtree, the row template sit in Aldric's binder."
+    },
+    {
+      "type": "log_groups",
+      "count": 0,
+      "note": "Nothing has happened yet."
+    }
+  ],
+  "steps": [
+    {
+      "actor": "aldric",
+      "note": "Group 0. Aldric spawns the Fireball card into his binder with caster set; the card's zone is copied with it.",
+      "do": {
+        "type": "spawn",
+        "template": "fireball",
+        "to": {
+          "type": "container",
+          "container": "aldric_binder",
+          "index": 0
+        },
+        "cells": {
+          "caster": {
+            "type": "ref",
+            "object": "aldric"
+          }
+        },
+        "as": "fb1",
+        "owned": {
+          "fireball_zone": "zone1"
+        }
+      },
+      "expect": [
+        {
+          "type": "container",
+          "object": "fb1",
+          "container": "aldric_binder",
+          "index": 0,
+          "note": "The spawn destination is index 0 of Aldric's binder."
+        },
+        {
+          "type": "contents",
+          "object": "aldric_binder",
+          "contents": ["fb1", "fireball", "save_row_t"],
+          "note": "The templates stay where they were; only the copy is added."
+        },
+        {
+          "type": "contents",
+          "object": "fb1",
+          "contents": ["zone1"],
+          "note": "\"Spawning the Fireball card copies the card and its zone.\""
+        },
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "zone",
+          "value": {
+            "type": "ref",
+            "object": "zone1"
+          },
+          "note": "\"the card's zone reference is remapped to the new zone\" (DESIGN §4.1: references among the copied objects are remapped to the copies)."
+        },
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "save_row",
+          "value": {
+            "type": "ref",
+            "object": "save_row_t"
+          },
+          "note": "\"references to anything outside are kept\" (DESIGN §4.1); the row template is outside the card's subtree."
+        },
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "template",
+          "value": {
+            "type": "ref",
+            "object": "fireball"
+          },
+          "note": "\"The copy's template cell points back at the original\" (DESIGN §4.1)."
+        },
+        {
+          "type": "cell",
+          "object": "zone1",
+          "cell": "template",
+          "value": {
+            "type": "ref",
+            "object": "fireball_zone"
+          },
+          "note": "The zone copy's template is the original zone (FORMULAS §8.3 spawn sets template)."
+        },
+        {
+          "type": "cell",
+          "object": "zone1",
+          "cell": "is_zone",
+          "value": {
+            "type": "boolean",
+            "value": true
+          },
+          "note": "\"A spawned copy keeps its template's is_zone\" (FIXTURES §3)."
+        },
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "caster",
+          "value": {
+            "type": "ref",
+            "object": "aldric"
+          },
+          "note": "\"caster: (set at spawn)\"."
+        },
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "dc",
+          "value": {
+            "type": "number",
+            "value": 14
+          },
+          "note": "dc = caster.spell_dc; Aldric's spell_dc is 14."
+        },
+        {
+          "type": "cell",
+          "object": "fireball",
+          "cell": "zone",
+          "value": {
+            "type": "ref",
+            "object": "fireball_zone"
+          },
+          "note": "The template itself is untouched by the spawn."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Lock targets",
+          "enabled": true,
+          "note": "[Lock targets] when: not locked; locked is false."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Roll damage",
+          "enabled": false,
+          "note": "[Roll damage] when: locked and damage = empty; not yet locked."
+        },
+        {
+          "type": "log_groups",
+          "count": 1,
+          "note": "A spawn is one group (FIXTURES §8)."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Group 1. \"in play the zone is dragged out onto the board, and zone keeps pointing at it.\" The circle at [10, 10] radius 4 covers x 6..14 on the y=10 line: goblin1 (x=9) and goblin2 (x=12) inside, goblin3 (x=16) and Aldric (x=2) outside.",
+      "do": {
+        "type": "move",
+        "object": "zone1",
+        "to": {
+          "type": "board",
+          "board": "map",
+          "position": [10, 10]
+        }
+      },
+      "expect": [
+        {
+          "type": "contents",
+          "object": "fb1",
+          "contents": [],
+          "note": "\"Dragging the zone onto the map moves it out of the card's contents.\""
+        },
+        {
+          "type": "placement",
+          "object": "zone1",
+          "board": "map",
+          "position": [10, 10],
+          "note": "The zone is on the map where it was dropped."
+        },
+        {
+          "type": "cell",
+          "object": "zone1",
+          "cell": "container",
+          "value": {
+            "type": "empty"
+          },
+          "note": "\"Objects on a board are owned by nothing\" (DESIGN §4.1)."
+        },
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "zone",
+          "value": {
+            "type": "ref",
+            "object": "zone1"
+          },
+          "note": "\"zone keeps pointing at it\": a non-owning reference survives the move."
+        },
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "targets",
+          "value": {
+            "type": "list",
+            "items": [
+              {
+                "type": "ref",
+                "object": "goblin1"
+              },
+              {
+                "type": "ref",
+                "object": "goblin2"
+              }
+            ]
+          },
+          "note": "targets = contents(zone).where(tag has \"creature\"): anchors inside the circle (DESIGN §4.3), ordered by z then id (FORMULAS §5); all z are 0."
+        },
+        {
+          "type": "log_groups",
+          "count": 2,
+          "note": "A move is one group."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Group 2. [Lock targets] spawns one save row per target inside the card, then sets locked.",
+      "do": {
+        "type": "invoke",
+        "object": "fb1",
+        "action": "Lock targets"
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "locked",
+          "value": {
+            "type": "boolean",
+            "value": true
+          },
+          "note": "set(locked, true)."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Lock targets",
+          "enabled": false,
+          "note": "when: not locked; locked is now true, so a second lock is refused."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Roll damage",
+          "enabled": true,
+          "note": "[Roll damage] when: locked and damage = empty."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Apply all",
+          "enabled": false,
+          "note": "[Apply all] needs damage != empty; damage is still empty."
+        },
+        {
+          "type": "log_groups",
+          "count": 3,
+          "note": "An invoke is one group for the whole action, however many rows it spawns (FIXTURES §8)."
+        }
+      ]
+    },
+    {
+      "note": "The row for goblin1 was created inside the action, so it is named here (FIXTURES §6 bind). in: fb1 rules out the row template in the binder. Appends no group.",
+      "do": {
+        "type": "bind",
+        "as": "row_g1",
+        "tag": "save_row",
+        "where": {
+          "cell": "target",
+          "value": {
+            "type": "ref",
+            "object": "goblin1"
+          }
+        },
+        "in": "fb1"
+      }
+    },
+    {
+      "note": "The row for goblin2 was created inside the action, so it is named here (FIXTURES §6 bind). in: fb1 rules out the row template in the binder. Appends no group.",
+      "do": {
+        "type": "bind",
+        "as": "row_g2",
+        "tag": "save_row",
+        "where": {
+          "cell": "target",
+          "value": {
+            "type": "ref",
+            "object": "goblin2"
+          }
+        },
+        "in": "fb1"
+      },
+      "expect": [
+        {
+          "type": "contents",
+          "object": "fb1",
+          "contents": ["row_g1", "row_g2"],
+          "note": "One save_row per creature inside the circle, nothing for goblin3 outside it."
+        },
+        {
+          "type": "container",
+          "object": "row_g1",
+          "container": "fb1",
+          "index": 0,
+          "note": "spawn(save_row, this, ...) puts the row in the card's contents, at the end (FORMULAS §8.2), in the order of targets."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "target",
+          "value": {
+            "type": "ref",
+            "object": "goblin1"
+          },
+          "note": "{target: it, ...}: the row's target is the creature it was spawned for."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "owner",
+          "value": {
+            "type": "ref",
+            "object": "goblin1"
+          },
+          "note": "{..., owner: it.owner}: the creature's owner, here the creature itself."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "template",
+          "value": {
+            "type": "ref",
+            "object": "save_row_t"
+          },
+          "note": "spawn sets template (FORMULAS §8.3)."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "card",
+          "value": {
+            "type": "ref",
+            "object": "fb1"
+          },
+          "note": "card = container."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "save_bonus",
+          "value": {
+            "type": "number",
+            "value": 2
+          },
+          "note": "save_bonus = target.dex_save; goblin1's dex_save is 2."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "passed",
+          "value": {
+            "type": "boolean",
+            "value": false
+          },
+          "note": "passed = save_roll + save_bonus >= card.dc: empty acts as 0 (FORMULAS §2.1), 0 + 2 >= 14 is false."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "damage_dealt",
+          "value": {
+            "type": "empty"
+          },
+          "note": "if(passed, ..., card.damage): not passed, and card.damage is still empty."
+        },
+        {
+          "type": "container",
+          "object": "row_g2",
+          "container": "fb1",
+          "index": 1,
+          "note": "spawn(save_row, this, ...) puts the row in the card's contents, at the end (FORMULAS §8.2), in the order of targets."
+        },
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "target",
+          "value": {
+            "type": "ref",
+            "object": "goblin2"
+          },
+          "note": "{target: it, ...}: the row's target is the creature it was spawned for."
+        },
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "owner",
+          "value": {
+            "type": "ref",
+            "object": "goblin2"
+          },
+          "note": "{..., owner: it.owner}: the creature's owner, here the creature itself."
+        },
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "template",
+          "value": {
+            "type": "ref",
+            "object": "save_row_t"
+          },
+          "note": "spawn sets template (FORMULAS §8.3)."
+        },
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "card",
+          "value": {
+            "type": "ref",
+            "object": "fb1"
+          },
+          "note": "card = container."
+        },
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "save_bonus",
+          "value": {
+            "type": "number",
+            "value": 0
+          },
+          "note": "goblin2's dex_save is 0."
+        },
+        {
+          "type": "action",
+          "object": "row_g1",
+          "action": "Roll save",
+          "enabled": true,
+          "note": "[Roll save] when: save_roll = empty."
+        },
+        {
+          "type": "log_groups",
+          "count": 3,
+          "note": "Bind steps append nothing (FIXTURES §6)."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Group 3. The GM nudges the zone to [17, 10]: the circle now covers x 13..21, which holds goblin3 only.",
+      "do": {
+        "type": "move",
+        "object": "zone1",
+        "to": {
+          "type": "board",
+          "board": "map",
+          "position": [17, 10]
+        }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "targets",
+          "value": {
+            "type": "list",
+            "items": [
+              {
+                "type": "ref",
+                "object": "goblin3"
+              }
+            ]
+          },
+          "note": "targets is \"live, before lock\": it follows the zone (FIXTURES §9: moving the zone afterwards changes targets)."
+        },
+        {
+          "type": "contents",
+          "object": "fb1",
+          "contents": ["row_g1", "row_g2"],
+          "note": "\"... but not the rows\": the rows were spawned at lock time and stay."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "target",
+          "value": {
+            "type": "ref",
+            "object": "goblin1"
+          },
+          "note": "A row's target is a literal written at spawn; the zone moving does not touch it."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Lock targets",
+          "enabled": false,
+          "note": "Still locked; the new targets cannot be locked in."
+        },
+        {
+          "type": "log_groups",
+          "count": 4,
+          "note": "A move is one group."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Group 4. [Roll damage] roll(8d6) -> damage. Script: 3+5+2+6+4+1+5+1 = 27, odd so the half-damage floor shows.",
+      "do": {
+        "type": "invoke",
+        "object": "fb1",
+        "action": "Roll damage"
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "damage",
+          "value": {
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
+          },
+          "note": "The roll result is written as given by the script (FIXTURES §5)."
+        },
+        {
+          "type": "log_includes",
+          "group": 4,
+          "effect": {
+            "type": "roll",
+            "object": "fb1",
+            "cell": "damage",
+            "value": {
+              "type": "roll",
+              "expr": "8d6",
+              "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+              "dropped": [],
+              "total": 27
+            }
+          },
+          "note": "The log records the roll result that was written (FIXTURES §5)."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Roll damage",
+          "enabled": false,
+          "note": "when: locked and damage = empty; damage is set."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Apply all",
+          "enabled": false,
+          "note": "\"Apply all disabled until every row has a save\": all(rows.save_roll != empty) is false."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "damage_dealt",
+          "value": {
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
+          },
+          "note": "Not passed (no save yet), so damage_dealt = card.damage = 27. if returns the chosen branch unchanged, so this is the stored 8d6 roll result, not its total (FORMULAS §2.2: a roll result acts as a number only in arithmetic and comparison; FIXTURES §7 compares roll results by all fields)."
+        },
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "damage_dealt",
+          "value": {
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
+          },
+          "note": "Same for goblin2's row. if returns the chosen branch unchanged, so this is the stored 8d6 roll result, not its total (FORMULAS §2.2: a roll result acts as a number only in arithmetic and comparison; FIXTURES §7 compares roll results by all fields)."
+        },
+        {
+          "type": "log_groups",
+          "count": 5,
+          "note": "One group for the action."
+        }
+      ]
+    },
+    {
+      "actor": "goblin1",
+      "note": "Group 5. The row owner's character rolls goblin1's save: 13 + dex_save 2 = 15 >= dc 14, a pass.",
+      "do": {
+        "type": "invoke",
+        "object": "row_g1",
+        "action": "Roll save"
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "save_roll",
+          "value": {
+            "type": "roll",
+            "expr": "1d20",
+            "dice": [13],
+            "dropped": [],
+            "total": 13
+          },
+          "note": "roll(1d20) -> save_roll, from the script."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "passed",
+          "value": {
+            "type": "boolean",
+            "value": true
+          },
+          "note": "passed = save_roll + save_bonus >= card.dc: 13 + 2 = 15 >= 14."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "damage_dealt",
+          "value": {
+            "type": "number",
+            "value": 13
+          },
+          "note": "damage_dealt = if(passed, floor(card.damage / 2), ...): floor(27 / 2) = floor(13.5) = 13."
+        },
+        {
+          "type": "action",
+          "object": "row_g1",
+          "action": "Roll save",
+          "enabled": false,
+          "note": "when: save_roll = empty; the save is rolled."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Apply all",
+          "enabled": false,
+          "note": "goblin2's row has no save yet, so all(rows.save_roll != empty) is false."
+        },
+        {
+          "type": "log_groups",
+          "count": 6,
+          "note": "One group for the action."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Group 6. The GM rolls goblin2's save: 9 + dex_save 0 = 9 < dc 14, a fail.",
+      "do": {
+        "type": "invoke",
+        "object": "row_g2",
+        "action": "Roll save"
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "save_roll",
+          "value": {
+            "type": "roll",
+            "expr": "1d20",
+            "dice": [9],
+            "dropped": [],
+            "total": 9
+          },
+          "note": "roll(1d20) -> save_roll, from the script."
+        },
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "passed",
+          "value": {
+            "type": "boolean",
+            "value": false
+          },
+          "note": "9 + 0 = 9 < 14."
+        },
+        {
+          "type": "cell",
+          "object": "row_g2",
+          "cell": "damage_dealt",
+          "value": {
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
+          },
+          "note": "Failed: damage_dealt = card.damage = 27. if returns the chosen branch unchanged, so this is the stored 8d6 roll result, not its total (FORMULAS §2.2: a roll result acts as a number only in arithmetic and comparison; FIXTURES §7 compares roll results by all fields)."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Apply all",
+          "enabled": true,
+          "note": "Every row has a save: locked, damage set, all(rows.save_roll != empty), not applied."
+        },
+        {
+          "type": "log_groups",
+          "count": 7,
+          "note": "One group for the action."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Group 7, the Apply group. each(rows, add(it.target.damage_taken, it.damage_dealt)): goblin1 0 + 13 = 13, goblin2 3 + 27 = 30.",
+      "do": {
+        "type": "invoke",
+        "object": "fb1",
+        "action": "Apply all"
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "damage_taken",
+          "value": {
+            "type": "number",
+            "value": 13
+          },
+          "note": "goblin1 passed: 0 + floor(27 / 2) = 13."
+        },
+        {
+          "type": "cell",
+          "object": "goblin2",
+          "cell": "damage_taken",
+          "value": {
+            "type": "number",
+            "value": 30
+          },
+          "note": "goblin2 failed: 3 + 27 = 30."
+        },
+        {
+          "type": "cell",
+          "object": "goblin3",
+          "cell": "damage_taken",
+          "value": {
+            "type": "number",
+            "value": 0
+          },
+          "note": "goblin3 has no row; the zone covering it after lock does not matter."
+        },
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "damage_taken",
+          "value": {
+            "type": "number",
+            "value": 0
+          },
+          "note": "The caster was never in the circle."
+        },
+        {
+          "type": "cell",
+          "object": "fb1",
+          "cell": "applied",
+          "value": {
+            "type": "boolean",
+            "value": true
+          },
+          "note": "set(applied, true)."
+        },
+        {
+          "type": "action",
+          "object": "fb1",
+          "action": "Apply all",
+          "enabled": false,
+          "note": "when: ... and not applied."
+        },
+        {
+          "type": "log_includes",
+          "group": 7,
+          "effect": {
+            "type": "write",
+            "object": "goblin1",
+            "cell": "damage_taken",
+            "value": {
+              "type": "number",
+              "value": 13
+            }
+          },
+          "note": "\"After Apply all, the log holds what was applied\"; an add is logged as the resulting sum (FIXTURES §7)."
+        },
+        {
+          "type": "log_includes",
+          "group": 7,
+          "effect": {
+            "type": "write",
+            "object": "goblin2",
+            "cell": "damage_taken",
+            "value": {
+              "type": "number",
+              "value": 30
+            }
+          },
+          "note": "The resulting sum, not the increment 27."
+        },
+        {
+          "type": "log_includes",
+          "group": 7,
+          "effect": {
+            "type": "write",
+            "object": "fb1",
+            "cell": "applied",
+            "value": {
+              "type": "boolean",
+              "value": true
+            }
+          },
+          "note": "The same group holds the set(applied, true)."
+        },
+        {
+          "type": "log_groups",
+          "count": 8,
+          "note": "spawn, move zone, Lock targets, nudge zone, Roll damage, two Roll saves, Apply all; bind steps append nothing (FIXTURES §9)."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Group 8. The drift: \"the rows' damage_dealt is live and would drift if dc or a target's save bonus changed later.\" goblin1's save becomes 13 - 5 = 8 < 14.",
+      "do": {
+        "type": "set",
+        "object": "goblin1",
+        "cell": "dex_save",
+        "value": {
+          "type": "number",
+          "value": -5
+        }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "save_bonus",
+          "value": {
+            "type": "number",
+            "value": -5
+          },
+          "note": "save_bonus = target.dex_save follows the target."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "passed",
+          "value": {
+            "type": "boolean",
+            "value": false
+          },
+          "note": "13 + -5 = 8 < 14."
+        },
+        {
+          "type": "cell",
+          "object": "row_g1",
+          "cell": "damage_dealt",
+          "value": {
+            "type": "roll",
+            "expr": "8d6",
+            "dice": [3, 5, 2, 6, 4, 1, 5, 1],
+            "dropped": [],
+            "total": 27
+          },
+          "note": "The live damage_dealt drifts from 13 to the full 27. if returns the chosen branch unchanged, so this is the stored 8d6 roll result, not its total (FORMULAS §2.2: a roll result acts as a number only in arithmetic and comparison; FIXTURES §7 compares roll results by all fields)."
+        },
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "damage_taken",
+          "value": {
+            "type": "number",
+            "value": 13
+          },
+          "note": "Nothing re-applies: damage_taken is a literal written by the action."
+        },
+        {
+          "type": "log_includes",
+          "group": 7,
+          "effect": {
+            "type": "write",
+            "object": "goblin1",
+            "cell": "damage_taken",
+            "value": {
+              "type": "number",
+              "value": 13
+            }
+          },
+          "note": "The earlier Apply group, addressed by absolute index, is unchanged (FIXTURES §8)."
+        },
+        {
+          "type": "log_includes",
+          "group": 7,
+          "effect": {
+            "type": "write",
+            "object": "goblin2",
+            "cell": "damage_taken",
+            "value": {
+              "type": "number",
+              "value": 30
+            }
+          },
+          "note": "Likewise goblin2's applied write."
+        },
+        {
+          "type": "log_groups",
+          "count": 9,
+          "note": "A set is one group."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Group 9. [Discard] remove(zone), remove(this). \"Discard removes it explicitly before removing the card and its rows.\"",
+      "do": {
+        "type": "invoke",
+        "object": "fb1",
+        "action": "Discard"
+      },
+      "expect": [
+        {
+          "type": "exists",
+          "object": "zone1",
+          "exists": false,
+          "note": "remove(zone): the zone left the card's contents, so it is removed explicitly."
+        },
+        {
+          "type": "exists",
+          "object": "fb1",
+          "exists": false,
+          "note": "remove(this)."
+        },
+        {
+          "type": "exists",
+          "object": "row_g1",
+          "exists": false,
+          "note": "\"remove(ref): Delete the object and its contents, recursively\" (FORMULAS §8.3); the rows go with the card."
+        },
+        {
+          "type": "exists",
+          "object": "row_g2",
+          "exists": false,
+          "note": "Recursively, with the card."
+        },
+        {
+          "type": "contents",
+          "object": "aldric_binder",
+          "contents": ["fireball", "save_row_t"],
+          "note": "Only the spawned card left the binder; the templates remain."
+        },
+        {
+          "type": "exists",
+          "object": "fireball_zone",
+          "exists": true,
+          "note": "The template's own zone is not the spawned copy and is untouched."
+        },
+        {
+          "type": "exists",
+          "object": "goblin1",
+          "exists": true,
+          "note": "Removing rows does not remove their (non-owning) targets."
+        },
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "damage_taken",
+          "value": {
+            "type": "number",
+            "value": 13
+          },
+          "note": "Applied damage stays after the card is gone."
+        },
+        {
+          "type": "log_groups",
+          "count": 10,
+          "note": "One group for the action."
+        }
+      ]
+    }
+  ]
+}

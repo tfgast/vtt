@@ -561,12 +561,18 @@ Construct by construct:
    zone, Roll damage, two Roll saves, Apply all (bind steps append nothing),
    the Apply group is index 7.
 6. Drift: a later `set` of a target's `dex_save` changes that row's live
-   `damage_dealt`, while the Apply group is asserted unchanged:
+   `damage_dealt`, while the Apply group is asserted unchanged. A failed
+   save's `damage_dealt` is the stored roll result itself, since `if` returns
+   its chosen branch unchanged and a roll result acts as its total only in
+   arithmetic and comparison (§2.2); the halved value is a number because
+   `floor` is arithmetic, and the applied `damage_taken` is a number because
+   `add` is:
 
 ```json
 { "actor": "gm", "do": { "type": "set", "object": "goblin1", "cell": "dex_save", "value": { "type": "number", "value": -5 } },
   "expect": [
-    { "type": "cell", "object": "row_g1", "cell": "damage_dealt", "value": { "type": "number", "value": 28 } },
+    { "type": "cell", "object": "row_g1", "cell": "damage_dealt",
+      "value": { "type": "roll", "expr": "8d6", "dice": [3,5,2,6,4,1,6,1], "dropped": [], "total": 28 } },
     { "type": "log_includes", "group": 7, "effect": { "type": "write", "object": "goblin1", "cell": "damage_taken", "value": { "type": "number", "value": 14 } } } ] }
 ```
 
@@ -579,7 +585,7 @@ target.dex_save)") is a second template whose Lock targets has those extra
 steps; in it the same drift step leaves `damage_dealt` unchanged. No new
 construct is needed.
 
-Scenario: (pending, vtt-1me.11)
+Scenario: [`scenarios/fireball.json`](../packages/fixtures/scenarios/fireball.json)
 
 ### Drawing a card
 
