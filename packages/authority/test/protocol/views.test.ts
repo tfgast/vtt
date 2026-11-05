@@ -662,8 +662,29 @@ describe("group views", () => {
     const aldric = new ViewBuilder(table, ALDRIC).groupView(g, { effects: true });
     expect(aldric?.names).toEqual({});
     expect(aldric?.effects).toHaveLength(1);
+    // A withheld name does not touch the label (PROTOCOL.md §7.6, D15).
+    expect(aldric?.label).toBe("Hurt the stranger");
     expect(new ViewBuilder(table, GM).groupView(g, { effects: true })?.names).toEqual({
       masked: "Masked stranger",
+    });
+  });
+
+  test("an invisible origin is omitted for Aldric but does not touch the label", () => {
+    const table = groupTable();
+    const result = table.store.transact(
+      GM_ACTOR,
+      { kind: "action", label: "Ghostly touch", origin: { object: "ghost", action: "Touch" } },
+      (tx) => writeValue(tx, "goblin", "hp", num(3)),
+    );
+    if (!result.ok) throw new Error(JSON.stringify(result.rejection));
+    const aldric = new ViewBuilder(table, ALDRIC).groupView(result.group, { effects: true });
+    expect(aldric?.label).toBe("Ghostly touch");
+    expect(aldric?.origin).toBeUndefined();
+    expect(aldric).not.toHaveProperty("origin");
+    expect(aldric?.effects).toHaveLength(1);
+    expect(new ViewBuilder(table, GM).groupView(result.group, { effects: true })?.origin).toEqual({
+      object: "ghost",
+      action: "Touch",
     });
   });
 

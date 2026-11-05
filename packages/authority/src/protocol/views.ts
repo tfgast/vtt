@@ -557,18 +557,17 @@ export class ViewBuilder {
    * when asked. Character: `names` only for objects it can see whose `name`
    * cell it can read, effects filtered by `filterEffect`, null when both are
    * empty; `label` kept only when every effect but `allocate`/`retire` is
-   * kept unreduced, every touched object is named, and the action origin
-   * (if any) is visible; `origin` itself only when its object is visible.
+   * kept unreduced (PROTOCOL.md §7.6, D15), else null; `origin` only when
+   * its object is visible. Withheld names and a withheld origin do not
+   * affect the label.
    */
   groupView(group: DeepReadonly<OpGroup>, options: GroupViewOptions): GroupView | null {
     const gm = this.#gm;
     const filtered = group.effects.map((e) => ({ type: e.type, ...this.filterEffect(e) }));
     const effects = filtered.flatMap((f) => (f.view === null ? [] : [f.view]));
     const names: Record<ObjectId, string> = {};
-    let nameHidden = false;
     for (const [id, name] of Object.entries(group.names)) {
       if (gm || this.canSeeCell(id, "name")) names[id] = name;
-      else nameHidden = true;
     }
     const originVisible =
       group.origin === undefined || gm || this.canSeeObject(group.origin.object);
@@ -578,7 +577,7 @@ export class ViewBuilder {
       const reduced = filtered.some(
         (f) => f.type !== "allocate" && f.type !== "retire" && f.reduced,
       );
-      if (reduced || nameHidden || !originVisible) label = null;
+      if (reduced) label = null;
     }
     const view: GroupView = {
       index: group.index,
