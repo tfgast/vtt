@@ -1,6 +1,7 @@
 export const PACKAGE = "@vtt/formula";
 
 export * from "./dice/index";
+export * from "./engine/engine";
 export * from "./eval/errors";
 export * from "./eval/evaluate";
 export * from "./eval/operators";
