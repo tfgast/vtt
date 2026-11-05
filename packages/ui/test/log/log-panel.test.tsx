@@ -280,8 +280,9 @@ describe("with an IntersectionObserver", () => {
     disconnect() {
       this.observed.clear();
     }
-    report(isIntersecting: boolean) {
-      this.callback([...this.observed].map((target) => ({ target, isIntersecting })));
+    report(isIntersecting: boolean, only?: Element) {
+      const targets = only === undefined ? [...this.observed] : [only];
+      this.callback(targets.map((target) => ({ target, isIntersecting })));
     }
   }
 
@@ -304,7 +305,7 @@ describe("with an IntersectionObserver", () => {
     await user.click(await screen.findByRole("button", { name: "Load older" }));
     await until(() => groupItems().length === 212, "every group");
     const observer = FakeObserver.last as FakeObserver;
-    expect([...observer.observed].map((el) => (el as HTMLElement).dataset.logPage)).toEqual(["1"]);
+    expect(observer.observed.has(item("GM: Lonely"))).toBe(true);
 
     const other = await authority.client("other");
     await other.request("undo", { target: { type: "group", index: lonely.index } });
@@ -317,6 +318,36 @@ describe("with an IntersectionObserver", () => {
     act(() => observer.report(true));
     await until(() => item("GM: Lonely").dataset.undone === "true", "the rebuilt page");
     expect(item("GM: Lonely").dataset.refreshing).toBeUndefined();
+  });
+
+  test("a page is rebuilt when only a middle row of it is in view", async () => {
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    const { authority, gm, pool, session } = await setup();
+    const lonely = await commit(
+      gm,
+      [{ type: "set_value", object: "note", cell: "mark", value: num(1) }],
+      "Lonely",
+    );
+    await commitMany(pool, 260, "note", "n", "Step");
+    await caughtUp(session, gm);
+    await mount(session);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Load older" }));
+    await until(() => groupItems().length === 250, "page 1");
+    const page1 = groupItems().filter((el) => el.dataset.logPage === "1");
+    expect(page1).toHaveLength(50);
+    const middle = page1[25] as HTMLElement;
+    const observer = FakeObserver.last as FakeObserver;
+    expect(observer.observed.has(middle)).toBe(true);
+    act(() => observer.report(true, middle));
+
+    // Undoing a group below the boundary (the unloaded page 2 region) invalidates the chain.
+    const other = await authority.client("other");
+    await other.request("undo", { target: { type: "group", index: lonely.index } });
+    await caughtUp(session, other);
+    await until(() => middle.dataset.refreshing !== undefined, "page 1 stale");
+    await until(() => middle.dataset.refreshing === undefined, "page 1 rebuilt");
+    expect(groupItems().filter((el) => el.dataset.logPage === "1")).toHaveLength(50);
   });
 });
 

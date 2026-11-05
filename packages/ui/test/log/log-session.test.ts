@@ -366,6 +366,114 @@ describe("older pages", () => {
     expect(snap.canLoadOlder).toBe(false);
   });
 
+  test("as Aldric, a chain emptied by a hide is rebuilt complete by the reveal", async () => {
+    const authority = await startLogAuthority();
+    const pool = await writers(authority);
+    const gm = pool[0] as ProtocolClient;
+    // Indices 0..9 touch only the torch; Aldric and the note are created at 10.
+    await commit(
+      gm,
+      [
+        {
+          type: "create_object",
+          id: "torch",
+          to: at(4, 0),
+          init: { cells: { name: text("Torch") } },
+        },
+      ],
+      "Torch",
+    );
+    await commitMany(pool, 9, "torch", "lit", "Lit");
+    await commit(gm, PARTY_SEED, "Seed");
+    await commitMany(pool, 195, "note", "n", "Note");
+    const session = authority.session();
+    await whenReady(session);
+    await caughtUp(session, gm);
+    const ui = createUiStore({ session });
+    await ui.setViewer(ALDRIC);
+    const log = open(session);
+    await live(log);
+    await until(() => log.getSnapshot().entries.length === 200, "the window");
+    await log.loadOlder();
+    expect(indices(log.getSnapshot()).slice(-6)).toEqual([5, 4, 3, 2, 1, 0]);
+
+    // Hide: every group below the boundary becomes invisible; the chain is empty.
+    await commit(
+      gm,
+      [{ type: "set_value", object: "torch", cell: "visible_to", value: GM_ONLY }],
+      "Hide",
+    );
+    await caughtUp(session, gm);
+    await settle(log);
+    expect(indices(log.getSnapshot()).filter((i) => i < 10)).toEqual([]);
+    expect(log.getSnapshot().canLoadOlder).toBe(false);
+
+    // Reveal: the empty end of the chain is rechecked.
+    await commit(
+      gm,
+      [{ type: "set_value", object: "torch", cell: "visible_to", value: ALL }],
+      "Reveal",
+    );
+    await caughtUp(session, gm);
+    await settle(log);
+    while (log.getSnapshot().canLoadOlder) await log.loadOlder();
+    const shown = indices(log.getSnapshot());
+    expect(shown).toEqual((await allVisible(gm, ALDRIC)).map((g) => g.index));
+    expect(shown.slice(-10)).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+    expect(new Set(shown).size).toBe(shown.length);
+  });
+
+  test("an emptied chain is rechecked by 'Load older' too", async () => {
+    const { gm, pool, session, ui } = await setup([
+      ...PARTY_SEED,
+      {
+        type: "create_object",
+        id: "torch",
+        to: at(4, 0),
+        init: { cells: { name: text("Torch") } },
+      },
+    ]);
+    await commitMany(pool, 210, "note", "n", "Note");
+    await caughtUp(session, gm);
+    await ui.setViewer(ALDRIC);
+    const log = open(session);
+    await live(log);
+    await log.loadOlder();
+    await log.loadOlder();
+    expect(log.getSnapshot().canLoadOlder).toBe(false);
+    // Hiding the note empties nothing below the seed, but a rebuild that yields an
+    // empty page must stay a stale-able end: hide everything, reveal, load older.
+    await commit(
+      gm,
+      [{ type: "set_value", object: "note", cell: "visible_to", value: GM_ONLY }],
+      "Hide",
+    );
+    await commit(
+      gm,
+      [{ type: "set_value", object: "aldric", cell: "visible_to", value: GM_ONLY }],
+      "Hide me",
+    );
+    await caughtUp(session, gm);
+    await settle(log);
+    await commit(
+      gm,
+      [{ type: "set_value", object: "note", cell: "visible_to", value: ALL }],
+      "Show",
+    );
+    await commit(
+      gm,
+      [{ type: "set_value", object: "aldric", cell: "visible_to", value: ALL }],
+      "Show me",
+    );
+    await caughtUp(session, gm);
+    while (log.getSnapshot().canLoadOlder || log.getSnapshot().pages.some((p) => p.refreshing)) {
+      await log.loadOlder();
+    }
+    const shown = indices(log.getSnapshot());
+    expect(shown).toEqual((await allVisible(gm, ALDRIC)).map((g) => g.index));
+    expect(shown.at(-1)).toBe(0);
+  });
+
   test("a response from a superseded generation is dropped", async () => {
     const { gm, pool, session, ui } = await setup([
       ...PARTY_SEED,
