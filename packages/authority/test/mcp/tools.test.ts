@@ -27,6 +27,7 @@ const TOOL_TABLE: Record<string, string[]> = {
   explain_group: ["index"],
   explain_action: ["object", "action"],
   transact: ["base_revision", "ops"],
+  invoke: ["object", "action", "base_revision"],
   undo: ["target"],
   save: [],
 };
@@ -83,6 +84,7 @@ const VALID_ARGS: Record<string, Record<string, unknown>> = {
   explain_group: { index: 0 },
   explain_action: { object: "goblin", action: "Heal" },
   transact: { base_revision: 3, ops: [{ type: "remove", object: "coin" }] },
+  invoke: { object: "goblin", action: "Heal", base_revision: 3 },
   undo: { target: { type: "latest" } },
   save: {},
 };
@@ -128,7 +130,7 @@ async function listed(h: McpHarness) {
 }
 
 describe("tool list", () => {
-  test("is the 14-tool table with its required arguments", async () => {
+  test("is the 15-tool table with its required arguments", async () => {
     const h = await startHarness();
     const tools = await listed(h);
     const table = Object.fromEntries(
@@ -153,12 +155,12 @@ describe("tool list", () => {
     }
   });
 
-  test("parity: every protocol method but invoke, document, subscribe and unsubscribe has a tool", async () => {
+  test("parity: every protocol method but document, subscribe and unsubscribe has a tool", async () => {
     const h = await startHarness();
     const names = new Set((await listed(h)).map((t) => t.name));
-    const excluded = new Set(["invoke", "document", "subscribe", "unsubscribe"]);
+    const excluded = new Set(["document", "subscribe", "unsubscribe"]);
     const methods = METHOD_NAMES.filter((m) => !excluded.has(m));
-    expect(methods).toHaveLength(13);
+    expect(methods).toHaveLength(14);
     for (const method of methods) expect(names.has(method), method).toBe(true);
     for (const method of excluded) expect(names.has(method), method).toBe(false);
     expect([...names].sort()).toEqual([...methods, "table_info"].sort());

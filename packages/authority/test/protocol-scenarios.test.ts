@@ -1,13 +1,14 @@
 /**
- * Every production scenario over the protocol (vtt-5su.12; FIXTURES.md
- * §1–§8, §11; DESIGN.md §5.2): `runScenarioOverProtocol` drives a real
- * server on port 0 through a `ProtocolClient` and must report what the
- * in-process M2 runner reports, with the same stored state after setup and
- * after every executed step.
+ * Every production scenario over the protocol (vtt-5su.12, vtt-1xv.13;
+ * FIXTURES.md §1–§8, §11; DESIGN.md §5.2): `runScenarioOverProtocol` drives
+ * a real server on port 0 through a `ProtocolClient` and must report what
+ * the direct runner reports (every scenario complete, nothing skipped), with
+ * the same stored state after setup and after every step and the same log
+ * at the end.
  */
-import { ScenarioError, storedStateEqual } from "@vtt/authority";
+import { canonicalJson, ScenarioError, storedStateEqual } from "@vtt/authority";
 import type { Expectation, Scenario, Step } from "@vtt/fixtures";
-import type { ProtocolClient } from "@vtt/protocol";
+import type { DocumentResult, ProtocolClient } from "@vtt/protocol";
 import type { Snapshot } from "@vtt/schema";
 import { afterEach, describe, expect, test } from "vitest";
 import {
@@ -16,9 +17,10 @@ import {
   type ProtocolSession,
   runScenarioOverProtocol,
 } from "./protocol-runner/run";
-import { base, n, r, valid } from "./runner/helpers";
+import { base, n, r, raw, valid } from "./runner/helpers";
 import { loadScenarioFile, scenarioFiles } from "./runner/load";
 import { type RunReport, runScenario, ScenarioFailure, type StepReport } from "./runner/run";
+import { applyStep, newRunState } from "./runner/steps";
 
 afterEach(closeAllSessions, 60_000);
 
@@ -30,31 +32,30 @@ const complete = (k: number): Expected => ({
   stepsTotal: k,
   skipped: {},
 });
-const partial = (run: number, total: number, skipped: Record<string, number> = {}): Expected => ({
-  complete: false,
-  stepsRun: run,
-  stepsTotal: total,
-  skipped,
-});
-
 /**
- * The protocol runner's coverage (vtt-75c.13's table): it stops at the first
- * `invoke` and skips `action` and `face_element` until vtt-1xv.13, while the
- * direct runner runs every scenario complete (vtt-1xv.10), so parity is
- * checked over the steps the protocol runner executes.
+ * The coverage table (vtt-75c.13's, as vtt-1xv.10 left the direct runner):
+ * since vtt-1xv.13 the protocol runner runs `invoke` and checks `action`
+ * and `face_element`, so every scenario is complete over the protocol too.
  */
 const EXPECTED: Record<string, Expected> = {
   "hit-points.json": complete(5),
   "difficult-terrain.json": complete(4),
   "re-hiding-room.json": complete(6),
-  "goblin-hit.json": partial(4, 6),
-  "attack-card.json": partial(2, 7, { action: 6, face_element: 5 }),
-  "fireball.json": partial(2, 12, { action: 2 }),
-  "die-with-modifier.json": partial(1, 7),
-  "dice-tray.json": partial(0, 10),
-  "drawing-a-card.json": partial(0, 4, { action: 1 }),
-  "shuffling.json": partial(0, 2, { action: 1 }),
+  "goblin-hit.json": complete(6),
+  "attack-card.json": complete(7),
+  "fireball.json": complete(12),
+  "die-with-modifier.json": complete(7),
+  "dice-tray.json": complete(10),
+  "drawing-a-card.json": complete(4),
+  "shuffling.json": complete(2),
 };
+
+/** The direct runner's log at the end of `scenario`: its steps applied without expectations. */
+function directLog(scenario: Scenario): unknown {
+  const state = newRunState(scenario);
+  for (const step of scenario.steps) applyStep(state, step);
+  return state.table.store.history.toLog();
+}
 
 test("the table names every scenario file", async () => {
   expect((await scenarioFiles()).sort()).toEqual(Object.keys(EXPECTED).sort());
@@ -67,13 +68,20 @@ describe("parity with the in-process runner", () => {
       const scenario = await loadScenarioFile(file);
       const direct: StepReport[] = [];
       const wire: StepReport[] = [];
+      let wireLog: unknown;
       const directReport = runScenario(scenario, { onStep: (s) => direct.push(s) });
-      const wireReport = await runScenarioOverProtocol(scenario, { onStep: (s) => wire.push(s) });
+      const wireReport = await runScenarioOverProtocol(scenario, {
+        onStep: (s) => wire.push(s),
+        onEnd: (doc) => {
+          wireLog = doc.log;
+        },
+      });
       expect(wireReport).toEqual({ title: scenario.title, ...expected });
-      expect(directReport.complete).toBe(true);
-      expect(wire.map((s) => s.step)).toEqual(direct.slice(0, wire.length).map((s) => s.step));
-      expect(wire).toHaveLength(wireReport.stepsRun + 1);
-      direct.slice(0, wire.length).forEach((d, i) => {
+      expect(wireReport).toEqual(directReport);
+      expect(wire.map((s) => s.step)).toEqual(direct.map((s) => s.step));
+      expect(wire).toHaveLength(directReport.stepsRun + 1);
+      expect(canonicalJson(wireLog), `${file}: the log`).toBe(canonicalJson(directLog(scenario)));
+      direct.forEach((d, i) => {
         const w = wire[i] as StepReport;
         const equal = storedStateEqual(d.snapshot, w.snapshot, {
           ignoreRevision: false,
@@ -354,6 +362,10 @@ function falsify(e: Expectation): Expectation | undefined {
       return { ...e, count: e.count + 1 };
     case "log_includes":
       return { ...e, effect: { ...e.effect, cell: "no_such_cell" } };
+    case "action":
+      return { ...e, enabled: !e.enabled };
+    case "face_element":
+      return { ...e, shown: !e.shown };
     default:
       return undefined;
   }
@@ -374,9 +386,7 @@ test("every falsified expectation fails the same way in both runners", async () 
   let count = 0;
   for (const file of Object.keys(EXPECTED)) {
     const s = await loadScenarioFile(file);
-    // Only the lists the protocol runner reaches (setup and its executed steps).
-    const reached = (EXPECTED[file] as Expected).stepsRun;
-    const lists = [s.expect ?? [], ...s.steps.slice(0, reached).map((step) => step.expect ?? [])];
+    const lists = [s.expect ?? [], ...s.steps.map((step) => step.expect ?? [])];
     for (const [li, list] of lists.entries()) {
       for (const [ei, e] of list.entries()) {
         const wrong = falsify(e);
@@ -393,5 +403,258 @@ test("every falsified expectation fails the same way in both runners", async () 
       }
     }
   }
-  expect(count).toBeGreaterThan(100);
+  expect(count).toBeGreaterThan(200);
 }, 60_000);
+
+describe("invoke, action and face_element over the wire (vtt-1xv.13)", () => {
+  const roll14 = { type: "roll" as const, expr: "1d20", dice: [14], dropped: [], total: 14 };
+  const roll3d6 = { type: "roll" as const, expr: "1d6", dice: [3], dropped: [], total: 3 };
+
+  /** Aldric with actions and a face (test/runner/invoke.test.ts's): buttons 0 Hurt, 1 Roll; 2 a GM-only value. */
+  function setup(): Scenario["setup"] {
+    const b = base().setup;
+    const [aldric] = b.objects;
+    return {
+      ...b,
+      objects: [
+        {
+          ...aldric,
+          id: "aldric",
+          cells: { ...aldric?.cells, value: { type: "empty" }, secret: n(7) },
+          cell_visibility: { secret: { type: "viewers", viewers: ["gm"] } },
+          actions: [
+            { name: "Hurt", when: "hp > 0", steps: ["add(damage_taken, 5)"] },
+            { name: "Roll", when: "value = empty", steps: ["roll(1d20) -> value"] },
+            { name: "Broken", when: "1 / 0", steps: ["set(damage_taken, 1)"] },
+            { name: "Divide", steps: ["set(damage_taken, 1)", "set(damage_taken, 1 / 0)"] },
+            { name: "Retag", steps: ["set(contents, [])"] },
+            { name: "Typo", steps: ["add(name, 1)"] },
+          ],
+          face: {
+            elements: [
+              {
+                type: "button",
+                action: "Hurt",
+                rect: [-1, 0, 2, 0.5],
+                show_when: "damage_taken = 0",
+              },
+              { type: "button", action: "Roll", rect: [-1, 0.5, 2, 0.5] },
+              { type: "value", cell: "secret", rect: [-1, 1, 2, 0.5] },
+            ],
+            collapsed: [
+              { type: "value", cell: "name", rect: [0, 0, 6, 0.6], show_when: "hp < 27" },
+            ],
+            default_action: "Hurt",
+          },
+        },
+        {
+          id: "goblin",
+          placement: { board: "table", position: [9, 9] },
+          cells: { visible_to: { type: "viewers", viewers: ["gm"] } },
+          face: { elements: [{ type: "value", cell: "name", rect: [0, 0, 1, 1] }] },
+        },
+      ],
+    };
+  }
+
+  const invoke = (action: string, expect: Expectation[] = [], actor = "aldric"): Step => ({
+    actor,
+    do: { type: "invoke", object: "aldric", action },
+    expect,
+  });
+  const setDamage = (value: number, expect: Expectation[] = []): Step => ({
+    actor: "gm",
+    do: { type: "set", object: "aldric", cell: "damage_taken", value: n(value) },
+    expect,
+  });
+  const action = (name: string, enabled: boolean): Expectation => ({
+    type: "action",
+    object: "aldric",
+    action: name,
+    enabled,
+  });
+  const face = (
+    element: number,
+    shown: boolean,
+    more: { list?: "full" | "collapsed"; viewer?: string; object?: string } = {},
+  ): Expectation => ({ type: "face_element", object: "aldric", element, shown, ...more });
+  const scenario = (steps: Step[], patch: Partial<Scenario> = {}): Scenario =>
+    valid({ setup: setup(), steps, ...patch });
+
+  /** Both runners end the same way; returns that ending. */
+  async function agree(s: Scenario): Promise<string> {
+    const direct = await ending(() => runScenario(s));
+    const wire = await ending(() => runScenarioOverProtocol(s));
+    expect(wire).toBe(direct);
+    return wire;
+  }
+
+  test("an invoke by a character runs as one group with the same snapshot, log and roll", async () => {
+    const s = scenario(
+      [
+        invoke("Roll", [
+          { type: "cell", object: "aldric", cell: "value", value: roll14 },
+          {
+            type: "log_includes",
+            group: 0,
+            effect: { type: "roll", object: "aldric", cell: "value", value: roll14 },
+          },
+          { type: "replay" },
+        ]),
+        invoke("Hurt", [{ type: "cell", object: "aldric", cell: "hp", value: n(22) }], "gm"),
+      ],
+      { dice: [roll14] },
+    );
+    let log: DocumentResult["log"] | undefined;
+    const wire: StepReport[] = [];
+    const direct: StepReport[] = [];
+    expect(runScenario(s, { onStep: (x) => direct.push(x) })).toEqual({
+      title: "Synthetic",
+      ...complete(2),
+    });
+    expect(
+      await runScenarioOverProtocol(s, {
+        onStep: (x) => wire.push(x),
+        onEnd: (doc) => {
+          log = doc.log;
+        },
+      }),
+    ).toEqual({ title: "Synthetic", ...complete(2) });
+    expect(wire.map((x) => x.step)).toEqual([-1, 0, 1]);
+    wire.forEach((w, i) => {
+      expect(storedStateEqual((direct[i] as StepReport).snapshot, w.snapshot)).toBe(true);
+    });
+    expect(canonicalJson(log)).toBe(canonicalJson(directLog(s)));
+    expect(log?.groups.map((g) => [g.kind, g.label, g.actor])).toEqual([
+      ["action", "Roll", { type: "character", id: "aldric" }],
+      ["action", "Hurt", { type: "gm" }],
+    ]);
+  });
+
+  test("the action refusals map through toFixtureReason as in the direct runner", async () => {
+    const ok = scenario(
+      [
+        invoke("Roll"),
+        invoke("Roll", [
+          { type: "rejected", reason: { type: "when_false" } },
+          { type: "log_groups", count: 1 },
+        ]),
+        invoke("Broken", [{ type: "rejected", reason: { type: "when_error", code: "#DIV0" } }]),
+        invoke("Divide", [
+          { type: "rejected", reason: { type: "step_error", code: "#DIV0" } },
+          { type: "cell", object: "aldric", cell: "damage_taken", value: n(0) },
+        ]),
+        invoke("Divide", [{ type: "rejected", reason: { type: "step_error" } }]),
+        invoke("Retag", [{ type: "rejected", reason: { type: "protected_cell" } }]),
+        invoke("Typo", [{ type: "rejected", reason: { type: "step_error", code: "#TYPE" } }]),
+      ],
+      { dice: [roll14] },
+    );
+    expect(await agree(ok)).toBe("ok");
+    expect(await agree(scenario([setDamage(27), invoke("Hurt")]))).toBe(
+      'ScenarioFailure: "Synthetic": step 1, expect rejected (absent): the step was refused: when_false',
+    );
+    expect(
+      await agree(
+        scenario([
+          invoke("Broken", [{ type: "rejected", reason: { type: "when_error", code: "#REF" } }]),
+        ]),
+      ),
+    ).toMatch(/^ScenarioFailure: .*expected \{"type":"when_error","code":"#REF"\}, got when_error/);
+    expect(
+      await agree(
+        scenario([invoke("Hurt", [{ type: "rejected", reason: { type: "when_false" } }])]),
+      ),
+    ).toMatch(/^ScenarioFailure: .*but the step was not refused$/);
+    expect(await agree(raw({ setup: setup(), steps: [invoke("Fly")] }))).toMatch(
+      /^ScenarioError: "Synthetic": step 0: the table refused the step as invalid/,
+    );
+  });
+
+  test("dice: a mismatch is a scenario error in both; an unused entry names the last step", async () => {
+    const wire = await ending(() =>
+      runScenarioOverProtocol(scenario([invoke("Roll")], { dice: [roll3d6] })),
+    );
+    expect(wire).toMatch(/^(ScenarioError|Error): "Synthetic": step 0 \(invoke\): /);
+    expect(await agree(scenario([invoke("Roll")], { dice: [roll14, roll14] }))).toBe(
+      'ScenarioError: "Synthetic": after step 0, expect dice script exhausted: 1 scripted dice entry unused',
+    );
+  });
+
+  test("action expectations read explain_action's enabled", async () => {
+    const s = scenario(
+      [
+        setDamage(27, [action("Hurt", false), action("Roll", true)]),
+        setDamage(0, [action("Hurt", true)]),
+      ],
+      {
+        expect: [
+          action("Hurt", true),
+          action("Roll", true),
+          action("Divide", true),
+          action("Broken", false),
+        ],
+      },
+    );
+    expect(await agree(s)).toBe("ok");
+    expect(
+      await agree(scenario([setDamage(27, [action("Roll", true), action("Hurt", true)])])),
+    ).toBe(
+      'ScenarioFailure: "Synthetic": step 0, expect #1 (action): aldric[Hurt]: expected enabled true, got false (guard hp > 0 is {"type":"boolean","value":false})',
+    );
+    expect(await agree(scenario([], { expect: [action("Broken", true)] }))).toMatch(
+      /^ScenarioFailure: .*aldric\[Broken\]: expected enabled true, got false \(guard 1 \/ 0 is /,
+    );
+    expect(await agree(scenario([], { expect: [action("Divide", false)] }))).toMatch(
+      /got true \(no guard\)$/,
+    );
+    expect(await agree(raw({ setup: setup(), expect: [action("Fly", true)] }))).toMatch(
+      /^ScenarioError: "Synthetic": setup, expect #0 \(action\): aldric has no action "Fly"$/,
+    );
+  });
+
+  test("face_element reads the viewer's face view by index", async () => {
+    const s = scenario(
+      [
+        invoke("Hurt", [
+          face(0, false),
+          face(0, false, { viewer: "aldric" }),
+          face(1, true),
+          face(0, true, { list: "collapsed" }),
+          face(0, true, { list: "collapsed", viewer: "aldric" }),
+        ]),
+      ],
+      {
+        expect: [
+          face(0, true),
+          face(0, true, { viewer: "aldric" }),
+          face(1, true, { viewer: "aldric" }),
+          face(2, true),
+          // A cell the viewer cannot read: the element is absent from its view.
+          face(2, false, { viewer: "aldric" }),
+          face(0, false, { list: "collapsed" }),
+          // An object the viewer cannot see: not shown.
+          face(0, true, { object: "goblin" }),
+          face(0, false, { object: "goblin", viewer: "aldric" }),
+        ],
+      },
+    );
+    expect(await agree(s)).toBe("ok");
+    expect(await agree(scenario([invoke("Hurt", [face(1, true), face(0, true)])]))).toBe(
+      'ScenarioFailure: "Synthetic": step 0, expect #1 (face_element): aldric face full[0] for gm: expected shown true, got false',
+    );
+    expect(await agree(scenario([], { expect: [face(2, true, { viewer: "aldric" })] }))).toBe(
+      'ScenarioFailure: "Synthetic": setup, expect #0 (face_element): aldric face full[2] for aldric: expected shown true, got false',
+    );
+    expect(await agree(scenario([], { expect: [face(3, false)] }))).toMatch(
+      /^ScenarioError: "Synthetic": setup, expect #0 \(face_element\): aldric face full\[3\]: the stored list has 3 elements$/,
+    );
+    expect(await agree(scenario([], { expect: [face(1, false, { list: "collapsed" })] }))).toMatch(
+      /^ScenarioError: .*collapsed\[1\]: the stored list has 1 elements$/,
+    );
+    const faceless = base();
+    expect(await agree(valid({ ...faceless, expect: [face(0, false)] }))).toBe(
+      'ScenarioError: "Synthetic": setup, expect #0 (face_element): aldric has no face layout',
+    );
+  });
+});

@@ -25,7 +25,7 @@ const TEST_MS = 90_000;
 
 const AGENT_NAME = "stdio-test-agent";
 
-/** The 14 request tools, the subscription tools, then `import_asset` (PROTOCOL.md §11). */
+/** The 15 request tools, the subscription tools, then `import_asset`: 19 (PROTOCOL.md §11). */
 const TOOL_NAMES = [
   "table_info",
   "list_objects",
@@ -39,6 +39,7 @@ const TOOL_NAMES = [
   "explain_group",
   "explain_action",
   "transact",
+  "invoke",
   "undo",
   "save",
   "subscribe",
@@ -367,12 +368,14 @@ async function expectServing(a: Agent): Promise<void> {
 
 describe("vtt-mcp with explicit credentials", () => {
   test(
-    "--url/--token lists the 18 tools and answers table_info with the agent actor",
+    "--url/--token lists the 19 tools and answers table_info with the agent actor",
     async () => {
       const s = await printed(serve(file));
       const a = await agent(["--url", s.url, `--token=${s.token}`]);
       const { tools } = await diagnosed(a, "tools/list", a.client.listTools());
       expect(tools.map((t) => t.name)).toEqual(TOOL_NAMES);
+      expect(tools).toHaveLength(19);
+      expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining(["import_asset", "invoke"]));
       const info = await connected(a);
       expect(info.structuredContent).toMatchObject({
         table: { path: file, id: s.table_id },

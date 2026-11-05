@@ -27,6 +27,7 @@ const REQUEST_TOOLS = [
   "explain_group",
   "explain_action",
   "transact",
+  "invoke",
   "undo",
   "save",
 ];
@@ -79,11 +80,11 @@ async function write(gm: ProtocolClient, ops: unknown[]): Promise<number> {
 const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
 
 describe("tool list", () => {
-  test("the 14 request tools plus subscribe, poll_changes and unsubscribe; every method but invoke and document has a tool", async () => {
+  test("the 15 request tools plus subscribe, poll_changes and unsubscribe; every method but document has a tool", async () => {
     const h = await start();
     const names = (await h.mcp.listTools()).tools.map((t) => t.name);
     expect(names).toEqual([...REQUEST_TOOLS, "subscribe", "poll_changes", "unsubscribe"]);
-    const excluded = new Set(["invoke", "document"]);
+    const excluded = new Set(["document"]);
     for (const method of METHOD_NAMES) {
       expect(names.includes(method), method).toBe(!excluded.has(method));
     }
