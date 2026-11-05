@@ -77,10 +77,10 @@ describe.each([false, true])("onStep on hit-points.json (round trip %s)", (round
   });
 });
 
-test("onStep is not called for skipped invoke steps", async () => {
+test("onStep is called after every step, invoke steps included", async () => {
   const fireball = await loadScenarioFile("fireball.json");
   const steps: number[] = [];
   const report = runScenario(fireball, { onStep: (r) => steps.push(r.step) });
-  expect(report.stepsRun).toBe(2);
-  expect(steps).toEqual([-1, 0, 1]);
+  expect(report.stepsRun).toBe(12);
+  expect(steps).toEqual([-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 });

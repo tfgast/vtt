@@ -1,7 +1,9 @@
 /**
- * Every production scenario through the M2 runner, in both modes, against
- * the expected coverage of vtt-75c.13. M5 updates this table when it adds
- * `invoke` steps and `action` expectations.
+ * Every production scenario through the scenario runner, in both modes
+ * (vtt-75c.13; vtt-1xv.10): since M5 every step type and expectation is
+ * supported, so each scenario runs complete, with every step run, no
+ * expectation skipped, and its dice script used up (leftover entries fail a
+ * complete run).
  */
 import { describe, expect, test } from "vitest";
 import { loadScenarioFile, scenarioFiles } from "./runner/load";
@@ -15,24 +17,18 @@ const complete = (n: number): Expected => ({
   stepsTotal: n,
   skipped: {},
 });
-const partial = (run: number, total: number, skipped: Record<string, number> = {}): Expected => ({
-  complete: false,
-  stepsRun: run,
-  stepsTotal: total,
-  skipped,
-});
 
 const EXPECTED: Record<string, Expected> = {
   "hit-points.json": complete(5),
   "difficult-terrain.json": complete(4),
   "re-hiding-room.json": complete(6),
-  "goblin-hit.json": partial(4, 6),
-  "attack-card.json": partial(2, 7, { action: 6 }),
-  "fireball.json": partial(2, 12, { action: 2 }),
-  "die-with-modifier.json": partial(1, 7),
-  "dice-tray.json": partial(0, 10),
-  "drawing-a-card.json": partial(0, 4, { action: 1 }),
-  "shuffling.json": partial(0, 2, { action: 1 }),
+  "goblin-hit.json": complete(6),
+  "attack-card.json": complete(7),
+  "fireball.json": complete(12),
+  "die-with-modifier.json": complete(7),
+  "dice-tray.json": complete(10),
+  "drawing-a-card.json": complete(4),
+  "shuffling.json": complete(2),
 };
 
 test("the table names every scenario file", async () => {

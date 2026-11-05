@@ -31,7 +31,7 @@
       },
       {
         "id": "attack_card",
-        "note": "FORMULAS §10 An Attack card, cell for cell. attacker is empty on the template; it is set at spawn.",
+        "note": "FORMULAS §10 An Attack card, cell for cell. attacker is empty on the template; it is set at spawn. The face is the Attack card face of DESIGN §4.6, copied verbatim on spawn (FIXTURES §3, §9): buttons 5 Roll, 6 Roll damage, 7 Apply.",
         "is_template": true,
         "tag": ["card", "attack"],
         "shape": { "type": "rect", "width": 2, "height": 3 },
@@ -64,7 +64,60 @@
             "when": "hit and dmg != empty and not applied",
             "steps": ["add(target.damage_taken, dmg)", "set(applied, true)"]
           }
-        ]
+        ],
+        "face": {
+          "elements": [
+            {
+              "type": "value",
+              "cell": "name",
+              "rect": [-1.2, -1.7, 2.4, 0.4],
+              "style": { "size": "large" }
+            },
+            {
+              "type": "editor",
+              "cell": "target",
+              "rect": [-1.2, -1.2, 2.4, 0.4],
+              "style": { "caption": true }
+            },
+            {
+              "type": "value",
+              "cell": "total",
+              "rect": [-1.2, -0.7, 1.1, 0.5],
+              "style": { "caption": true }
+            },
+            {
+              "type": "value",
+              "cell": "hit",
+              "rect": [0.1, -0.7, 1.1, 0.5],
+              "style": { "caption": true }
+            },
+            {
+              "type": "value",
+              "cell": "dmg",
+              "rect": [-1.2, -0.1, 2.4, 0.4],
+              "style": { "caption": true }
+            },
+            {
+              "type": "button",
+              "action": "Roll",
+              "rect": [-1.2, 0.5, 1.1, 0.45],
+              "show_when": "roll = empty"
+            },
+            {
+              "type": "button",
+              "action": "Roll damage",
+              "rect": [0.1, 0.5, 1.1, 0.45],
+              "show_when": "hit and dmg = empty"
+            },
+            {
+              "type": "button",
+              "action": "Apply",
+              "rect": [-1.2, 1.1, 2.4, 0.45],
+              "show_when": "not applied"
+            }
+          ],
+          "default_action": "Roll"
+        }
       },
       {
         "id": "goblin1",
@@ -171,6 +224,20 @@
           "enabled": false,
           "note": "[Apply] when: hit and dmg != empty and not applied; hit is false."
         },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 5,
+          "shown": true,
+          "note": "The Roll button (element 5), show_when: roll = empty; shown though Roll is disabled: show-when only hides (FIXTURES §9)."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 7,
+          "shown": true,
+          "note": "The Apply button (element 7), show_when: not applied; shown, and disabled by its guard."
+        },
         { "type": "log_groups", "count": 1, "note": "A spawn is one group (FIXTURES §8)." }
       ]
     },
@@ -218,6 +285,28 @@
           "action": "Apply",
           "enabled": false,
           "note": "[Apply] when: hit and ...; hit is false."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 5,
+          "shown": true,
+          "note": "The Roll button (element 5), show_when: roll = empty; shown before Roll (FIXTURES §9)."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 5,
+          "viewer": "aldric",
+          "shown": true,
+          "note": "The Roll button (element 5), show_when: roll = empty; Aldric's face view shows it too."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 7,
+          "shown": true,
+          "note": "The Apply button (element 7), show_when: not applied; shown before Apply."
         },
         { "type": "log_groups", "count": 2, "note": "A set is one group (FIXTURES §8)." }
       ]
@@ -285,6 +374,28 @@
           "enabled": false,
           "note": "[Apply] when: hit and dmg != empty and ...; dmg is empty."
         },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 5,
+          "shown": false,
+          "note": "Show-when on the face hides Roll once roll is set (FORMULAS §10)."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 5,
+          "viewer": "aldric",
+          "shown": false,
+          "note": "Hidden for Aldric as well: a character's view omits hidden elements (PROTOCOL §7.2)."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 7,
+          "shown": true,
+          "note": "The Apply button (element 7), show_when: not applied; still shown, applied is false."
+        },
         { "type": "log_groups", "count": 3, "note": "An invoke is one group (FIXTURES §8)." },
         {
           "type": "log_includes",
@@ -339,6 +450,13 @@
           "enabled": true,
           "note": "[Apply] when: hit and dmg != empty and not applied; all hold now."
         },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 7,
+          "shown": true,
+          "note": "The Apply button (element 7), show_when: not applied; shown before Apply (FIXTURES §9)."
+        },
         { "type": "log_groups", "count": 4, "note": "An invoke is one group (FIXTURES §8)." },
         {
           "type": "log_includes",
@@ -392,6 +510,28 @@
           "action": "Roll damage",
           "enabled": false,
           "note": "[Roll damage] when: hit and dmg = empty; dmg is set."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 7,
+          "shown": false,
+          "note": "Show-when on the face hides Apply once applied (FORMULAS §10)."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 7,
+          "viewer": "aldric",
+          "shown": false,
+          "note": "Hidden for Aldric as well (PROTOCOL §7.2)."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 5,
+          "shown": false,
+          "note": "The Roll button (element 5), show_when: roll = empty; still hidden, roll is set."
         },
         {
           "type": "log_groups",
@@ -454,6 +594,13 @@
           "note": "Still disabled: not applied is false."
         },
         {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 7,
+          "shown": false,
+          "note": "Still hidden: \"Show-when only hides; the refused second Apply is still the guard's when_false\" (FIXTURES §9)."
+        },
+        {
           "type": "log_groups",
           "count": 5,
           "note": "A refused step appends no log group (FIXTURES §6)."
@@ -506,6 +653,13 @@
           "action": "Roll",
           "enabled": false,
           "note": "[Roll] when: ... and roll = empty; roll is still set."
+        },
+        {
+          "type": "face_element",
+          "object": "attack1",
+          "element": 7,
+          "shown": true,
+          "note": "Undo of Apply restores applied to false, so the Apply button is shown again."
         },
         {
           "type": "log_groups",
