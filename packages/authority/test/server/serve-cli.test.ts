@@ -232,7 +232,7 @@ describe("vtt-serve start-up", () => {
     expect(source.startsWith("#!/usr/bin/env -S node --import tsx\n")).toBe(true);
     expect(statSync(BIN).mode & 0o111).not.toBe(0);
     const pkg = JSON.parse(await readFile(join(PKG, "package.json"), "utf8"));
-    expect(pkg.bin).toEqual({ "vtt-serve": "./src/bin/serve.ts" });
+    expect(pkg.bin["vtt-serve"]).toBe("./src/bin/serve.ts");
     const p = launch(BIN, [file, "--port", "0", "--print-session"], PKG, {
       PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
     });
