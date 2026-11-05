@@ -24,18 +24,19 @@ the language.
 
 | Type | Literal | Notes |
 |---|---|---|
-| number | `12`, `3.5`, `-2` | One numeric type. |
-| text | `"goblin"` | Double quotes; `\"` and `\\` escapes. |
+| number | `12`, `3.5` | One numeric type, an IEEE double. `-2` is prefix minus applied to `2`. |
+| text | `"goblin"` | Double quotes; `\"` and `\\` are the only escapes. Literal newlines are allowed. |
 | boolean | `true`, `false` | |
 | empty | `empty` | A blank cell. See 2.1. |
 | list | `[1, 2, 3]`, `["die", "d6"]` | Ordered. Tags, contents, query results are lists. |
-| reference | none | Points at an object. Obtained from reference cells (`target`, `owner`) or queries (`contents(...)`). A reference to a deleted object evaluates to `#REF`. |
+| reference | none | Points at an object. Obtained from reference cells (`target`, `owner`) or queries (`contents(...)`). A reference to a deleted object evaluates to `#REF` (2.4). |
 | dice | `2d6+3`, `1d20kh1`, `4d6dl1`, `1d6!`, `2d20kl1` | A dice *expression*, not a roll. See 2.2. |
 | roll result | none | Produced by the `roll` action step. See 2.2. |
 | ink | none | Freehand strokes. Opaque to formulas; only `ink = empty` is meaningful. |
-| viewers | `all`, `gm`, `owner`, a character reference, or a list of these | The value type of `visible_to`. |
-| record | `{target: it, modifier: 2}` | A set of named values. Used only as the initial-cells argument to `spawn`. Not storable in a cell. |
-| error | `#CYCLE`, `#NAME`, `#TYPE`, `#REF`, `#DIV0`, `#LIMIT` | See 2.3. |
+| shape | none | The value the structural `shape` cell reads as. Opaque to formulas: `=` and `!=` compare structurally, every other operation is `#TYPE`. Always truthy. |
+| viewers | `all`, `gm`, `owner`, a character reference, or a list of these | The value type of `visible_to`. In a formula, `all` and `gm` are reserved viewer literals and `owner` is the `owner` cell (3.2). |
+| record | `{target: it, modifier: 2}` | A set of named values. Used only as the initial-cells argument to `spawn`. Not storable in a cell. A duplicate field name is a syntax error. |
+| error | `#CYCLE`, `#NAME`, `#TYPE`, `#REF`, `#DIV0`, `#LIMIT`, `#SYNTAX` | See 2.3. Never storable. |
 
 ### 2.1 Empty, truthiness, and coercion
 
@@ -56,44 +57,88 @@ the language.
 
 ### 2.2 Dice and roll results
 
-A **dice value** is an expression in standard dice notation. V1 subset:
+A **dice value** is an expression in standard dice notation. V1 dialect:
 
-- `NdS` with integer N ≥ 1 and S ≥ 2, or `dS` meaning `1dS`; `dF` for Fudge
-  dice.
-- Modifiers on a term: `khN`, `klN`, `dhN`, `dlN` (keep/drop highest/lowest),
-  `!` (explode on maximum, at most 100 times per die), `r<N`, `r>N`,
-  `r=N` (reroll once on the condition).
+- A **term** (a pool) is `NdS` with integer count 1 ≤ N ≤ 1000 and sides
+  2 ≤ S ≤ 1,000,000, or `dS` meaning `1dS`; `NdF` or `dF` for Fudge dice
+  (results -1, 0, 1). The `d` is lowercase only, the `F` uppercase only.
+- Modifiers on a term, in any order, each kind at most once per term
+  (keep/drop is one kind):
+  - `khN`, `klN` keep the highest or lowest N, with 1 ≤ N ≤ count;
+    `dhN`, `dlN` drop the highest or lowest N, with 1 ≤ N < count.
+  - `!` explodes on maximum. Each explosion adds an extra die to the term
+    (extras are separate dice, not compounded into one result); an extra that
+    rolls maximum explodes again, up to 100 extras per original die.
+  - `r<N`, `r>N`, `r=N` reroll once on the condition, with N within 1..S. The
+    reroll replaces the die and the original goes to `.dropped`. Extras from
+    an explosion are not rerolled.
+  - Fudge terms take no `!` and no `r`.
+- Modifiers apply in the order reroll, explode, keep/drop. Keep/drop ranks
+  all of the term's dice, extras included: descending for `kh` and `dh`,
+  ascending for `kl` and `dl`, ties broken by roll order. `kh` and `kl` keep
+  the first N of that ranking; `dh` and `dl` drop the first N.
 - Terms combined with `+` and `-`, and with integers.
+
+**Normalized expression.** Dice equality (4) and fixture dice-script matching
+(FIXTURES.md §5) compare normalized expressions: counts explicit (`d20` is
+`1d20`), modifiers in the order reroll, explode, keep/drop (`1d6kh1!` is
+`1d6!kh1`), integer constants folded into one trailing term (`2+1d6+1` is
+`1d6+3`), no spaces. Term order is preserved, because it is the roll order of
+`.dice`: `1d6+1d20` is not `1d20+1d6`. There is no semantic simplification:
+`1d20kh1` is not `1d20`.
 
 Arithmetic between dice values, or dice and numbers, produces dice values:
 `weapon.dice + 1d6 + 2`. Multiplication and division are not defined on dice.
 
-A **roll result** is what an action's `roll` step writes. It acts as a number
-(its total) in arithmetic and comparison, and exposes:
+A **roll result** is what an action's `roll` step writes. It acts as its
+total in arithmetic, comparison, numeric functions (`floor`, `round`,
+`clamp`, `abs`), and `sum` and `avg`, which return numbers. `&` and `text()`
+render it as its total. It is always truthy: a roll of total 0 was still
+rolled. `min`, `max`, `if`, `first`, and `last` return the roll unchanged. It
+exposes:
 
 - `.total` the number
 - `.dice` the list of individual kept die results, in roll order
 - `.dropped` the list of dropped results
 - `.expr` the dice value that was rolled
 
-Dice functions: `max_roll(dice)`, `min_roll(dice)`, `faces(dice)` (number of
-dice in the expression, counting kept and dropped), `sides(dice)` (a list of
-the sizes of each die, so a mixed pool is a list, not an error).
+Dice functions: `max_roll(dice)`, `min_roll(dice)` (both ignore explosion
+and rerolls), `faces(dice)` (number of dice in the expression, counting kept
+and dropped), `sides(dice)` (a list of the sizes of each die, so a mixed pool
+is a list, not an error; a Fudge die counts as 3).
 
 ### 2.3 Errors
 
 | Error | When |
 |---|---|
 | `#NAME` | A bare name or dot-access names a cell the object does not have, or an unknown function. |
-| `#REF` | Following a reference to a deleted object, or `obj()` finding nothing or more than one match. |
+| `#REF` | Reading or following a reference to a deleted object (2.4), or `obj()` finding nothing or more than one match. |
 | `#TYPE` | An operator or function received a value it does not accept. |
-| `#DIV0` | Division by zero. |
+| `#DIV0` | Division or remainder by zero. |
 | `#CYCLE` | This cell is in a dependency cycle. See 7. |
 | `#LIMIT` | Evaluation exceeded its budget. See 7. |
+| `#SYNTAX` | The formula source does not parse (3.2). This includes exceeding the parser's limits (AST depth 256, 10,000 AST nodes) and a numeric literal that converts to a non-finite number. |
 
 Errors propagate through any expression that uses them, except `iserror(x)`
 and `if(iserror(x), fallback, x)`. The inspector shows the message and the
-cell where the error originated.
+cell where the error originated; that origin is preserved through
+propagation.
+
+**Lists never contain errors.** Building a list from an error item yields that
+error. When several operands or items are errors, the first in evaluation
+order wins: left to right, and in list order.
+
+### 2.4 Encoding and deleted references
+
+The language's values are the tagged encoding of FIXTURES.md §2, plus the
+shape value `{type:"shape", shape}` and the error value
+`{type:"error", code, message?, origin?: {object, cell}}`. Errors are never
+storable: a cell holds a literal or a formula, and an error is only ever a
+result. Operation records and the file reuse these types unchanged.
+
+A reference to a deleted object read from a cell, directly or inside a list
+or a viewers value, makes the whole read `#REF`. Visibility computed from such
+a read fails closed (7; DESIGN.md 4.4).
 
 ## 3. Names, scope, and references
 
@@ -103,13 +148,24 @@ cell where the error originated.
   `each`, `this` still means the enclosing object, and the item is `it`.
   Inside a nested `where`, the inner `it` shadows the outer; name the outer
   explicitly by binding it in a cell if both are needed.
+- **Bare names inside `where`, `sort`, and `objects`** resolve only against
+  the item's cells, with no fallback to `this`; write `this.x` for the
+  enclosing object. A bare name when the item is not a reference is `#TYPE`.
+  `it` works for any item.
 - **Dot-access** follows a reference: `target.ac`, `owner.attack_bonus`.
+  Dot-access on `empty` is `empty`: a blank, not a typo. `dc = caster.spell_dc`
+  with no caster is blank, so guards test emptiness explicitly
+  (`target != empty`).
 - Cell names are `snake_case` identifiers: letters, digits, underscores, not
   starting with a digit. A cell's display label may be anything. A name that
   is not a valid identifier is written in backticks: `` `Max HP` ``.
-- `obj("Aldric")` looks an object up by exact name and is `#REF` unless
-  exactly one matches. `obj(id)` looks up by id. Both exist for the GM and
-  agents; templates should use reference cells instead.
+- `obj(x)` finds an object by id or name: an exact id match wins; otherwise
+  `x` must exactly match the literal `name` of exactly one object, else
+  `#REF`. The evaluating cell depends on the `name` cell of the object found
+  and on the index (7). `obj` exists for the GM and agents; templates should
+  use reference cells instead.
+- `objects(expr)` ranges over every object in the document, including
+  contained objects and templates.
 
 ### 3.1 Structural cells every object has
 
@@ -120,8 +176,8 @@ they carry the invariants of the table.
 | Cell | Type | Notes |
 |---|---|---|
 | `id` | text | *Protected.* Stable, never reused. |
-| `name` | text | |
-| `tag` | list of text | |
+| `name` | text | Literal only: a formula on `name` is refused by the store. |
+| `tag` | list of text | Literal only: a formula on `tag` is refused by the store. |
 | `visible_to` | viewers | Own visibility; effective visibility is composed (DESIGN.md 4.4). |
 | `owner` | reference or empty | A character. |
 | `template` | reference or empty | The template this was spawned from. |
@@ -134,6 +190,50 @@ they carry the invariants of the table.
 | `opaque` | boolean | Zones only. See DESIGN.md 4.4. |
 | `is_zone` | boolean | *Protected.* True for zones: `shape` is then a region and spatial queries apply. |
 
+### 3.2 Syntax
+
+A formula is one expression. Source that breaks a rule below does not parse,
+and the cell is `#SYNTAX` (2.3).
+
+- **Whitespace** (space, tab, newline, carriage return) separates tokens and
+  is otherwise ignored. There are no comments.
+- **Numbers** are digits, or digits `.` digits: no exponent, no leading or
+  trailing `.`. A number immediately followed by a letter, digit, or `_` is a
+  syntax error (`2x`, `1e5`). A numeric literal that converts to a non-finite
+  number is a syntax error.
+- **Text** is double-quoted. The only escapes are `\"` and `\\`; any other
+  backslash sequence is a syntax error. Literal newlines are allowed.
+- **Identifiers** are `[A-Za-z_][A-Za-z0-9_]*`, case-sensitive. A backtick
+  name is any non-empty text without a backtick; it is always a name, never a
+  keyword or dice.
+- **Reserved words**: `true`, `false`, `empty`, `this`, `it`, `all`, `gm`,
+  `and`, `or`, `not`, `has`. `all` and `gm` are viewer literals; `all(...)` is
+  the aggregate call. `desc` is contextual: it is recognised only as
+  `.sort(e, desc)` and is otherwise an ordinary name. `owner` is an ordinary
+  name: in a formula it is always the `owner` cell, never the symbolic
+  `"owner"` entry of a stored viewers literal.
+- **Dice literals** are one term in the dialect of 2.2: an optional count,
+  `d`, sides or `F`, then modifiers. A dice literal wins over a number or an
+  identifier when the character after it is not a letter, digit, or `_`. So
+  `d6`, `dF`, and `d20kh1` are always dice, and a cell named like dice needs
+  backticks (`` `d6` ``); `d6x` is an identifier. `!` followed by `=` is never
+  an explode: `1d6!=3` is `1d6 != 3`. `2d6+3` is a dice literal plus a number
+  (2.2). A dice literal that lexes but breaks a limit of 2.2 (`0d6`, `1d6kh2`)
+  is `#TYPE`.
+- **Calls.** A call is an identifier immediately followed by `(`, with
+  comma-separated arguments: `max([a, b])`.
+- **Methods.** The only methods are `.where(expr)`, with exactly one
+  argument, and `.sort(expr)` or `.sort(expr, desc)`. Any other `.name(` is a
+  syntax error. `.name` without a parenthesis is dot-access.
+- **Lists** `[a, b]` and **records** `{name: expr, ...}`. Record field names
+  are identifiers or backtick names; a duplicate field name is a syntax error.
+  Lists, records, and calls take no trailing comma.
+- **Precedence** is in 4.
+- **Limits.** An expression's AST is at most 256 levels deep and at most
+  10,000 nodes. Depth counts every nesting: each binary operator of a chain
+  (`1+1+1` is two levels), each dot, call, or method of a postfix chain, each
+  prefix operator, list, and record, and each pair of parentheses.
+
 ## 4. Operators and precedence
 
 | Kind | Operators | Notes |
@@ -141,17 +241,35 @@ they carry the invariants of the table.
 | arithmetic | `+ - * / %` | `/` is real division; `floor(a / 2)` for integer halving. `%` is remainder. |
 | comparison | `= != < <= > >=` | `=` is equality. Nothing in a formula assigns. |
 | logic | `and`, `or`, `not` | Words. Short-circuit. Return an operand. |
-| membership | `has` | `list has item`. Equality per item. |
-| text | `&` | Concatenation, converting numbers and booleans to text. |
+| membership | `has` | `list has item`. Equality per item. `has` with an `empty` left side is false. |
+| text | `&` | Concatenation, converting numbers and booleans to text and roll results to their total. |
 
-Precedence, tightest first: unary `-` and `not`; `* / %`; `+ -`; `&`;
-`has`; comparisons; `and`; `or`. Comparisons do not chain: `a < b < c` is
-`#TYPE`.
+Precedence, loosest first: `or`; `and`; comparisons; `has`; `&`; `+ -`;
+`* / %`; prefix `-` and `not`; postfix call, dot, and method. Binary
+operators are left-associative. Prefix operators bind tighter than every
+binary operator, so `not a = b` is `(not a) = b`, and postfix binds tighter
+still, so `-a.b` is `-(a.b)`. Comparisons do not chain: a comparison whose
+unparenthesized operand is a comparison (`a < b < c`, `a = b = c`) is
+`#TYPE`; `(a < b) = true` is not chained.
 
-**Equality.** Numbers and text compare by value; references by identity; dice
-by normalized expression; roll results by total; lists elementwise and in
-order. Ordering (`<` and friends) is defined for numbers, text (code point
-order), and roll results, and is `#TYPE` for anything else.
+**Equality.** `=` and `!=` never yield `#TYPE`, except on ink. Numbers and
+text compare by value; references by identity; dice by normalized expression
+(2.2); roll results by total, also against a number; lists elementwise and in
+order; viewers as sets; shapes structurally. Values of different kinds are
+unequal. `ink = x` is `#TYPE` unless `x` is `empty`.
+
+**Ordering.** `<`, `<=`, `>`, `>=` are defined for numbers and roll results
+(by total), and for text by Unicode code point, not UTF-16 unit. `empty` acts
+as `0` against numbers and roll results and as `""` against text, and
+`empty` against `empty` compares equal, so `save_roll + save_bonus >= card.dc`
+works before a cell is filled. Anything else is `#TYPE`. `empty = 0` stays
+false (2.1).
+
+**Numbers.** IEEE doubles. `/` and `%` by zero are `#DIV0`; any other
+non-finite result is `#TYPE`. `%` takes the sign of the dividend: `-7 % 3` is
+`-1`. `round` is half away from zero: `round(-2.5)` is `-3`. `number(text)`
+accepts `-?digits(.digits)?` after trimming whitespace, and is `#TYPE` for
+anything else.
 
 **Broadcasting.** Arithmetic, `&`, comparison, and scalar functions applied
 to a list with a scalar apply elementwise and yield a list:
@@ -168,18 +286,33 @@ list and return a scalar.
 ## 5. Conditionals, filtering, ordering
 
 - `if(cond, a, b)` is the only conditional. Only the chosen branch is
-  evaluated, and only its dependencies are recorded.
+  evaluated, and only its dependencies are recorded. It returns the chosen
+  branch's value unchanged: a roll stays a roll.
 - `list.where(expr)` keeps items for which `expr` is true, with the item's
-  cells as bare names and the item as `it`. There is no other filter form.
+  cells as bare names and the item as `it` (3). There is no other filter form.
 - `list.sort(expr)` and `list.sort(expr, desc)` order by the expression;
-  ties keep the input order. Query results (`contents`, `objects`, `on`) are
-  returned in a deterministic order: by `z` then by `id`.
+  ties keep the input order.
+- **Errors are strict.** An error in a `where`, `sort`, or `objects`
+  expression for any one item makes the whole result that error. A predicate
+  naming a cell that some items lack is `#NAME`; filter by `tag` first.
+- **Query order.** The results of `contents(zone)`, `zones_containing`, `on`,
+  and `objects` are ordered by ascending `z` (`empty` is 0), then by `id` in
+  code point order. The evaluator sorts, so every host agrees, and `on` comes
+  out nearest first. The `contents` cell is not a query and keeps its stored
+  order (`first(deck.contents)` draws the top card).
+- A query sorts its candidates by `id` in code point order before reading any
+  geometry or evaluating any predicate, and evaluates them in that order, so
+  which error a query returns does not depend on the host.
 
 ## 6. Functions
 
 Lowercase. All pure.
 
-**Aggregates**, over a list, ignoring `empty` items:
+**Aggregates** take exactly one argument: a list, or any other value as a
+one-item list, with `empty` as `[]`. `max(a, b)` is `#TYPE`; write
+`max([a, b])`. Every aggregate except `len` skips `empty` items. `min` and
+`max` return the winning item unchanged. `sum` of dice is `#TYPE`. `len` also
+takes text, giving its length in code points.
 
 | Function | Empty-list result |
 |---|---|
@@ -192,7 +325,7 @@ Lowercase. All pure.
 | `first`, `last` | `empty` |
 
 **Numbers:** `round(x, places=0)`, `floor`, `ceil`, `abs`, `clamp(x, lo, hi)`,
-`number(text)`
+`number(text)` (4)
 
 **Text:** `text(x)`, `upper`, `lower`, `join(list, sep)`, `len(text)`
 
@@ -204,10 +337,27 @@ Lowercase. All pure.
 |---|---|
 | `contents(zone)` | Objects on the same board whose anchor lies inside the zone's region, excluding the zone. A point on the boundary is inside. Rotation of the zone and of the object are respected. Objects inside containers are not on a board and never appear. |
 | `zones_containing(obj)` | Zones on the object's board whose region contains its anchor. |
-| `on(obj)` | Objects whose footprint overlaps `obj` and that are above it in `z`, nearest first. Inferred from geometry, not stored. |
-| `distance(a, b)` | Between anchors, in the board's unit (a board cell, `unit`, grid squares by default). `#TYPE` across boards. |
-| `objects(expr)` | Every object on the table where `expr` is true, with the candidate as `it`. Budgeted (see 7). |
+| `on(obj)` | Objects whose footprint overlaps `obj` and that are above it in `z`, nearest first. Inferred from geometry, not stored. A shapeless object has a point footprint; a point footprint inside the other object's footprint counts as overlapping, the one exception to positive-area overlap. |
+| `distance(a, b)` | Euclidean, between anchors, in raw board units. `empty` if either object is not on a board or has an invalid position. `#TYPE` across boards. Grid metrics and `unit` are open (11). |
+| `objects(expr)` | Every object in the document, including contained objects and templates, where `expr` is true, with the candidate as `it`. Budgeted (see 7). |
 | `obj(name_or_id)` | See 3. |
+
+An object whose `position` is not two finite numbers is excluded from
+`contents`, `zones_containing`, and `on`, but not from `objects`.
+
+**How spatial queries are computed.** The host supplies candidates; the
+evaluator computes membership, overlap, and distance with the schema
+geometry. The candidate set is defined over literal geometry and does not
+depend on the host: every object placed directly on the board whose literal
+index bounds (the union of its footprint bounds and its anchor, expanded by
+the geometry epsilon) intersect the query bounds, plus every object on the
+board with any formula-valued geometry cell (`position`, `rotation`, `z`,
+`shape`; a cell with an override counts as literal) regardless of bounds. The
+host never evaluates formulas. The evaluator reads each candidate's geometry,
+in `id` code point order, through ordinary recorded reads. An error from a
+geometry read, including `#CYCLE`, becomes the query's result; a successfully
+evaluated value that is not a valid position excludes the object. A spatial
+index is only a way of computing that set.
 
 **Dice:** see 2.2.
 
@@ -222,21 +372,38 @@ Lowercase. All pure.
 - **Query dependencies.** `contents`, `zones_containing`, `on`, and `objects`
   depend on a spatial or tag index, not on the current result set. The index
   is invalidated by changes to any object's `position`, `rotation`, `shape`,
-  `z`, `board`, `tag`, `container`, and by creation and deletion. A die that
-  enters a tray therefore recomputes the tray's sum even though it was not a
-  dependency before.
+  `z`, `board`, `tag`, `container`, `is_zone`, `name`, and by creation and
+  deletion. A die that enters a tray therefore recomputes the tray's sum even
+  though it was not a dependency before.
+- **Propagation** is lazy pull with dirty marking. A commit marks dependents
+  dirty once; nothing recomputes until it is read. The authority decides which
+  cells to recompute and send.
 - **Viewer-independent.** Queries and formulas see the whole document. What a
   viewer may *see* is applied afterwards, to presentation. `contents()` never
   filters by visibility.
+- **Consuming `visible_to`.** Visibility code converts the evaluated
+  `visible_to` with `toViewers`: a viewers value as is, a reference to a
+  character as a one-entry set, a list of references and viewer sets as their
+  union. Anything that fails conversion (`empty`, an empty list, an error,
+  any other kind) admits nobody; the GM sees everything regardless. So
+  `visible_to = owner` and a list of character references work as 2 says.
 - **Whole-document.** An object that the renderer has not loaded still exists
   for evaluation. Unloaded is never absent.
 - **Cycles.** A cell that depends on itself, through any chain including
   geometry and queries, evaluates to `#CYCLE`, as does every cell in the
   cycle. Cells that merely depend on the cycle receive the propagated error.
   When an edit breaks the cycle, every affected cell recomputes.
-- **Budgets.** Each formula has a bounded number of cells it may touch per
-  evaluation (default in the tens of thousands). Exceeding it yields `#LIMIT`
-  for that cell only. `objects()` over a very large table is the usual cause.
+- **Budget.** Each formula evaluation may spend 20,000 units. Each cell read,
+  each existence check, each candidate a spatial query tests, and each id that
+  `objects()` or `obj()` enumerates costs 1. Reading an already computed
+  dependency costs 1 regardless of its own cost. Because the candidate set is
+  defined over literal geometry (6), the charge is the same on every host.
+  Exceeding the budget yields `#LIMIT` for that cell only. `objects()` over a
+  very large table is the usual cause.
+- **No depth limit.** The engine resolves dependencies iteratively, evaluates
+  each dependency formula at most once per revision, and gives identical
+  results across cold and warm caches and across read orders. A long chain of
+  dependencies is never an error.
 
 ## 8. Actions
 
