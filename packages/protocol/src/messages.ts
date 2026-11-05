@@ -56,11 +56,24 @@ export const ProtocolErrorSchema = looseObject({
  */
 export class ProtocolFailure extends Error {
   readonly error: ProtocolError;
+  /**
+   * True for a failure the client library synthesized itself (a request never
+   * sent or not answered in time, a lost socket, a malformed or
+   * protocol-violating response); false for an error response passed on from
+   * the server and for failures thrown by authority handlers.
+   */
+  readonly local: boolean;
 
-  constructor(code: ProtocolErrorCode, message: string, details?: unknown) {
+  constructor(
+    code: ProtocolErrorCode,
+    message: string,
+    details?: unknown,
+    options: { local?: boolean } = {},
+  ) {
     super(message);
     this.name = "ProtocolFailure";
     this.error = details === undefined ? { code, message } : { code, message, details };
+    this.local = options.local ?? false;
   }
 }
 

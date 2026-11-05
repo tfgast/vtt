@@ -741,6 +741,10 @@ type Limits = { max_message_bytes: 1048576; max_ops: 1000; max_page: 200; max_id
   to a socket; a write already written to a socket never reports it (§6),
   while a query already sent whose socket drops also fails `disconnected`
   (§8). `timeout` is for queries only; a timed-out write is `uncertain`.
+  A server error response carrying `disconnected` or `timeout` is a protocol
+  violation: the client rejects that request with
+  `{code: "internal", message, details: {type: "protocol", method}}` and the
+  connection stays open.
 - `retry_unknown` is produced by the authority (§6) and mapped to `uncertain`
   by the client.
 - A response whose `result` fails the schema of the pending request's method

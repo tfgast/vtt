@@ -16,6 +16,7 @@ import type { Actor, ObjectId } from "@vtt/schema";
 import {
   type CommitEvent,
   type ProtocolError,
+  type ProtocolErrorCode,
   ProtocolFailure,
   parseResult,
   parseServerMessage,
@@ -205,16 +206,30 @@ const GOODBYE_CLOSE_MS = 1000;
  */
 function goodbyeFailure(reason: string): ProtocolFailure {
   if (/unauthori[sz]ed|token/i.test(reason)) {
-    return new ProtocolFailure("unauthorized", `the authority refused the token: ${reason}`);
+    return localFailure("unauthorized", `the authority refused the token: ${reason}`);
   }
   if (/protocol|version/i.test(reason)) {
-    return new ProtocolFailure("protocol_version", `the authority refused the protocol: ${reason}`);
+    return localFailure("protocol_version", `the authority refused the protocol: ${reason}`);
   }
-  return new ProtocolFailure("disconnected", `the authority refused the connection: ${reason}`);
+  return localFailure("disconnected", `the authority refused the connection: ${reason}`);
 }
 
-const terminalFailure = () =>
-  new ProtocolFailure("disconnected", "the client is closed", { sent: false });
+/** A failure the client synthesizes itself (`ProtocolFailure.local`). */
+function localFailure(
+  code: ProtocolErrorCode,
+  message: string,
+  details?: unknown,
+): ProtocolFailure {
+  return new ProtocolFailure(code, message, details, { local: true });
+}
+
+/**
+ * Codes only the client produces (PROTOCOL.md §10) that a server error
+ * response must not carry.
+ */
+const CLIENT_ONLY_CODES: ReadonlySet<ProtocolErrorCode> = new Set(["disconnected", "timeout"]);
+
+const terminalFailure = () => localFailure("disconnected", "the client is closed", { sent: false });
 
 const defaultTimers: Timers = {
   setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
@@ -319,7 +334,7 @@ class SubscriptionHandle implements Subscription {
   rebind(id: string, result: SubscribeResult, info: ResyncInfo): void {
     const parsed = parseResult("subscribe", result);
     if (!parsed.ok) {
-      throw new ProtocolFailure(parsed.error.code, parsed.error.message, parsed.error.details);
+      throw localFailure(parsed.error.code, parsed.error.message, parsed.error.details);
     }
     for (const warning of parsed.warnings) this.#host.warn(warning);
     if (this.#state === "closed" || this.#state === "failed") {
@@ -589,11 +604,13 @@ export class ProtocolClient {
 
   /**
    * Sends a request and resolves with its result, validated and normalized
-   * by `parseResult(method, …)`. Rejects with a `ProtocolFailure`:
+   * by `parseResult(method, …)`. Rejects with a `ProtocolFailure`, `local`
+   * for every case but a passed-on error response:
    * - not `open`: `disconnected`, `details: {sent: false}`, nothing sent;
-   * - an error response: its `ProtocolError`;
-   * - a result failing the method's schema: `internal`, `details: {type:
-   *   "protocol", method}` (the connection stays open);
+   * - an error response: its `ProtocolError` (not `local`);
+   * - a result failing the method's schema, or an error response carrying a
+   *   client-only code (`disconnected`, `timeout`): `internal`, `details:
+   *   {type: "protocol", method}` (the connection stays open);
    * - no response in `requestTimeoutMs`: `timeout` for a query, `uncertain`
    *   with `details: {sent: true, reason: "timeout", txn_id?}` for a write
    *   (`transact`, `undo`);
@@ -682,9 +699,7 @@ export class ProtocolClient {
       socket = new WS(this.#url);
     } catch (e) {
       if (kind === "connect") this.#set("idle", this.#connectionError);
-      return Promise.reject(
-        new ProtocolFailure("disconnected", `cannot open ${this.#url}: ${String(e)}`),
-      );
+      return Promise.reject(localFailure("disconnected", `cannot open ${this.#url}: ${String(e)}`));
     }
     this.#socket = socket;
     this.#welcomed = false;
@@ -742,7 +757,7 @@ export class ProtocolClient {
       CLOSE_CODES.protocol,
       reason,
       "drop",
-      new ProtocolFailure("internal", message, { type: "protocol" }),
+      localFailure("internal", message, { type: "protocol" }),
     );
   }
 
@@ -854,13 +869,24 @@ export class ProtocolClient {
     this.#timers.clearTimeout(pending.timer);
     if (!response.ok) {
       const { code, message, details } = response.error;
+      if (CLIENT_ONLY_CODES.has(code)) {
+        // Only the client produces these codes (PROTOCOL.md §10): a protocol violation.
+        pending.reject(
+          localFailure(
+            "internal",
+            `the authority answered ${pending.method} with the client-only code ${code}: ${message}`,
+            { type: "protocol", method: pending.method },
+          ),
+        );
+        return;
+      }
       pending.reject(new ProtocolFailure(code, message, details));
       return;
     }
     const parsed = parseResult(pending.method, response.result);
     if (!parsed.ok) {
       const { code, message, details } = parsed.error;
-      pending.reject(new ProtocolFailure(code, message, details));
+      pending.reject(localFailure(code, message, details));
       return;
     }
     for (const warning of parsed.warnings) this.#warn(warning);
@@ -899,7 +925,7 @@ export class ProtocolClient {
     const allowed = duringRecovery ? this.#state !== "closed" : this.#state === "open";
     if (this.#terminal || socket === null || !this.#welcomed || !allowed) {
       return Promise.reject(
-        new ProtocolFailure("disconnected", `cannot send ${method}: not connected`, {
+        localFailure("disconnected", `cannot send ${method}: not connected`, {
           sent: false,
         }),
       );
@@ -927,7 +953,7 @@ export class ProtocolClient {
       } catch (e) {
         this.#pending.delete(id);
         reject(
-          new ProtocolFailure("disconnected", `cannot send ${method}: ${String(e)}`, {
+          localFailure("disconnected", `cannot send ${method}: ${String(e)}`, {
             sent: false,
           }),
         );
@@ -945,12 +971,12 @@ export class ProtocolClient {
     pending.reject(
       isWrite(pending.method)
         ? this.#uncertain(pending, "timeout", message)
-        : new ProtocolFailure("timeout", message, { sent: true }),
+        : localFailure("timeout", message, { sent: true }),
     );
   }
 
   #uncertain(pending: Pending, reason: "timeout" | "socket_closed", message: string) {
-    return new ProtocolFailure("uncertain", message, {
+    return localFailure("uncertain", message, {
       sent: true,
       reason,
       ...(pending.txn_id === undefined ? {} : { txn_id: pending.txn_id }),
@@ -988,7 +1014,7 @@ export class ProtocolClient {
       pending.reject(
         isWrite(pending.method)
           ? this.#uncertain(pending, "socket_closed", `${pending.method}: ${lost}`)
-          : new ProtocolFailure("disconnected", `${pending.method}: ${lost}`, { sent: true }),
+          : localFailure("disconnected", `${pending.method}: ${lost}`, { sent: true }),
       );
     }
 
@@ -1015,11 +1041,11 @@ export class ProtocolClient {
     const why = goodbye ?? reason;
     const suffix = why ? `: ${why}` : "";
     if (code === CLOSE_CODES.unauthorized) {
-      return new ProtocolFailure("unauthorized", `the authority refused the token${suffix}`);
+      return localFailure("unauthorized", `the authority refused the token${suffix}`);
     }
     if (code === CLOSE_CODES.protocol) {
-      return new ProtocolFailure("protocol_version", `the authority refused the protocol${suffix}`);
+      return localFailure("protocol_version", `the authority refused the protocol${suffix}`);
     }
-    return new ProtocolFailure("disconnected", `the connection closed (${code})${suffix}`);
+    return localFailure("disconnected", `the connection closed (${code})${suffix}`);
   }
 }
