@@ -7,6 +7,7 @@
     "node": "^26"
   },
   "scripts": {
+    "dev": "pnpm --filter @vtt/ui dev",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p . && pnpm -r --parallel typecheck",
     "lint": "biome check .",
