@@ -43,7 +43,8 @@ export interface Engine {
 
   /**
    * Evaluate a formula that is not a cell (a `when` guard, a show-when) on
-   * `options.thisId` at the current revision: budgeted, reading and
+   * `options.thisId`, or on no object when it is absent (`this` is `#REF`,
+   * bare names `#NAME`), at the current revision: budgeted, reading and
    * populating the memo, keeping no dependency entry (adhoc.ts).
    */
   evaluate(source: string, options: AdhocOptions): Result;

@@ -157,12 +157,10 @@ export function getObjects(table: Table, params: GetObjectsParams): GetObjectsRe
  * result is unredacted. A source longer than `max_source_length` is
  * `bad_request`; an unknown `this` (not a live object) is `not_found`.
  *
- * Without `this`: the engine requires an evaluation subject and has no
- * object-free default, so the formula is evaluated on the first board in
- * board order. A board exists for the engine but has no cells, so
- * object-free formulas evaluate normally, bare names and `this.<cell>` are
- * `#NAME`, and `this` is a reference to that board. With no boards the
- * subject does not exist and the engine answers `#REF`.
+ * Without `this`, the engine's object-free ad hoc default applies
+ * (FORMULAS.md §2): `this` is `#REF` ("no object in scope"), a bare cell
+ * name is `#NAME`, and everything else (literals, `obj()`, `objects()`,
+ * functions on explicit references) evaluates as usual, boards or not.
  */
 export function evaluateAdhoc(table: Table, params: EvaluateParams): EvaluateResult {
   if (params.source.length > LIMITS.max_source_length) {
@@ -171,14 +169,9 @@ export function evaluateAdhoc(table: Table, params: EvaluateParams): EvaluateRes
       `source is longer than max_source_length (${LIMITS.max_source_length})`,
     );
   }
-  let thisId: ObjectId;
-  if (params.this !== undefined) {
-    if (!table.store.hasObject(params.this)) notFound();
-    thisId = params.this;
-  } else {
-    thisId = table.store.boards()[0]?.id ?? "";
-  }
-  const value = table.engine.evaluate(params.source, { thisId });
+  if (params.this !== undefined && !table.store.hasObject(params.this)) notFound();
+  const options = params.this === undefined ? {} : { thisId: params.this };
+  const value = table.engine.evaluate(params.source, options);
   return { revision: table.store.revision, value: structuredClone(value) as WireResult };
 }
 

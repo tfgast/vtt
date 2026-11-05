@@ -6,8 +6,12 @@
 import type { ErrorOrigin, ObjectId, Value } from "@vtt/schema";
 
 export interface Scope {
-  /** The object the formula lives on: `this`, and the owner of bare names. */
-  readonly thisId: ObjectId;
+  /**
+   * The object the formula lives on: `this`, and the owner of bare names.
+   * Absent only for object-free ad hoc evaluation (FORMULAS.md §2), where
+   * `this` is `#REF` and bare names outside a predicate are `#NAME`.
+   */
+  readonly thisId?: ObjectId;
   /**
    * The current item inside `where`, `sort`, or `objects`. Absent elsewhere,
    * where `it` is `#NAME`. Lists never hold errors, so the item is a value.
@@ -34,5 +38,6 @@ export function itemScope(scope: Scope, item: Value): Scope {
 
 /** The origin new errors get in `scope`, or `undefined` if it names no cell. */
 export function scopeOrigin(scope: Scope): ErrorOrigin | undefined {
-  return scope.cell === undefined ? undefined : { object: scope.thisId, cell: scope.cell };
+  if (scope.cell === undefined || scope.thisId === undefined) return undefined;
+  return { object: scope.thisId, cell: scope.cell };
 }
