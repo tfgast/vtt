@@ -85,11 +85,14 @@ function sameViewer(a: Viewer, b: Viewer): boolean {
   return a.id === b.id;
 }
 
-/** The `contents` cell's ids in order (redacted entries are skipped). */
-function contentsIds(view: ObjectView | null): ObjectId[] {
+/**
+ * The `contents` cell's entries in order, a redacted one as null, so
+ * positions are those of the stored list (indices for writes).
+ */
+function contentsRefs(view: ObjectView | null): (ObjectId | null)[] {
   const v = view?.cells.contents?.value;
   if (v?.type !== "list") return [];
-  return v.items.flatMap((item) => (item.type === "ref" ? [item.object] : []));
+  return v.items.map((item) => (item.type === "ref" ? item.object : null));
 }
 
 /** Whether `view`'s `template` cell refers to `template`. */
@@ -107,7 +110,8 @@ export function workingCopies(
   container: ObjectId,
   template: ObjectId,
 ): ObjectId[] {
-  return contentsIds(views(container)).filter((id) => {
+  return contentsRefs(views(container)).filter((id): id is ObjectId => {
+    if (id === null) return false;
     const view = views(id);
     return view !== null && !view.is_template && copiedFrom(view, template);
   });
@@ -268,7 +272,8 @@ export function binderPolicy(options: BinderPolicyOptions): BinderPolicy {
       reveal(faceState, input, path, copy);
       return [{ type: "select", ids: [copy] }];
     }
-    const index = contentsIds(input.views(last.container)).indexOf(template.id);
+    // The index in the stored list: redacted entries keep their positions.
+    const index = contentsRefs(input.views(last.container)).indexOf(template.id);
     if (index < 0) return [];
     const name = objectName(template, template.id);
     return [workingCopyWrite(stamp, template.id, name, last.container, index + 1, path)];

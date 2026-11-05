@@ -282,6 +282,23 @@ const SEED: WireOp[] = [
   filler("note", "bnd"),
   // Aldric's binder, dragged out onto the board at (10, -20); empty.
   binder("aldric_binder", 10, -20, { owner: ref("aldric") }),
+  // A binder at (20, -20) whose first entry only the GM sees, then a template and a note.
+  binder("pc_binder", 20, -20),
+  {
+    type: "create_object",
+    id: "secret",
+    to: into("pc_binder"),
+    init: {
+      shape: rectShape(2.5, 0.8),
+      cells: {
+        name: text("secret"),
+        visible_to: { type: "viewers", viewers: ["gm"] },
+        face_up: bool(true),
+      },
+    },
+  },
+  attackTemplate("tpl_pc", "pc_binder"),
+  filler("note2", "pc_binder"),
   // A token template placed directly on the board.
   {
     type: "create_object",
@@ -726,6 +743,23 @@ describe("working copies", () => {
     expect(w.contentsOf("bnd")).toEqual([...FILLERS, "tpl_attack", copy, "note"]);
     expect(w.ui.getState().selection).not.toContain(copy);
     expect(expanded(w, copy)).toBe(false);
+  });
+
+  test("in a character view with a hidden entry before the template, the copy lands right after the template", async () => {
+    const w = await world();
+    await act(async () => {
+      await w.ui.setViewer({ type: "character", id: "aldric" });
+    });
+    await until(() => w.session.getSnapshot().viewer.type === "character", "the Aldric view");
+    await until(() => {
+      const items = w.session.objectView("pc_binder")?.cells.contents?.value;
+      return items?.type === "list" && items.items[0]?.type !== "ref";
+    }, "the redacted first entry");
+    await until(() => w.session.objectView("tpl_pc") !== null, "the template's view");
+    w.click(chevronOf(w, "pc_binder", "tpl_pc"));
+    await until(() => copiesOf(w, "pc_binder", "tpl_pc").length === 1, "the copy");
+    const [copy] = copiesOf(w, "pc_binder", "tpl_pc") as [ObjectId];
+    expect(w.contentsOf("pc_binder")).toEqual(["secret", "tpl_pc", copy, "note2"]);
   });
 
   test("dragging the working copy out of the binder moves it onto the board", async () => {
