@@ -864,38 +864,27 @@ describe("deduplication", () => {
     const txns = new TxnCache();
     const ctx = context(t, { txns, client: "busy" });
     const other = context(t, { txns, client: "other" });
-    const first = params(5, [setHp("goblin1", 1)], { txn_id: "first" });
-    const kept = executeTransact(other, params(5, [setHp("aldric", 1)], { txn_id: "first" }));
-    committed(executeTransact(ctx, { ...first, base_revision: t.store.revision }));
-    const firstSent = { ...first, base_revision: 6 };
+    const keptParams = params(5, [setHp("aldric", 1)], { txn_id: "first" });
+    const kept = committed(executeTransact(other, keptParams));
+    const first = params(6, [setHp("goblin1", 1)], { txn_id: "first" });
+    committed(executeTransact(ctx, first));
+    const sent: { p: TransactParams; r: TransactResult }[] = [];
     for (let i = 0; i < 1001; i++) {
-      executeTransact(
-        ctx,
-        params(
-          t.store.revision,
-          [{ type: "set_value", object: "goblin1", cell: "n", value: num(i) }],
-          {
-            txn_id: `n${i}`,
-          },
-        ),
-      );
+      const op: WireOp = { type: "set_value", object: "goblin1", cell: "n", value: num(i) };
+      const p = params(t.store.revision, [op], { txn_id: `n${i}` });
+      sent.push({ p, r: committed(executeTransact(ctx, p)) });
     }
     const before = groups(t);
-    const e = failure(() => executeTransact(ctx, { ...firstSent, retry: true }));
+    expect(before).toBe(1003);
+    const e = failure(() => executeTransact(ctx, { ...first, retry: true }));
     expect(e.error.code).toBe("retry_unknown");
     expect(groups(t)).toBe(before);
-    expect(
-      executeTransact(other, params(5, [setHp("aldric", 1)], { txn_id: "first", retry: true })),
-    ).toEqual(kept);
-    // A retained entry is still answered from the store.
-    const last = params(
-      before + 4,
-      [{ type: "set_value", object: "goblin1", cell: "n", value: num(1000) }],
-      {
-        txn_id: "n1000",
-      },
-    );
-    expect(executeTransact(ctx, { ...last, retry: true }).status).toBe("committed");
+    expect(executeTransact(other, { ...keptParams, retry: true })).toEqual(kept);
+    // A retained entry is still answered from the store, without executing.
+    const last = sent[1000];
+    expect(last).toBeDefined();
+    if (last === undefined) return;
+    expect(executeTransact(ctx, { ...last.p, retry: true })).toEqual(last.r);
     expect(groups(t)).toBe(before);
   });
 });

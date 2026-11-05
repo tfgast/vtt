@@ -210,6 +210,11 @@ export class Transaction {
     return this.#view;
   }
 
+  /** The effects recorded so far, in order; read-only. */
+  effects(): readonly Effect[] {
+    return this.#effects;
+  }
+
   /** The change summary of the effects recorded so far. */
   changes(): ChangeSummary {
     return this.#summary.build();
