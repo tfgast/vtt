@@ -13,8 +13,10 @@ renderer interface. See DESIGN.md section 7.
 
 Packages: `schema` (document and operation types, validation), `formula`
 (lexer, parser, evaluator, dice; pure), `authority` (document plus op stream,
-undo, persistence, spatial index, WebSocket protocol, MCP server), `ui`,
-`fixtures` (machine-readable acceptance fixtures shared by tests and review).
+undo, persistence, spatial index, WebSocket protocol, MCP server), `protocol`
+(wire schemas, `ProtocolClient`, `ViewMirror`; browser-safe, depends only on
+`schema` and zod), `ui`, `fixtures` (machine-readable acceptance fixtures
+shared by tests and review). See `docs/PROTOCOL.md` for the wire contract.
 
 ### Conventions
 
@@ -40,6 +42,7 @@ undo, persistence, spatial index, WebSocket protocol, MCP server), `ui`,
   config sets `test.name` to its package name. Tests import their own package
   by name (`"@vtt/<pkg>"`), which resolves through the `exports` self-reference
   with no alias or tsconfig `paths`.
+- New runtime dependencies are pinned exactly and recorded in the decision log.
 - Every package must have at least one test file. Vitest only fails an
   entirely empty run, so an inline reporter in the root config fails
   `pnpm test` when any selected project globs zero test files (path filters

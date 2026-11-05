@@ -421,7 +421,10 @@ candidate set's formula-valued `shape` case never arises.) Its rules:
   though it was not a dependency before.
 - **Propagation** is lazy pull with dirty marking. A commit marks dependents
   dirty once; nothing recomputes until it is read. The authority decides which
-  cells to recompute and send.
+  cells to recompute and send. After each commit the authority recomputes
+  what the changed subscribed views need (their cells, those cells'
+  dependencies, and the visibility and geometry inputs of those views) and
+  sends the views that changed; every other dirty cell stays dirty until read.
 - **Viewer-independent.** Queries and formulas see the whole document. What a
   viewer may *see* is applied afterwards, to presentation. `contents()` never
   filters by visibility.
