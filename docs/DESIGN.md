@@ -385,6 +385,30 @@ a container is covered when its outermost container is. A zone never covers
 itself. A covered object is not visible to that viewer. The renderer still
 draws the cover above everything on the board.
 
+**What a viewer is sent** (docs/PROTOCOL.md §7, §9). Every view, query
+result, log entry, and explanation computed for a character applies the same
+effective visibility:
+
+- **Redaction.** A reference to an object the viewer cannot see (or to an id
+  that is neither a live object nor a board) is replaced in place by the
+  wire-only value `{type:"redacted"}`, at the top level, in lists at any
+  depth, and in viewers values, so a visible hand's `contents` keeps its
+  count without leaking ids. A reference to a board is never redacted, since
+  boards are not a visibility boundary (4.3). An error whose origin the viewer
+  cannot see keeps only its code.
+- **Covers.** For each opaque zone on a board in scope that the viewer cannot
+  effectively see, the view carries a cover (the zone's region, or the whole
+  board when its geometry is undetermined) under a key that does not reveal
+  the zone's id; the zone and the objects it covers are absent.
+- **The log** is filtered by current visibility, effect by effect: what the
+  viewer can see now, object names only where the viewer can read the `name`
+  cell, an object that no longer exists counted as invisible, groups with
+  nothing left omitted. The header is kept, but its label is shown only when
+  every effect of the group is visible to the viewer unreduced.
+- **Explain** names hidden cells without their values and shows objects the
+  viewer cannot see as unnamed (`object: null`); an explain target the viewer
+  cannot see answers exactly as a nonexistent one does.
+
 Everything else is built on these:
 
 - **A hand** is a container visible only to its owner.
@@ -593,6 +617,31 @@ In v1 the server is local, trusts its single connection, and acts with GM
 authority. Query and write limits exist so a runaway agent cannot stall the
 table.
 
+**How it is built** (docs/PROTOCOL.md). One authority process per table
+(`vtt-serve <file>`) owns the file and serves the protocol over a WebSocket.
+The MCP server is a separate stdio process (`vtt-mcp`) that the agent host
+launches; it attaches to the running authority as an ordinary protocol client
+whose actor is `agent`, so the agent is a peer of the UI and the table
+outlives agent sessions. Its tools follow the four groups above: query
+(`table_info`, `list_objects`, `get_objects`, `evaluate`, `zones`,
+`at_position`, `changes_since`, `log`), write (`transact`, `undo`, `save`),
+explain (`explain_cell`, `explain_group`, `explain_action`), and subscribe
+(`subscribe`, `poll_changes`, `unsubscribe`); invoking actions arrives with
+M5.
+
+- **Stale writes.** Every write carries the revision it was based on. It is
+  refused as `stale_write` when a group committed since then shares an undo
+  conflict key (7) with the keys the write declares or with the keys its
+  effects actually touch, or when that revision predates retained history.
+  Disjoint writes commit; nothing is rebased or re-evaluated.
+- **Limits.** Client messages are at most 1 MiB, a batch at most 1,000 ops,
+  pages at most 200 items, and a connection at most 200 requests per second;
+  a connection that does not read its messages is closed. Server messages
+  have no size limit. The full table is in docs/PROTOCOL.md §10.
+- **View as.** Every authenticated connection has GM authority. A `viewer`
+  parameter selects whose view is computed; in v1 it is a view-as selector,
+  not a security boundary.
+
 ### 5.3 Consequences for the model
 
 The canonical schema must be readable, stable, and documented. The language
@@ -743,7 +792,7 @@ groups as history, with their absolute indices, `first_index`, and
 barrier is set to the next absolute group index, so every earlier group stays
 as record and new groups remain undoable; with an empty retained log the next
 index is `first_index`. Snapshots are taken at every save and at load;
-in-memory checkpoints are Polish, and autosave cadence is M3's. A file with an
+in-memory checkpoints are Polish. A file with an
 older `schema_version` migrates one version at a time. Compaction drops old
 groups, keeps absolute indices, and raises the barrier to at least
 `first_index`.
@@ -754,11 +803,50 @@ durability failure after the replacement (the directory fsync) leaves the new
 file intact and reports that the save completed but durability was not
 confirmed.
 
-**Revisions and assets.** Every group records its `base_revision`; the policy
-for stale writes belongs to M3's protocol. Asset paths in the file are
-relative to the file's directory, never absolute. Parsing a file is pure;
-whether its assets exist is checked only when loading from a path. How an
-image cell names an asset is M4's decision.
+**Autosave.** The authority saves 2 s after the last commit, but at most 10 s
+after the first unsaved commit, on an explicit `save`, and on shutdown. Saves
+are serialized; each captures its snapshot and revision synchronously when it
+starts and marks only that revision saved, and the asset list loaded with the
+file is kept through every save. A failed save is retried after 1 s, 5 s,
+30 s, then every 60 s until that revision or a later one is saved; a save that
+completed without confirmed durability does not mark its revision saved and
+is retried like a failure. Results are broadcast to clients. Shutdown awaits
+outstanding saves and its final save, never throws for a save failure,
+reports `{saved, revision, error?}`, and always releases the lock. There is
+no automatic compaction in v1.
+
+**New tables and ownership.** Opening a missing file creates it with one
+board, `gm_board` named "GM", and no objects. One authority owns a table at a
+time through a lock file `<file>.lock`, created exclusively and released only
+by its owner; a lock left by a dead process is refused, never taken over
+automatically, and removing it is a human decision (`vtt-serve
+--force-unlock`). A table identity file `<file>.table-id` holds a random id,
+created once under the lock and never rewritten, so clients can tell one
+table from another across restarts without changing the file format. Lock and
+identity paths derive from the table file's real path, so symlink aliases
+share them. Details in docs/PROTOCOL.md §2.
+
+**Revisions and assets.** Every group records its `base_revision`, and every
+protocol write carries one. A write is refused as `stale_write` when its
+`base_revision` is below the retained-history floor, when a group committed
+after it (undo groups included) shares a key with the write's declared
+intended-write keys (checked before any primitive runs, so a write to an
+object removed since is stale rather than a primitive refusal), or when such a
+group shares a key with the write's actual effects (checked after the ops ran,
+before commit). The keys are the undo conflict keys above. Disjoint writes
+commit; nothing is rebased or re-evaluated. Undo is not stale-checked and may
+pin its target with an expected index. A write may carry a client-chosen
+transaction id: a repeat from the same client instance with the same
+parameters returns the stored result instead of executing again, a repeat
+with different parameters is rejected, and a client resends a write whose
+response was lost only to the same authority session, once; any other
+unsettled outcome is reported as uncertain, never re-executed. The
+deduplication store is in memory (the last 1,000 per client instance) and
+persistent deduplication is Later. Details in docs/PROTOCOL.md §6.
+
+Asset paths in the file are relative to the file's directory, never
+absolute. Parsing a file is pure; whether its assets exist is checked only
+when loading from a path. How an image cell names an asset is M4's decision.
 
 **Smaller decisions.**
 
@@ -773,12 +861,20 @@ image cell names an asset is M4's decision.
   protection of FORMULAS.md 3.1: it changes order, not membership.
 
 **Platform.** TypeScript end to end. The **authority** is a local process
-(Node) that owns the document file, evaluates formulas,
-hosts the MCP server, and serves the UI over localhost with the op stream
-over a WebSocket. The UI is a browser tab in v1; a desktop shell (Tauri or
-Electron) can wrap the same process later. Formulas evaluate only in the
-authority, because they may read cells the viewer cannot see; clients receive
-cell results, never inputs. The UI and the agent are two clients of the same
+(Node), one per table (`vtt-serve <file>`), that owns the document file,
+evaluates formulas, ships the MCP server, and serves the UI over localhost
+with the op stream over a WebSocket. The MCP server runs as its own stdio
+process (`vtt-mcp`), launched by the agent host, and attaches to the running
+authority as a protocol client with an `agent` actor. The wire schemas and
+the client (`ProtocolClient`, `ViewMirror`) live in the browser-safe package
+`@vtt/protocol`, which depends only on `@vtt/schema` and zod and is shared by
+the authority, the MCP server and the UI; its wire schemas are
+JSON-Schema-compatible so MCP tool input schemas can be generated from them,
+while `@vtt/schema`'s canonical schemas stay for unfiltered document data.
+The UI is a browser tab in v1; a desktop shell (Tauri or Electron) can wrap
+the same process later. Formulas evaluate only in the authority, because they
+may read cells the viewer cannot see; clients receive cell results, never
+inputs. The UI and the agent are two clients of the same
 protocol, so the protocol is designed first, not deferred.
 
 In the tab, the scene is drawn on a canvas and the chrome (inspector, formula
@@ -788,6 +884,12 @@ a small renderer interface; PixiJS is the known upgrade if profiling demands
 it. Objects are never DOM nodes. Canvas text is weak at small sizes, which
 show-when zoom thresholds already accommodate. Very large map images are a
 tiling problem and stay in Later.
+
+**Protocol.** The wire protocol is specified in docs/PROTOCOL.md: JSON
+messages over one WebSocket, a token handshake, one batched write command
+(`transact`) whose ops map one to one onto the store's primitives, queries,
+explanations, subscriptions that push viewer-filtered views after each
+commit, and the MCP tools built on them.
 
 Decided since (CLAUDE.md): React for the chrome, a hand-written Pratt parser,
 and Node for the authority. Left open on purpose: the desktop shell.
@@ -1038,3 +1140,33 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | The fixture format gains a `replay` expectation (`ReplayExpectationSchema`, optional `note`), top level or step level: replaying every group's recorded effects onto the post-setup document reproduces the stored state (cells as stored, per-cell visibility, placement, contents order, structural fields, `retired_ids`, `next_seq`; never computed results or revision) and consumes no dice. Every scenario's last step and Fireball's first assert it. FIXTURES §7, §11. | DESIGN §7 promises replay never re-rolls; the M0 review deferred the expectation that tests it to M2. |
 | 2026-11-04 | Operation records gain a `field: "actions"` effect holding the object's whole action list before and after; `setActions` replaces the list in one such effect, refusing as `invalid` an unknown object, an empty name or one over 100 characters, a duplicate name (exact comparison), steps that are not a list of text, and what the file schema would reject (a blank `when` or step, an unknown key); `when` and steps are stored verbatim, unparsed. It touches the new undo conflict key `actions:<object>`, which conflicts with itself and with `obj:<object>` (creation or removal); it changes no readable cell, and the change summary lists the object once in `actionsChanged`. DESIGN §4.5, §5.2, §7; FORMULAS §8. | Defining actions (§5.2) needs an edit primitive; whole-list replacement keeps one effect per edit and an exact undo, and a separate key keeps action edits from conflicting with cell writes. |
 | 2026-11-04 | A board is removable only when no object is directly on it (no cascade); `removeBoard` records the board's removal and the retirement of its id. User undo re-creates the board (appended to the board order) and the id stays retired, so a later `addBoard` with it is refused. DESIGN §4.1, §4.3. | Cascading removal is a policy the UI can build from moves and removes; retiring the id keeps references and history unambiguous, as for objects. |
+| 2026-11-05 | M3-D1. Process model: one authority process per table (`vtt-serve <file>`) owns the file and the `Table` and serves the protocol over a WebSocket. The MCP server is a separate stdio process (`vtt-mcp`) launched by the agent host; it attaches to the running authority as a protocol client with an `agent` actor. The authority package ships the MCP server (DESIGN §7 "hosts" becomes "ships"). DESIGN §5.2, §7; PROTOCOL §1, §11. | Stdio is supported by every MCP host; the agent becomes literally a peer client of the UI (§7); the table outlives agent sessions. In-process MCP over HTTP needs HTTP-capable hosts; an agent-launched authority ties the table's life to the agent. |
+| 2026-11-05 | M3-D2. New package `@vtt/protocol` (wire schemas, `ProtocolClient`, `ViewMirror`), browser-safe, depending only on `@vtt/schema` and zod, used by the authority, the MCP server and M4's UI. Wire schemas are JSON-Schema-compatible (no `z.custom`, no transforms) so tool input schemas can be generated; `@vtt/schema`'s canonical schemas stay for unfiltered document data. DESIGN §7. | One client for the UI and MCP; putting the client in `@vtt/authority` would make the UI depend on the authority, and schemas with `z.custom` cannot be exported to JSON Schema. |
+| 2026-11-05 | M3-D3. Transport: JSON text frames on one WebSocket at `ws://127.0.0.1:<port>/ws`; envelope tagged by `type`; client-chosen request ids echoed in responses; exact-match `protocol: 1` in `hello`. The wire format lives in docs/PROTOCOL.md. PROTOCOL §1, §4. | `type` tagging matches every tagged form in the project (JSON-RPC would clash); a separate doc keeps DESIGN from growing by hundreds of lines. |
+| 2026-11-05 | M3-D4. Auth: bind 127.0.0.1 only; a random 256-bit token per server start, required in `hello`; WebSocket upgrades with an `Origin` other than the server's own origin or an `--allow-origin` entry are refused with 403. Every authenticated connection has GM authority; `viewer` is a view-as selector, not a security boundary, in v1. DESIGN §5.2; PROTOCOL §2, §3. | The token stops other local processes, the Origin check stops web pages driving the table through the browser; a token in the URL would leak into logs and history. V1 has one person, so viewers are presentation, not rights. |
+| 2026-11-05 | M3-D5. Discovery: `vtt-serve` writes `$XDG_CONFIG_HOME/vtt/session.json` (`{url, token, pid, table_path, table_id}`, mode 0600); `vtt-mcp` uses `--url/--token`, else `VTT_URL`/`VTT_TOKEN`, else that file; the last started authority wins. A discovery-based client re-reads the file on every reconnect attempt and adopts a new url and token only when `table_path` and `table_id` equal those recorded at its first connect, else it stops with `wrong_table`; with explicitly supplied credentials a 4401 is terminal (reported `unauthorized`) and in-flight writes report `uncertain`. PROTOCOL §2. | The MCP config need not name the table, and a normal authority restart (new token) is followed transparently, while a restart onto another table is never silently adopted. |
+| 2026-11-05 | M3-D6. Commands: one write command `transact` carrying a list of ops (19 kinds, one per M2 primitive, including `set_actions` and `remove_board`) applied in one transaction, which is one group and one undo unit, with batch-local `$name` bindings usable in op id positions and in ref values; plus `undo`, `save`, `invoke`. PROTOCOL §4, §5. | An agent authors a zone, a card and their links atomically as one undoable group; one command per primitive cannot, and a generic document patch would bypass the primitives' invariants (§5.2). |
+| 2026-11-05 | M3-D7. Stale writes: every `transact` carries `base_revision`. It is refused `stale_write` when `base_revision` is below the retained-history floor (`truncated`), when a group committed after `base_revision` (undo groups included) shares a key with the ops' declared intended-write keys (checked before any primitive runs, so a write to an object removed since is stale, not a primitive refusal), or when such a group shares a key with the transaction's actual effects (checked after the ops ran, before commit). Keys are the undo-conflict keys of DESIGN §7. Disjoint writes commit; nothing is rebased or re-evaluated. Undo is not stale-checked and may pin its target with `expect_index` (`undo_target_changed`). Replaces "the policy for stale writes belongs to M3's protocol" in §7. DESIGN §5.2, §7; PROTOCOL §6. | Refusing on any intervening commit would make the UI and the agent refuse each other constantly; last writer wins contradicts "rejected on conflict" (§5.2). Ops are explicit, so a disjoint write is safe to commit as is. |
+| 2026-11-05 | M3-D8. Retries and identity: `hello` carries a client-chosen `client.instance` kept across reconnects; `welcome` carries the authority `session` id, new at every authority start. `transact` may carry `txn_id`; the deduplication key is (`client.instance`, `txn_id`) with a fingerprint of the params; a repeat with the same fingerprint returns the stored result, one with a different fingerprint is rejected `invalid`. Only structural, state-independent validation precedes the lookup, so an identical retry always gets the stored outcome. The authority keeps the last 1,000 txn ids per client instance, in memory only. A client retries an in-flight write only after reconnecting to the same `session`, marking the resend `retry: true`; a marked resend whose key is no longer retained is answered `retry_unknown` instead of executing; after a session change or `retry_unknown` the client reports `uncertain` and never re-executes. Persistent deduplication is Later. DESIGN §7; PROTOCOL §6. | A retry without deduplication may double-apply; tying retries to the session means a restart (which loses the store) can never cause a silent re-execution. |
+| 2026-11-05 | M3-D9. Actors: `client.kind: "agent"` gives `{type:"agent", name}`; `ui` and `test` give `gm`; non-agent connections may pass `actor: {type:"character", id}` per `transact` (the GM driving a character); agents cannot. PROTOCOL §3. | Matches FIXTURES §1's "the GM driving this character" and keeps the agent from impersonating anyone in the log. |
+| 2026-11-05 | M3-D10. Subscriptions: per connection, each with a scope (`board` including contents recursively, `objects` with optional subtree, `all`, `log`) and a viewer; `subscribe` returns full views; afterwards one `commit` event per commit per connection with the group header and, per subscription, upserted whole object views, removed ids, cover changes, and for `log` scope group upserts and removals over a window of the newest 200 retained groups. After each commit the authority evaluates what the changed subscribed views need (their cells, those cells' transitive dependencies, and the visibility and geometry inputs the views need, even outside the scope); every other dirty cell stays dirty until read (FORMULAS §7). DESIGN §5.2; FORMULAS §7; PROTOCOL §8. | Raw op groups cannot be sent to character views (results, never inputs); valueless notifications force re-queries; whole-view upserts keep mirrors simple, and cell-level patches stay Polish. |
+| 2026-11-05 | M3-D11. Cell views: GM views carry value, kind, formula source, override flag, per-cell visibility entry and full actions; character views carry value, kind, override flag and action names only, never formula source, action source or per-cell visibility metadata, in object views, group effects and explain alike. Every readable structural cell except `id` (with defaults) is part of a view's `cells`. DESIGN §4.4; PROTOCOL §7.2. | A formula source can embed secrets (`if(roll >= 15, ...)`), and FORMULAS §9 lets the author decide what a formula publishes; structural cells as ordinary cells make per-cell visibility on `tag` or `contents` filter uniformly. |
+| 2026-11-05 | M3-D12. Redaction: in character views a ref (top level, in lists at any depth, in viewers values) to an object the viewer cannot see, or to an id that is neither a live object nor a board, is the wire-only value `{type:"redacted"}` in place, so contents keep their count; a ref to a board is never redacted (boards are not a visibility boundary, DESIGN §4.3); an error whose origin the viewer cannot see keeps only its code. Group effects use separate presentation types (`EffectView`) filtered per effect variant. DESIGN §4.4; PROTOCOL §7.3, §7.6. | Ids are meaningful by design (§5.3), so leaving them would leak `goblin_assassin`; dropping refs would change lengths a real table shows (a hand's card count). |
+| 2026-11-05 | M3-D14. Covers: character views carry, per board in scope, a `Cover` (region: position, rotation, shape; or `whole_board` for an undetermined zone) for each opaque zone on that board that is not effectively visible to the viewer (M2's `isEffectivelyVisible` on the zone, the predicate of M2's cover oracle, never `canSeeObject`), keyed so the zone id is not revealed; the zone and covered objects are absent. An `objects` scope gets the covers of every board its objects are on (a contained object counts on its outermost container's board). DESIGN §4.4; PROTOCOL §7.5. | The renderer must draw the cover without learning the zone; sending the zone with hidden cells would leak its id and name. Using the oracle's predicate makes drawn covers agree with object visibility. |
+| 2026-11-05 | M3-D15. Log filtering for characters is by current visibility, per effect variant: effects limited to what the viewer can see now, `names` entries only for objects whose `name` cell the viewer can read, an object that no longer exists counts as invisible, groups with nothing left omitted, header kept except that `label` is `null` unless every effect of the group (other than id bookkeeping) is visible to the viewer unreduced. DESIGN §4.4; PROTOCOL §7.6. | Historical visibility would need rewind and re-evaluation per group; a GM-written label may describe hidden effects, so it is shown only when nothing was hidden. |
+| 2026-11-05 | M3-D16. Explain: `explain_cell` returns content (source, override, whether it parses), the recorded dependency tree to depth at most 4 and at most 200 nodes with values (for characters: hidden cells named without value, invisible objects as `object: null`), the error-origin chain and the last writing group; `explain_group` returns effects plus the origin action's current definition; `explain_action` returns the `when` source, value and enabled state, and step text. An explain target the viewer cannot see (object, cell, group) answers exactly the same `not_found` as a nonexistent one. DESIGN §4.4, §5.2; PROTOCOL §9. | FORMULAS §9: tracing names a hidden cell without its value and does not highlight invisible objects; an identical `not_found` keeps explain from being an existence oracle. Recording action definitions in groups would be a schema change. |
+| 2026-11-05 | M3-D17. MCP tools: `table_info`, `list_objects`, `get_objects`, `evaluate`, `zones`, `at_position`, `changes_since`, `log`, `explain_cell`, `explain_group`, `explain_action`, `transact`, `undo`, `save`, `subscribe`, `poll_changes`, `unsubscribe`; input schemas generated from the protocol schemas; rejected writes return `isError: true`; resources `vtt://docs/formulas`, `vtt://docs/design`, `vtt://docs/protocol`, `vtt://schema/ops`, `vtt://subscriptions/<handle>`. DESIGN §5.2, §5.3; PROTOCOL §11. | One `transact` tool with a discriminated op union keeps the tool list short and batches atomic; docs as resources give the agent the language spec (§5.3). |
+| 2026-11-05 | M3-D18. MCP subscribe: a change buffer per subscription in the MCP process under a stable MCP handle (unchanged when the protocol subscription id changes on reconnect), drained by `poll_changes` (long poll up to 30 s), plus `notifications/resources/updated` on `vtt://subscriptions/<handle>`; records carry cell changes and object flag and action changes; cap 1,000 records, then `overflowed`, after which the agent re-reads the subscription resource for current state. PROTOCOL §11. | Most hosts do not surface notifications to the model, so polling is the reliable path; `changes_since` alone would not satisfy "Subscribe" (§5.2). |
+| 2026-11-05 | M3-D19. `invoke` is part of protocol v1 and answered `unsupported` until M5; M5 adds its MCP tool together with the UI's buttons. PROTOCOL §4, §11. | Fixes the method's shape now without an always-failing tool in the agent's list. |
+| 2026-11-05 | M3-D21. Limits: `max_message_bytes` 1 MiB applies to client-to-server frames only; server-to-client messages have no size limit, so an initial view of a few-thousand-object table is one response (chunked delivery is Later); the slow-consumer threshold `max_buffered_bytes` is 64 MiB (closed 4429); the other limits as in PROTOCOL §10 (`max_ops` 1,000, `max_page` 200, `max_ids` 200, `max_subscriptions` 16, `max_explain_depth` 4, `max_explain_nodes` 200, `max_source_length` 10,000, `max_groups` 500, `max_log_window` 200, `max_txn_ids_per_client` 1,000, `max_requests_per_second` 200). Formula cost stays under the engine budget. DESIGN §5.2; PROTOCOL §10. | "A runaway agent cannot stall the table" (§5.2): a rate limit stops a flooding agent starving the UI, while capping server messages would break the initial view of a v1-sized table. |
+| 2026-11-05 | M3-D22. Ordering: each connection's messages are handled one at a time in arrival order; every method except `save` is handled synchronously, so commits are totally ordered by revision, every connection receives every commit event in revision order, and the committer receives the commit event before its response; `save` awaits file I/O while other connections proceed. PROTOCOL §8. | With the response first, clients would have to handle a known revision whose delta has not arrived. |
+| 2026-11-05 | M3-D23. Reconnection: no server-side resumption; the client re-sends `hello` with the same `client.instance`, resubscribes and replaces its mirrors with full views (`resync`); requests never written to a socket fail `disconnected`, while a write already sent whose outcome cannot be settled reports `uncertain` (M3-D8); a resubscribe failing for a transport reason leaves the subscription `recovering` for the next connection, while an error response from the server makes it terminal (an `error` report, mirror emptied, the subscription object or MCP handle kept); the client is ready for ordinary callers only once every live subscription is resubscribed or terminal, reporting `disconnected` with `recovering: true` until then; every live mirror's revision advances on every processed commit, including commits with no delta for it; ping every 15 s, two missed pongs terminate. PROTOCOL §8. | Resuming from a revision with buffered deltas is complex, and full views are cheap locally; distinguishing transport from server failures keeps a flaky socket from killing subscriptions. |
+| 2026-11-05 | M3-D24. Autosave: 2 s after the last commit, at most 10 s after the first unsaved commit, on `save`, and on shutdown. Saves are serialized; each captures its snapshot and revision synchronously when it starts and marks only that revision saved; the asset list loaded with the file is kept through every save; a failed save is retried after 1 s, 5 s, 30 s, then every 60 s until that revision or a later one is saved; `saved_not_durable` does not mark the revision saved (it is retried like a failure); results are broadcast; shutdown awaits outstanding saves and its final save, never throws for a save failure, reports `{saved, revision, error?}`, and always releases the lock. No automatic compaction in v1. Replaces "autosave cadence is M3's" in §7. DESIGN §7. | Saving per commit would fsync constantly during drags; a periodic save alone loses up to a period of work. Capturing the revision at the start keeps "saved" truthful while commits continue. |
+| 2026-11-05 | M3-D25. New table and files: a missing file is created with one board `gm_board` named "GM" and no objects; default port 4747; lock and identity paths derived from the canonical (realpath) table path, so symlink aliases share them; lock file `<file>.lock` created exclusively (`wx`), cleaned up on any failure after creation, released only by its owner (nonce check), released on every failed open; table identity file `<file>.table-id` holding a random id, created under the held lock (temp file and rename) and never rewritten; an empty or malformed identity file fails the open. DESIGN §7; PROTOCOL §2. | A fixed default port keeps the UI URL stable; the identity file lets clients recognise a table across restarts without changing the table file format, which has no id. |
+| 2026-11-05 | M3-D26. Step 5 acceptance writes the hatch as an ordinary cell `pattern: "hatch"` (M4 decides appearance cells) and authors the Fireball card from scratch. DESIGN §8.4. | "Hatch it" names no cell and appearance cells are M4's; authoring the card from scratch exercises "define actions" rather than spawning a prepared template. |
+| 2026-11-05 | M3-D27. Runtime dependencies: `ws` 8.22.0 (with `@types/ws` 8.18.2), `@modelcontextprotocol/server` 2.3.1 (with `@modelcontextprotocol/client` 2.3.1 for tests), `tsx` 4.23.15 to run the binaries, `zod` 4.6.7. New runtime dependencies are pinned exactly and recorded in the decision log. DESIGN §7. | Node has a WebSocket client but no server, and hand-rolled framing is a security-sensitive parser to own; the v2 MCP server package uses zod 4 without v1's HTTP framework tree; extensionless relative imports do not run under Node's type stripping, hence tsx. |
+| 2026-11-05 | M3-D28. `evaluate` (ad hoc formulas) is GM-only. PROTOCOL §9. | Evaluating arbitrary source as a character would be an oracle for hidden values, and its result cannot be filtered meaningfully. |
+| 2026-11-05 | M3-D29. `at_position`: objects directly on the board whose evaluated footprint contains the point (boundary inclusive; shapeless: anchor within epsilon), zones listed separately, both ascending `z` then id; contained objects excluded. PROTOCOL §9. | One order across the product (FORMULAS §5); footprint matching answers "what is under the cursor" better than anchors alone. |
+| 2026-11-05 | M3-D30. A GM-only `document` method returns the canonical snapshot and retained log; no MCP tool. PROTOCOL §4, §9. | The protocol scenario runner needs it for `replay` and bulk reads; agents have the filtered queries. |
+| 2026-11-05 | M3-D32. Compatibility: the authority parses client messages strictly (unknown keys are `bad_request`); clients parse server messages forward-compatibly (unknown keys ignored, unknown message types and event kinds ignored with a warning, unknown `EffectView` variants dropped with a warning, never a disconnect for these); a response's `result` is validated by the client against the schema of the pending request's method (looked up by id), and a result that fails it fails that request only; a change that breaks a v1 client bumps `protocol`. PROTOCOL §10, §12. | Strict input catches client bugs at the boundary; loose output lets protocol v1 grow additively (M5's fields) without breaking older clients. |
+| 2026-11-05 | M3-D33. Stale locks: v1 refuses stale locks; takeover is manual via `vtt-serve --force-unlock`. PROTOCOL §2. | No file-system protocol available here can tell a stale lock from a live one created between the read and the takeover, so automatic takeover could let two authorities own one file. |
