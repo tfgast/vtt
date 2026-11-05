@@ -44,7 +44,7 @@ describe("iterative resolution", () => {
     const s = engine.stats();
     expect(s.evaluations).toBe(N + 1);
     expect(s.reads).toBeLessThanOrEqual(4 * N);
-        // One probe reaching every x, 5,000 evaluations, one complete retry.
+    // One probe reaching every x, 5,000 evaluations, one complete retry.
     expect(s).toMatchObject({ attempts: N + 2, reads: 2 * (N + 1) });
   });
 });
