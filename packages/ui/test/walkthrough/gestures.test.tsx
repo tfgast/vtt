@@ -22,7 +22,7 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { until } from "../support/authority";
 import type { DiceEntry, DriverContext, Gestures } from "./contract";
-import { createGestures, parseKeyCombo } from "./gestures";
+import { createGestures, parseKeyCombo, pickZoom } from "./gestures";
 import { startWalkthrough } from "./infra";
 
 let ctx: DriverContext | null = null;
@@ -187,6 +187,17 @@ describe("parseKeyCombo", () => {
   });
 });
 
+describe("pickZoom", () => {
+  test("prefers 1, then powers of two, then a zoom inside the interval", () => {
+    expect(pickZoom(0.3, 4)).toBe(1);
+    expect(pickZoom(0.1, 0.6)).toBe(0.5);
+    expect(pickZoom(1.1, 3)).toBe(2);
+    expect(pickZoom(1.25, 1.47)).toBe(1.25);
+    expect(pickZoom(0.6, 0.9)).toBe(0.9);
+    expect(pickZoom(2, 1.5)).toBeNull();
+  });
+});
+
 describe("createGestures (vtt-nb8.18)", () => {
   test("dragEntry brings tpl_d20 (the binder's last row) into view and spawns a die at the point; doubleClick rolls it; pressButton rolls a second die", async () => {
     const { c, g } = await start([roll(7), roll(11)]);
@@ -210,11 +221,22 @@ describe("createGestures (vtt-nb8.18)", () => {
 
     const second = await spawnFromBinder(c, g, "tpl_d20", [10.5, 2]);
     expect(second).not.toBe(die);
+    await g.bringIntoView({ object: second, element: { action: "Roll" } });
     expect(g.elementShown(second, { action: "Roll" })).toBe(true);
     expect(g.elementEnabled(second, "Roll")).toBe(true);
     await g.pressButton(second, "Roll");
     expect(await cellValue(c, second, "value")).toMatchObject({ type: "roll", total: 11 });
     expect(await cellValue(c, die, "value")).toMatchObject({ type: "roll", total: 7 });
+
+    // elementShown answers for the camera: the Roll button (0.25 high, min_size 10) is
+    // 8 px at zoom 0.5, below its minimum, and 16 px at zoom 1.
+    await c.setCamera({ center: [10.5, 2], zoom: 0.5 });
+    expect(g.elementShown(second, { action: "Roll" })).toBe(false);
+    await c.setCamera({ center: [10.5, 2], zoom: 1 });
+    expect(g.elementShown(second, { action: "Roll" })).toBe(true);
+    // Off screen is not shown either.
+    await c.setCamera({ center: [60, 60], zoom: 1 });
+    expect(g.elementShown(second, { action: "Roll" })).toBe(false);
   }, 60_000);
 
   test("bringIntoView reaches an editor inside an expanded entry from a zoomed-out camera: a sheet in the token's list, and a working copy in the binder in the token's list", async () => {
@@ -227,10 +249,15 @@ describe("createGestures (vtt-nb8.18)", () => {
     await c.setCamera({ center: [-40, 30], zoom: 1 / 16 });
     await g.bringIntoView({ object: sheet, element: { cell: "ac" } });
     expectEditorInView(c, [token, sheet], "ac");
+    expect(g.elementShown(sheet, { cell: "ac" })).toBe(true);
+    // The notes editor is further down the sheet, scrolled out of the token's list.
+    expect(g.elementShown(sheet, { cell: "notes" })).toBe(false);
     // Then the sheet's last editor, further down the token's list.
     await c.setCamera({ center: [40, -30], zoom: 1 / 16 });
     await g.bringIntoView({ object: sheet, element: { cell: "notes" } });
     expectEditorInView(c, [token, sheet], "notes");
+    expect(g.elementShown(sheet, { cell: "notes" })).toBe(true);
+    expect(g.elementShown(sheet, { cell: "ac" })).toBe(false);
 
     // Two lists deep: the binder in the token's list, its Attack working copy in the binder's.
     await g.expandEntry(token, binder);
@@ -247,6 +274,38 @@ describe("createGestures (vtt-nb8.18)", () => {
     await expect(g.bringIntoView({ object: attack, element: { action: "Roll" } })).rejects.toThrow(
       /Roll is not drawn/,
     );
+  }, 60_000);
+
+  test("bringIntoView takes a zoom between powers of two when only such a zoom fits (an 8 × 1 element with min_size 80)", async () => {
+    const { c, g } = await start();
+    const agent = await c.startAgent("Maker");
+    const op: WireOp = {
+      type: "create_object",
+      id: "banner",
+      to: { type: "board", board: "gm_board", position: [20, 0] },
+      init: {
+        shape: { type: "rect", width: 8, height: 1 },
+        cells: {
+          name: { type: "text", value: "Banner" },
+          visible_to: { type: "viewers", viewers: ["all"] },
+        },
+        face: { elements: [{ type: "value", cell: "name", rect: [-4, -0.5, 8, 1], min_size: 80 }] },
+      },
+    };
+    const result = (await agent.mcp.callTool({
+      name: "transact",
+      arguments: { ops: [op], base_revision: c.gm.revision, label: "Banner" },
+    })) as { isError?: boolean; content?: unknown };
+    expect(result.isError ?? false, JSON.stringify(result.content)).toBe(false);
+    await until(() => c.session.boardView()?.objects.has("banner") === true, "the banner");
+    await c.setCamera({ center: [0, 0], zoom: 1 / 16 });
+    expect(g.elementShown("banner", { cell: "name" })).toBe(false);
+    // 64 px per unit at zoom 1 is under 80; 8 units at zoom 2 do not fit 800 px.
+    await g.bringIntoView({ object: "banner", element: { cell: "name" } });
+    const { zoom } = c.ui.getState().camera;
+    expect(zoom).toBeGreaterThan(1);
+    expect(zoom).toBeLessThan(2);
+    expect(g.elementShown("banner", { cell: "name" })).toBe(true);
   }, 60_000);
 
   test("editInPlace, inspectorSet, inspectorAddCell, inspectorCellVisibility and inspectorFlags each commit their group", async () => {
@@ -347,6 +406,7 @@ describe("createGestures (vtt-nb8.18)", () => {
     if (copy === undefined || copy === "tpl_attack") throw new Error("no working copy");
     const token = await spawnFromBinder(c, g, "tpl_token", [8, 0]);
 
+    await g.bringIntoView({ object: copy, element: { action: "Roll" } });
     expect(g.elementShown(copy, { action: "Roll" })).toBe(true);
     expect(g.elementEnabled(copy, "Roll")).toBe(false);
     const request = vi.spyOn(c.session.client, "request");
@@ -371,19 +431,53 @@ describe("createGestures (vtt-nb8.18)", () => {
   }, 60_000);
 
   test("logGroups lists the groups above; logLoadOlder pages older groups past the live window", async () => {
-    const { c, g } = await start();
+    const { c, g } = await start([roll(5)]);
     const token = await spawnFromBinder(c, g, "tpl_token", [8, 0]);
     await g.editInPlace(token, "name", "Scout");
+    const scoutGroup = await newest(c);
+    const die = await spawnFromBinder(c, g, "tpl_d20", [12, 0]);
+    await g.doubleClick(die);
+    await g.inspectorSet(token, "ac", "13");
+    await g.dragObject(token, [9, 2]);
+    await g.drawZone([14, -3], [18, 1], { fog: true });
+    await g.expandEntry(BINDER, "tpl_attack");
+    const [copy] = c.ui.getState().selection;
+    await g.dropOnEditor(token, copy as ObjectId, "target");
 
     expect(() => g.logGroups()).toThrow(/Log tab is not open/);
     await g.logLoadOlder();
-    const log = await c.gm.request("log", { limit: 2, effects: true });
+    const log = await c.gm.request("log", { limit: 50 });
+    const mine = log.groups.filter((x) => x.index >= scoutGroup - 1);
     const shown = g.logGroups();
-    expect(shown.slice(0, 2).map((x) => x.index)).toEqual(log.groups.map((x) => x.index));
-    expect(shown.slice(0, 2).map((x) => x.label)).toEqual(log.groups.map((x) => x.label));
-    expect(shown.slice(0, 2).every((x) => x.actor === "GM" && !x.undone)).toBe(true);
-    expect(shown[0]?.sentences.join(" ")).toContain("Scout");
-    const scoutGroup = shown[0]?.index as number;
+    expect(shown.slice(0, 9).map((x) => x.label)).toEqual([
+      "Set Attack target to Scout",
+      "Working copy of Attack",
+      "Create zone",
+      "Move Scout",
+      "Set Scout.ac",
+      "Roll",
+      "Copy d20",
+      "Set Token.name",
+      "Copy Token",
+    ]);
+    const said = (label: string) => shown.find((x) => x.label === label)?.sentences.join(" | ");
+    expect(said("Set Attack target to Scout")).toContain("Set Attack.target to");
+    expect(said("Create zone")).toContain("Created Zone on GM");
+    expect(said("Move Scout")).toContain("Moved Scout onto GM at (9, 2)");
+    expect(said("Set Scout.ac")).toContain("Set Scout.ac to 13");
+    expect(said("Roll")).toContain("Rolled 1d20 → 5 into d20.value");
+    expect(said("Set Token.name")).toContain("Set Scout.name to Scout");
+    // Every group of the gestures above, newest first, as the GM log has them.
+    expect(shown.slice(0, mine.length)).toEqual(
+      mine.map((x) =>
+        expect.objectContaining({
+          index: x.index,
+          label: x.label ?? x.kind,
+          actor: "GM",
+          undone: false,
+        }),
+      ),
+    );
     // Every group is in the live window: there was nothing older to load.
     expect(within(c.root).queryByRole("button", { name: "Load older" })).toBeNull();
     await expect(g.logLoadOlder()).rejects.toThrow(/nothing older/);

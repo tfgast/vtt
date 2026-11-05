@@ -13,7 +13,8 @@
  * something other than what it names.
  *
  * - `bringIntoView` (every gesture calls it on its targets first): chooses
- *   a zoom (a power of two, 1 when it fits) at which every enclosing
+ *   a zoom (1 when it fits, else the power of two nearest 1, else any zoom
+ *   of the feasible interval nearest 1) at which every enclosing
  *   contents element and the target itself are at least their `min_size`
  *   and the target fits on screen, wheels each enclosing contents element
  *   (innermost first, over its chevron column) until the target is
@@ -25,7 +26,11 @@
  *   satisfies both; otherwise it pans between the press and the drop (the
  *   camera is moved mid-drag, as a GM panning with the drag held would).
  *   Points are exact when they are dyadic (camera centres sit on a 1/64
- *   grid and zooms are powers of two).
+ *   grid and zooms are powers of two whenever one fits).
+ * - `elementShown` answers "drawn on screen now": present (show_when), at
+ *   its min_size under the current camera with every list around it, its
+ *   centre unclipped by those lists, on screen and not under a cover. Bring
+ *   the element into view first when the camera may not show it.
  * - Gestures that write wait for the authority's revision to move (the GM
  *   assertion client sees every commit) and for the app's session to catch
  *   up; a gesture whose write is refused times out naming the notices.
@@ -64,6 +69,7 @@ import {
   hitsAt,
   IDENTITY,
   invert,
+  isCovered,
   MAX_ZOOM,
   MIN_ZOOM,
   PX_PER_UNIT,
@@ -432,11 +438,22 @@ function fitZoom(b: Bounds, viewport: { width: number; height: number }): number
   return Math.min(zw, zh, MAX_ZOOM);
 }
 
-/** A power-of-two zoom in `[lo, hi]`: 1 when it fits, else the nearest to 1; null when none. */
-function pickZoom(lo: number, hi: number): number | null {
+/**
+ * A zoom in `[lo, hi]`: 1 when it fits, else the power of two nearest 1, else
+ * (no power of two inside) the zoom of the interval nearest 1; null when empty.
+ */
+export function pickZoom(lo: number, hi: number): number | null {
   if (lo <= 1 && 1 <= hi) return 1;
-  if (hi < 1) return ZOOMS.find((z) => z <= hi && z >= lo) ?? null;
-  return [...ZOOMS].reverse().find((z) => z >= lo && z <= hi) ?? null;
+  const power =
+    hi < 1
+      ? ZOOMS.find((z) => z <= hi && z >= lo)
+      : [...ZOOMS].reverse().find((z) => z >= lo && z <= hi);
+  if (power !== undefined) return power;
+  // No power of two in the interval: the zoom in it nearest 1.
+  const a = Math.max(lo, MIN_ZOOM);
+  const b = Math.min(hi, MAX_ZOOM);
+  if (a > b) return null;
+  return b < 1 ? b : a;
 }
 
 function union(a: Bounds, b: Bounds): Bounds {
@@ -1619,10 +1636,22 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
     },
 
     elementShown(object, element) {
-      const l = locate(faces(), object);
+      // Drawn on screen now: present (show_when), at its min_size with every list
+      // around it, its centre unclipped by those lists, on screen and uncovered.
+      const scene = faces();
+      const l = locate(scene, object);
       if (l === null) return false;
-      if (l.entry !== null && l.drawing === null) return false;
-      return primitiveOf(l.drawing, element) !== undefined;
+      const prim = primitiveOf(l.drawing, element);
+      if (prim === undefined) return false;
+      const cam = camera();
+      const shows = [
+        ...listShows(l.clips),
+        { rect: prim.rect, toBoard: l.toBoard, minSize: prim.minSize },
+      ];
+      if (shows.some((x) => screenHeight(x.rect, x.toBoard, cam) < x.minSize)) return false;
+      const mid = apply(l.toBoard, centre(prim.rect));
+      if (!l.clips.every((c) => pointInClip(c, mid))) return false;
+      return onScreen(mid, 0) && !isCovered(scene, mid);
     },
 
     elementEnabled(object, action) {
