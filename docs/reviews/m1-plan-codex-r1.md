@@ -1,0 +1,43 @@
+1. **vtt-o9i.5 — blocker — Keep/drop rules contradict the required example.**  
+   The bead ranks `dl` descending and then drops the first N, so `4d6dl1` rolling `[6,4,3,1]` drops 6, not 1. Likewise, `dh` drops the lowest dice. Change the ranking to descending for `kh`/`dh`, ascending for `kl`/`dl`; keep or drop the first N accordingly. Require explicit tests for all four modifiers, including ties and explosion extras.
+
+2. **vtt-o9i.8, vtt-o9i.7 — blocker — Query acceptance tests require an unrecorded dependency.**  
+   `.8` requires `.where`, `len`, and the difficult-terrain and visibility formulas, but these are implemented by `.7`, which may run concurrently. Add `.7` as a dependency of `.8`, or restrict `.8` to direct query tests and move those composed-formula assertions to `.11`. The latter preserves useful parallelism.
+
+3. **vtt-o9i.2, .4, .5, .7, .8, .9 — should-fix — Concurrent beads own the same documentation.**  
+   `.2`, `.4`, and `.5` concurrently edit FORMULAS §2 and append to DESIGN §10. Later, `.7` and `.8` both edit FORMULAS §5–§6 and the decision log; `.7` can also overlap `.9`. These are shared decisions and paragraphs, not merely unrelated changes in one file. Put the settled language decisions into a prerequisite documentation bead, then have implementation beads consume them. Alternatively, explicitly serialize these edits. Coordinate the same ownership with `vtt-75c.2`.
+
+4. **vtt-o9i.3, .8, .9 — blocker — Formula-valued names cannot be resolved through the proposed host interface.**  
+   FIXTURES §3 permits formulas in `name`. Yet `objectsNamed(name)` must answer exact-name queries while the host is forbidden to evaluate formulas and receives no evaluation callback for names. The engine also cannot record dependencies on name formulas through this interface. Replace this with candidate enumeration followed by evaluated `name` reads, or give name lookup an explicit dependency-recording reader contract. Require a test where `obj("Aldric")` changes after an input to a name formula changes.
+
+5. **vtt-o9i.9 — blocker — Depth limits make results depend on read order and memo state.**  
+   The bead explicitly permits a deep chain to return `#LIMIT` from one entry point but succeed after reading its middle first. Not caching depth failures does not fix this: caching successful intermediate results changes subsequent outcomes. This contradicts FORMULAS §1’s same-revision determinism. Use an iterative evaluation mechanism, or specify a logical depth limit that remains invariant under caching. Require identical results across cold and warm caches and different cell-read orders.
+
+6. **vtt-o9i.3, .8, .9 — blocker — Candidate narrowing is declared semantics-preserving, but budgets count candidates.**  
+   One conforming host can return every object on a board; another can return only nearby candidates. Charging every returned ID means the first can produce `#LIMIT` while the second returns a value for the same document and formula. GeometryReader calls can introduce further host-dependent charges. Define budget accounting independently of optional narrowing, or replace the optional-host contract with a single mandated evaluation policy. Add equivalence tests using broad and narrowed hosts with a deliberately small budget.
+
+7. **vtt-o9i.3, .8 — blocker — Footprint-based narrowing is unsound for anchor containment.**  
+   `contents(zone)` tests candidate **anchors**, but the host may omit candidates whose **footprints** cannot intersect the zone bounds. A valid polygon need not contain its anchor: an object can have its anchor inside the zone and its entire polygon outside it. Such an object disappears only with an optimized host. Require candidate bounds to include both anchor and footprint, or distinguish anchor queries from footprint queries. Test an offset polygon with its anchor inside the zone.
+
+8. **vtt-o9i.8 — should-fix — Result sorting does not make query evaluation deterministic.**  
+   Hosts may return IDs in any order, while predicates and geometry reads propagate the first error. Sorting successful results afterward cannot stabilize which error and origin are returned, or the order in which cycles are encountered. Specify a deterministic candidate evaluation order, such as ID code-point order, before reads and predicates; retain z/id ordering for successful results. Test permuted host answers containing multiple failing candidates.
+
+9. **vtt-o9i.4, .6, .9 — blocker — The parser’s nesting cap does not bound evaluator recursion.**  
+   A long left-associative expression such as `1+1+…` can produce a deeply nested AST without exceeding the stated parenthesis/list/call/unary nesting limit. Dot-access chains have the same problem. Evaluation can therefore overflow the JavaScript stack, and literal-only expressions consume none of `.9`’s read/query budget. Bound AST depth and size explicitly, or evaluate iteratively with a defined work limit. Require long binary and postfix chains to produce a language result or controlled error, never a stack exception.
+
+10. **vtt-o9i.3, .9 — should-fix — The test host cannot perform several mutations required by engine acceptance.**  
+    MemoryHost exposes set, override, clearOverride, and move, but `.9` requires object creation/deletion and edits that break formula cycles. There is no specified create/delete API or formula-source replacement API. This leaves the engine agent to modify another bead’s test infrastructure or bypass it inconsistently. Assign these test-only mutators to the host bead, specify their `Change[]` output, and require tests for deletion, creation, and replacing formula content.
+
+11. **vtt-o9i.8, vtt-75c.7 — should-fix — Spatial edge rules conflict within the planned contracts.**  
+    `.8` requires positive-area overlap for `on()`, while the geometry bead explicitly treats a point footprint inside a shape as overlapping. Also, `.8` says invalid positions exclude objects from “every result,” yet `objects(expr)` expressly includes contained objects, whose positions are empty. State the point-footprint exception explicitly and restrict position exclusion to the relevant spatial queries. Specify error-versus-exclusion behavior separately for `distance`. Add tests for shapeless objects and contained objects returned by `objects()`.
+
+12. **vtt-o9i.6 — should-fix — The evaluator core is oversized for an independently reviewable bead.**  
+    It owns coercion, every operator, recursive broadcasting, equality, reference validation, scope, AST evaluation, lazy execution, function dispatch, public exports, viewer conversion, and ten documentation decisions. Split it into a value/operator semantics bead and a dependent AST evaluation/scope/dispatch bead. Give each exclusive files and acceptance criteria. Put dangling-reference validation in one explicitly owned shared helper or contract so FakeEnv and the engine cannot silently diverge.
+
+13. **vtt-o9i.5 — should-fix — Dice notation and rolling should be separately reviewable.**  
+    Canonicalization and arithmetic are prerequisites for formula evaluation; random execution and replay-result validation are a separate substantial implementation. Split notation/arithmetic/statistics from rolling/validation, with the latter depending on the former. Make `.6` depend only on the pure notation portion. This also isolates the modifier-ordering bug in finding 1 from the language’s critical path.
+
+14. **vtt-o9i.2 — should-fix — The canonical value validator’s acceptance contract is incomplete.**  
+    “Checks field types” does not explicitly reject non-finite numbers, although JSON round-tripping and later persistence require finite values. Existing fixture schemas also constrain nonempty ink strokes, nonblank sources, and reference IDs; the bead does not say which constraints the canonical guard preserves. Since M2 delegates value validation to this guard, checking a few valid fixture examples cannot establish compatibility. Specify the validation contract field by field and add negative tests for non-finite numeric fields and each intentionally shared fixture constraint.
+
+**Overall verdict: not ready to implement.** Resolve the contradictory dice rules, missing function dependency, name-resolution contract, determinism problems, spatial narrowing bug, and recursion gap first. Then settle shared documentation ownership and split the two largest implementation units. The runner’s proposed coverage is sound: the current scenarios yield exactly **25** checked expectations under its stated stopping rules.
