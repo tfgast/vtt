@@ -124,7 +124,8 @@ const describeError = (err: unknown): string => (err instanceof Error ? err.mess
 
 /**
  * Undoes the group `selector` names (default `latest`) as `actor`, in one
- * transaction of kind `undo` that appends one group. The inverse is
+ * transaction of kind `undo` that appends one group, labelled `opts.label`
+ * when given and `Undo <target label>` otherwise. The inverse is
  * `invertForUndo` of the target's effects in reverse order, each evaluated
  * against the document after the ones before it. User undo never reverses
  * `allocate` or `retire`: undoing a creation retires the created ids,
@@ -140,6 +141,7 @@ export function undo(
   store: DocumentStore,
   actor: Actor,
   selector: UndoSelector = LATEST,
+  opts: { label?: string } = {},
 ): TransactResult {
   let target: FrozenGroup;
   try {
@@ -162,7 +164,7 @@ export function undo(
   };
   const result = store.transact(
     actor,
-    { kind: "undo", label: `Undo ${target.label}`, undoes: target.index },
+    { kind: "undo", label: opts.label ?? `Undo ${target.label}`, undoes: target.index },
     (tx) => {
       // A private mirror of the working copy: invertForUndo needs a DocState,
       // and an inverse that does not apply is refused here, before the
