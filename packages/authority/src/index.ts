@@ -5,6 +5,7 @@ export * from "./host/identity";
 export * from "./host/lock";
 export * from "./host/new-table";
 export * from "./host/table-host";
+export * from "./mcp/discovery";
 export * from "./mcp/gate";
 export * from "./mcp/server";
 export * from "./mcp/subscriptions";

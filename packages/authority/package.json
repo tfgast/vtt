@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "bin": {
+    "vtt-mcp": "./src/bin/mcp.ts",
     "vtt-serve": "./src/bin/serve.ts"
   },
   "exports": {
