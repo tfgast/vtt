@@ -511,7 +511,8 @@
           "type": "log_groups",
           "count": 6,
           "note": "Undo is itself an operation and appends one group; it does not delete the Apply group (FIXTURES §8)."
-        }
+        },
+        { "type": "replay" }
       ]
     }
   ]

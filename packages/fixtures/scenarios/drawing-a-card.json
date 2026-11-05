@@ -300,7 +300,8 @@
           "visible": false,
           "note": "The king is still in Aldric's hand."
         },
-        { "type": "log_groups", "count": 3, "note": "A move is one group (FIXTURES §8)." }
+        { "type": "log_groups", "count": 3, "note": "A move is one group (FIXTURES §8)." },
+        { "type": "replay" }
       ]
     }
   ]

@@ -332,7 +332,8 @@
           "cell": "tray_total",
           "value": { "type": "number", "value": 4 },
           "note": "\"For a cup container instead of a zone: `sum(contents.where(tag has \"die\").value)`.\" reads only the cup's contents, which did not change."
-        }
+        },
+        { "type": "replay" }
       ]
     }
   ]

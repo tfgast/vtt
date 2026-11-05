@@ -714,4 +714,17 @@ describe("expectations", () => {
   });
   test("an unknown expectation type", () =>
     rejects((s) => expectAfter(s, { type: "vibes", object: "aldric" }), /./));
+  test("replay is accepted at top level", () => {
+    const s = base();
+    s.expect = [{ type: "replay" }];
+    expect(issues(s)).toEqual([]);
+  });
+  test("replay is accepted in a step, with a note", () => {
+    const s = base();
+    expectAfter(s, { type: "replay" });
+    expectAfter(s, { type: "replay", note: "Replay applies effects; it never re-rolls" });
+    expect(issues(s)).toEqual([]);
+  });
+  test("replay takes no other fields", () =>
+    rejects((s) => expectAfter(s, { type: "replay", extra: 1 }), /./));
 });

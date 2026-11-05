@@ -245,6 +245,13 @@ export const LogEffectSchema = z.discriminatedUnion("type", [
 /** Optional prose on an expectation: the line of the doc that justifies it. */
 const note = { note: z.string().optional() };
 
+/**
+ * Replaying the log reproduces the stored state (docs/FIXTURES.md §7, §11):
+ * the recorded effects of every group, applied to the post-setup document,
+ * yield the current snapshot without consuming dice-script entries.
+ */
+export const ReplayExpectationSchema = z.strictObject({ type: z.literal("replay"), ...note });
+
 export const ExpectationSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("cell"),
@@ -318,6 +325,7 @@ export const ExpectationSchema = z.discriminatedUnion("type", [
     effect: LogEffectSchema,
     ...note,
   }),
+  ReplayExpectationSchema,
 ]);
 
 export const StepSchema = z.strictObject({

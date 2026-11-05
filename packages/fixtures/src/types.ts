@@ -19,6 +19,7 @@ import type {
   PlacementSchema,
   RefValueSchema,
   RejectionReasonSchema,
+  ReplayExpectationSchema,
   RollValueSchema,
   ScenarioSchema,
   SetupSchema,
@@ -54,5 +55,6 @@ export type Do = z.infer<typeof DoSchema>;
 export type Destination = z.infer<typeof DestinationSchema>;
 
 export type Expectation = z.infer<typeof ExpectationSchema>;
+export type ReplayExpectation = z.infer<typeof ReplayExpectationSchema>;
 export type RejectionReason = z.infer<typeof RejectionReasonSchema>;
 export type LogEffect = z.infer<typeof LogEffectSchema>;

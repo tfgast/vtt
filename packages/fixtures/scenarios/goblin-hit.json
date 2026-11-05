@@ -258,7 +258,8 @@
           "viewer": "aldric",
           "visible": false,
           "note": "\"ac: 13 (cell visible_to: gm)\"; cell visibility does not depend on position."
-        }
+        },
+        { "type": "replay" }
       ]
     }
   ]

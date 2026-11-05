@@ -125,6 +125,9 @@ Notes:
 }
 ```
 
+Each id in `characters` names a setup object. A runner sets that object's
+`is_character` flag, which is what makes it a character (DESIGN §4.1).
+
 An object:
 
 ```json
@@ -168,7 +171,8 @@ booleans; `rotation` and `z` numbers or empty. `opaque` is valid only on an
 object with `"is_zone": true` (in setup, and in spawn `cells` when the
 template is known). All but `template` may instead hold a formula (a room's `visible_to` is one, §10). The format assigns no
 defaults: a fixture writes every structural cell whose value it depends on,
-and defaults for the rest are the engine's to define (M2).
+and defaults for the rest are the engine's: the Default column of FORMULAS
+§3.1.
 
 **Containment.** `contents` is the one owning list, single-parent and acyclic
 (DESIGN §4.1). The validator rejects an object listed in two `contents`, a
@@ -217,7 +221,10 @@ FORMULAS §3.1 (`tag`, `position`, `contents`, ...), even though those are set
 through their own fields; `cell_visible` may name the same cells. Object
 visibility is the
 `visible_to` cell. Effective visibility is composed by the engine and asserted
-with expectations; the setup states only what is stored.
+with expectations; the setup states only what is stored. `cell_visibility`
+maps one to one onto the canonical per-object metadata of the same name
+(DESIGN §4.4): the same cell names, including absent and field-backed cells,
+and the same literal viewer sets.
 
 **Actions** (FORMULAS §8) are `{name, when?, steps}`. `when` and each step are
 source text in the action language, exactly as the GM would type them. Names
@@ -250,15 +257,19 @@ The script is the randomness the scenario's actions will consume, in order:
   container's length. The new contents are `new[i] = old[order[i]]`: with
   contents `[a, b, c]` and order `[2, 0, 1]` the result is `[c, a, b]`.
 - An action that is rejected or aborts consumes nothing; atomicity covers the
-  script.
+  script. Dice consumption is transactional (DESIGN §7, **Transactions**): a
+  rejected action consumes no dice.
 - Running out of entries, a kind or expression mismatch, or entries left over
   when the scenario ends are **scenario errors** (the fixture is wrong, as
-  opposed to the engine failing an expectation).
+  opposed to the engine failing an expectation). Leftover entries are an
+  error for a complete run, one that executed every step; a runner that skips
+  steps it does not support cannot judge them.
 
 The script is execution input only. **It is not a replay mechanism.** Replay
 (DESIGN §7) applies recorded effects and never re-rolls; the operation log
 records the roll results that were written, and a scenario asserts them with
-`log_includes`. Replay expectations are an additive M2 extension.
+`log_includes`. The `replay` expectation (section 7, section 11) asserts that
+replaying the log reproduces the table and consumes no script entries.
 
 ## 6. Steps
 
@@ -282,7 +293,8 @@ requires an `actor`; `bind` forbids one.
 `{"type":"board","board":"table","position":[4,2]}` or
 `{"type":"container","container":"hand1","index":0}`. `index` is the object's
 position in the container's contents after the move; `index` equal to the
-current length appends. Moving onto a board ends ownership (DESIGN §4.1).
+current length appends. Moving onto a board ends containment; a move never
+changes `owner` (DESIGN §4.1).
 
 **Spawn.** `cells` sets initial cells on the new root object, literal or
 formula (a character's die is spawned with
@@ -325,6 +337,14 @@ not happen. Using a step wrongly (`override` on a literal cell, `set` on a
 formula cell, `clear_override` with no override, acting on a removed object)
 is a scenario error, not a rejection.
 
+The first three misuses stay scenario errors in the format, although the
+engine treats them differently: the engine's `writeValue` on a formula cell
+creates an override, as a hand edit would, and clearing a missing override is
+refused by the engine. A runner implements the rejection
+protocol above for every step type it supports: the M2 runner for `set`,
+`override`, `clear_override`, `move`, `spawn`, and `undo`; M5 adds the action
+rejections `when_false`, `when_error`, and `step_error`.
+
 ## 7. Expectations
 
 Expectations are checked in order after setup (top-level `expect`) or after a
@@ -345,6 +365,7 @@ step. One discriminated union on `type`:
 | `object_visible` | `object, viewer, visible` | The viewer can (or cannot) see the object. |
 | `log_groups` | `count` | The log holds this many groups. |
 | `log_includes` | `group, effect` | The group at that index records the effect. Step-level only. |
+| `replay` | | Applying the recorded effects of every group in the log, in order, to the document as it was right after setup reproduces the current stored state, and consumes no dice-script entries and no randomness. Top level or step level. See section 11. |
 
 Rejection reasons: `{"type":"when_false"}`, `{"type":"when_error","code":"#REF"}`,
 `{"type":"step_error","code":"#TYPE"}` (code optional),
@@ -356,13 +377,20 @@ Visibility, precisely (DESIGN §4.4):
 - `cell_visible` is the composed rule: the cell's own `cell_visibility`
   (default: the object's), intersected with the object's effective
   visibility, intersected with the owner if the object is face down (except
-  `name`). The GM sees everything.
+  `name`). The GM sees everything. `cell_visible` holds only if
+  `object_visible` holds for the same viewer: a cell of a covered object is
+  not visible.
 - `object_visible` is whether the viewer sees the object at all: its
   effective visibility (own `visible_to` intersected with its container's,
   recursively), and not drawn under the cover of an opaque zone the viewer
   cannot see. That makes opaque-zone fog observable without a separate
   expectation: a goblin marked `all` inside a hidden opaque room is not
-  visible to Aldric.
+  visible to Aldric. Cover is the rule of DESIGN §4.4: independent of `z`,
+  decided by the anchor, and inherited from the outermost container.
+
+**Placement and position.** A formula position stays in `placement` in the
+format (section 3). Canonically, `position` is a cell, present exactly when
+the object is on a board (FORMULAS §3.1); a runner converts between the two.
 
 Removal. `remove` deletes recursively; a scenario asserts each object it
 cares about with its own `exists: false`, which is also how it shows the
@@ -396,6 +424,16 @@ need it:
   target's cells were touched by a later surviving operation is refused with
   `undo_conflict`; an undo with nothing left to reverse is refused with
   `nothing_to_undo`.
+- A later *surviving* operation is a group that conflicts with the target in
+  the sense of DESIGN §7 (**Undo**): it is not an undo group, it is not
+  undone, and it shares a touched key with the target.
+- The engine also undoes the latest group of a given actor and the group at
+  an explicit index (DESIGN §7), but the `undo` step always means the default:
+  the most recent group that is neither an undo nor already undone.
+
+M2 confirms these rules as the engine's (DESIGN §7): one group per step that
+is neither rejected nor `bind`, undo adds its own group, undo reverses the
+most recent non-undo, non-undone group, and there is no redo.
 - `log_includes.group` indexes groups from the start, 0-based; a negative
   index counts from the end (`-1` is the latest). Fireball needs an absolute
   index to show that an earlier Apply group is unchanged after a later edit.
@@ -454,9 +492,9 @@ Scenario: [`die-with-modifier.json`](../packages/fixtures/scenarios/die-with-mod
 `on(this)` needs footprints and z-order: the goblin and die have `shape`s, the
 die is moved to a `position` whose footprint overlaps the goblin's, and its
 `z` cell is set above the goblin's. `z` is an ordinary §3.1 cell, not a
-placement field; since the docs do not say what `z` an object gets when it
-lands on a board, a fixture sets it with a `set` step after the `move` rather
-than relying on a default. `hit` is `false` with no die on the goblin and with
+placement field; the fixture sets it with a `set` step after the `move`
+rather than relying on the landing rule of FORMULAS §3.1, which puts a moved
+object on top. `hit` is `false` with no die on the goblin and with
 a die beside it, `true` after a scripted roll of 15 on a die on top.
 
 The visibility subtlety is asserted directly:
@@ -653,3 +691,15 @@ Recorded extensions:
 - **`#SYNTAX` error code** (M1). `ErrorCodeSchema` accepts `#SYNTAX` for
   `cell_error`, `when_error`, and `step_error`: the source does not parse
   (FORMULAS §2.3). Additive; no scenario changed.
+- **`replay` expectation** (M2). `{"type":"replay","note":"optional"}`, at
+  top level or in a step. It holds when applying, to the document as it was
+  right after setup, the recorded effects of every group currently in the
+  log, in order, yields a document whose stored state equals the current one,
+  and doing so consumes no dice-script entries and no randomness. Stored state
+  is the canonical snapshot: cells as stored (literal, formula source,
+  override), per-cell visibility, placement, contents order, structural
+  fields, `retired_ids`, and `next_seq`. It never includes computed formula
+  results, and never the revision (DESIGN §7, **Replay and rewind**). The
+  schema is `ReplayExpectationSchema` in the `ExpectationSchema` union.
+  Additive; existing variants are unchanged. Every scenario asserts it in its
+  last step, and Fireball also asserts it after its first step, the spawn.

@@ -99,7 +99,7 @@ the virtual medium lets us keep that behavior while removing its cost.
 
 The atomic unit. An object has:
 
-- **Identity.** A stable id, never reused.
+- **Identity.** A stable id, never reused (see **Identity** below).
 - **Placement.** Either a position on a board (with rotation and z-order), or
   a place inside exactly one container. Never both.
 - **Facing.** Face up or face down.
@@ -110,6 +110,10 @@ The atomic unit. An object has:
 - **Face layout.** Which cells and buttons appear on the object's surface,
   where, and under what conditions. The face is data, part of the template,
   and editable. See 4.7.
+- **Flags.** `is_template` and `is_character`, both false by default. They
+  are fields of the object, not cells (FORMULAS.md 3.1), so formulas do not
+  read them. A spawned copy carries both from its original, except that the
+  root copy's `is_template` is false (see **Templates and copying**).
 
 Cell values can be numbers, text, booleans, lists, dice expressions, roll
 results, **ink** (freehand strokes, so scrawl in the margin travels with the
@@ -123,10 +127,45 @@ it in the new one, atomically. Removing an object removes its contents,
 recursively. All other reference cells (`target`, `owner`, `attacker`) are
 non-owning: they point, they do not hold, and deleting the referenced object
 turns them into `#REF`. A cell can hold objects only via `contents`; a cell is
-never itself an object. **Objects on a board are owned by nothing.** Moving an
-object out of a container onto a board ends the ownership. An object that
+never itself an object. **Objects on a board are owned by nothing**: no
+`contents` list holds them. Moving an object out of a container onto a board
+ends the containment. A move never changes the `owner` cell: a card dragged
+out of Aldric's hand onto the table still belongs to Aldric. An object that
 deploys another onto the board (a spell card and its zone) keeps a non-owning
 reference and cleans up explicitly in its Discard action.
+
+**Removal.** Removing an object removes it and its contents, recursively, as
+one subtree. References to any removed object from elsewhere are left in
+place and dangle: reading one evaluates to `#REF` (FORMULAS.md 2.4). Undoing
+the removal restores the whole subtree, under the same ids, so the dangling
+references resolve again.
+
+**Characters.** An object is a character when its `is_character` flag is
+true. The "view as" list (4.4) offers every object with `is_character` true
+and `is_template` false. Viewing as an object that is not a character shows
+nothing; the GM sees everything. The `owner` cell is not validated against
+the flag: it may point at any object, and visibility resolves it as 4.4 and
+FORMULAS.md 7 say. Fixture runners (the M1 test host and the M2 scenario
+runner) set `is_character` for the ids listed in a scenario's
+`setup.characters` (FIXTURES.md 3).
+
+**Identity.** Boards and objects share one id namespace. An id is reserved for
+the document's lifetime once it is allocated, whether it named a board or an
+object, and is never handed out again. The document keeps a counter,
+`next_seq`, and a set, `retired_ids`; `next_seq` only increases and
+`retired_ids` only grows. User undo never decreases the one or shrinks the
+other:
+
+- Creating a board allocates its id. Undoing the board's creation removes the
+  board and retires its id.
+- Undoing an object's creation (a spawn or a create) removes the objects and
+  retires their ids.
+- Undoing a removal restores the objects under their own ids. Those ids stay
+  in `retired_ids`, so allocation still never hands them out.
+
+Only historical rewind, which replays or rewinds recorded effects from a
+snapshot (section 7), resets `next_seq` and `retired_ids`, because it
+reconstructs a past document exactly.
 
 There are no built-in object classes. "Die," "token," and "character sheet"
 are *templates*: objects (often with contents) that are copied. A d20 template
@@ -143,6 +182,28 @@ The copy's `template` cell points back at the original. Initial cells
 sheet and a binder, and dragging it out produces a character with its own
 sheet and binder; the Fireball card template owns a zone object in the binder,
 and the card on the table gets its own copy of the zone to drag onto the map.
+
+Spawn, precisely (also FORMULAS.md 8.3):
+
+- **Ids.** Each copy gets a generated id `<original id>_<n>`, where `n` is
+  drawn from the document counter `next_seq`, skipping any reserved id
+  (**Identity** above). `goblin` spawns as `goblin_7`.
+- **Template.** Every copy's `template` refers to its own original: the root
+  copy to the template spawned, each descendant to the object it was copied
+  from.
+- **Flags.** The root copy has `is_template` false; descendants keep their
+  originals' `is_template`. `is_character` is copied.
+- **What is copied.** Every cell, plus `is_zone`, `tag`, `shape`, actions, and
+  per-cell visibility (4.4). Formula source is copied verbatim, never
+  rewritten.
+- **Remapping.** A reference inside a copied cell value (directly, in a list,
+  or in a viewers value) or inside per-cell visibility that names an object in
+  the copied subtree is remapped to that object's copy; any other reference is
+  kept.
+- **Initial cells** may be literals or formulas, and replace what was copied
+  into the root copy.
+- **Order.** A container destination without an index appends, so successive
+  spawns into one container within one transaction append in call order.
 
 ### 4.2 Cells and formulas
 
@@ -213,7 +274,29 @@ there is no cross-board geometry.
 
 `on(obj)` returns the objects stacked directly on top of an object. Stacking
 is inferred from overlap and z-order; it is not a container relationship, and
-moving a token does not carry the die sitting on it.
+moving a token does not carry the die sitting on it. Zones are never in an
+`on()` result.
+
+**Where the geometry lives.** Exact spatial semantics live in one pure module,
+`packages/schema/src/geometry/`: point membership, overlap, distance, and the
+opaque-cover test (4.4) all use it. The evaluator computes membership,
+overlap, and distance with it; the host only supplies the literal-geometry
+candidate set that FORMULAS.md 6 defines, and never evaluates formulas. The
+authority's spatial index is how the authority computes exactly that set; it
+accelerates and never decides.
+
+**Tolerance and overlap.**
+
+- Point membership is boundary inclusive within 1e-9 board units, for every
+  shape. For a circle the test is distance-based: a point is inside when
+  `sqrt(dx² + dy²) <= r + 1e-9`.
+- Two footprints overlap when their intersection has positive area. Shapes
+  that only touch, or penetrate each other by at most 1e-9 (near-tangent), do
+  not overlap.
+- The one exception: a point footprint (a shapeless object) overlaps a shape
+  when the point is in the shape's region, boundary inclusive. Two points
+  never overlap.
+- Polygons must be simple (no self-intersection).
 
 **Boards.** A table may have several boards: the shared one, a GM board,
 others as needed. Boards are navigation and organization (think tabs or named
@@ -231,6 +314,12 @@ which is what the GM is actually deciding. Ownership works the same way:
 characters. The GM is not a character; the GM is the one principal in v1, sees
 everything, and owns the GM binder and GM board.
 
+An absent `visible_to` reads as the default, `all`. A present cell's
+evaluated value is converted with `toViewers` (FORMULAS.md 7), so
+`visible_to = owner` and a list of character references both work; a value
+that fails the conversion admits nobody. The `owner` entry of a viewer set
+resolves against the object that holds the viewer set.
+
 People are a later layer: a participant controls one or more characters and
 sees the union of what those characters see. Union is a deliberate policy, not
 individualized secrecy between a player's own characters. V1 has exactly one
@@ -246,7 +335,9 @@ rights model; it does not change what is on the table.
   it out of the hand restores `all`, because the card's own cell never
   changed.
 - A cell may carry its own `visible_to`, defaulting to its object's. A public
-  goblin can have public HP and GM-only AC.
+  goblin can have public HP and GM-only AC. A cell is visible to a viewer only
+  if its object is (including the opaque cover below); then the cell's own
+  visibility and the face-down rule apply.
 - A face-down object shows its back, its placement, and its `name` to anyone
   who can see the object; every other cell has its visibility intersected
   with its owner. All restrictions intersect; none replaces another. A
@@ -259,6 +350,23 @@ rights model; it does not change what is on the table.
   are all filtered by the same effective visibility when shown to a viewer.
   Errors fail closed: if visibility cannot be computed, the object is hidden.
 
+**Per-cell visibility** is metadata of the object, `cell_visibility`: a map
+from cell name to a viewer set, independent of cell content. An entry is valid
+for any user or structural cell name, including a cell that is absent and a
+field-backed one (`tag`, `contents`, `position`, …). Values are literal viewer
+sets, never formulas. A cell with no entry defaults to its object's
+visibility.
+
+**Every evaluated visibility input fails closed.** For any viewer but the GM:
+
+- a `face_up` that is an error or not a boolean is treated as face down;
+- an `opaque` that is an error or not a boolean is treated as opaque;
+- a zone whose geometry (`board`, `position`, `rotation`, `shape`) cannot be
+  read or is invalid, and which the viewer cannot see, is treated as covering
+  every object on its board.
+
+The GM is unaffected by all three.
+
 **Opaque zones (fog as an object).** Per-object visibility cannot hide part of
 a single map image. So a zone may be **opaque**: a viewer who cannot see the
 zone sees its region drawn as a solid cover over everything beneath it,
@@ -266,6 +374,13 @@ including objects they could otherwise see. A dungeon is one image with six
 opaque room zones; revealing a room is setting the zone's `visible_to`. This
 is fog of war without a fog system. Splitting the map into separate room
 images also works and needs no special mechanism.
+
+Cover is independent of `z`. An object is covered for a viewer when it is on
+the same board as an opaque zone the viewer cannot effectively see and its
+anchor lies in the zone's region (with the tolerance of 4.3). An object inside
+a container is covered when its outermost container is. A zone never covers
+itself. A covered object is not visible to that viewer. The renderer still
+draws the cover above everything on the board.
 
 Everything else is built on these:
 
@@ -519,8 +634,84 @@ plus an ordered stream of committed operations** from the start:
   is refused with an explanation.
 - V1 has a single ordered authority. Multiplayer will keep an ordered
   authority (a server); this design does not promise CRDT merging.
-- Snapshots are taken periodically; the file is a snapshot plus the operations
-  since. Log compaction is allowed; the log panel shows what is retained.
+- The file holds a fresh snapshot, taken at every save, plus the retained
+  operations as history (see **The file** below). Log compaction is allowed;
+  the log panel shows what is retained.
+
+**Operation records.** A committed change is a **group**. A group holds:
+
+- its resolved effects, in order: cell states before and after, each with a
+  cause, `edit` or `roll`; per-cell visibility changes; field changes;
+  placements; creation and removal of whole subtrees; reorders; board changes;
+  id allocation; id retirement;
+- the actor; its kind, `edit`, `action`, or `undo`; a label; its origin; and,
+  for an undo, `undoes`, the index of the group it reverses;
+- `base_revision`, the revision it was made against, and `revision`, the
+  revision it produced;
+- the names of the objects it touched, captured at commit time; for a removed
+  object, its name just before removal. This is how the log keeps the name an
+  object had at the time (4.8).
+
+A logged write records the resulting value: `add` logs the sum, not the
+increment.
+
+**Transactions.** Every change runs in a transaction, and one transaction is
+open at a time. The commit point is the moment the new document and the
+appended group are published. Internal synchronization (formula invalidation,
+spatial index update) runs right after the commit point and before any public
+commit notification. A listener that throws is reported separately; it never
+turns a commit into an abort. Before the commit point, a refusal (`Rejected`)
+becomes a rejection result, and any other error aborts the transaction and
+propagates unchanged. In both cases nothing is applied and no dice-script
+entries or randomness are consumed. Every commit carries a change summary: the
+objects created and removed, the cells written with their before and after
+states, and the objects moved with the changes derived from each move.
+
+**Undo.** Undo reverses one group and adds its own group, of kind `undo`.
+There is no redo. The group to reverse is chosen by one of three targets:
+
+| Target | Reverses |
+|---|---|
+| `latest` | The most recent group that is neither an undo nor already undone. The fixture `undo` step always means this (FIXTURES.md 8). |
+| `actor` | The latest such group by a given actor. |
+| `group` | The group at an explicit absolute index. |
+
+Undoing a target G conflicts with a later group H when H is not an undo group,
+H is not undone, and the two share a touched key:
+
+- a cell write touches the cell's key, and so does a change to that cell's
+  per-cell visibility;
+- a move touches the `contents` key of the container at both ends;
+- creating or removing objects touches every key on those objects, and the
+  `contents` key of the container they were created in or removed from;
+- allocation and retirement touch nothing.
+
+Undo groups never conflict. A conflicting undo is refused as `undo_conflict`,
+and so is an undo whose inverse fails an invariant on commit. A later group
+that conflicts in this sense is what FIXTURES.md 8 calls a *surviving*
+operation.
+
+**Replay and rewind.** Replaying a group applies its recorded effects and sets
+the revision to the group's `revision`, also for a group with no effects.
+Rewinding a group applies its exact historical inverse and sets the revision
+to the group's `base_revision`. Historical inverses are an internal
+representation, never persisted, and distinct from the effects of a user undo:
+a retirement records exactly the ids it added, so rewinding it removes exactly
+those, whereas a user undo never shrinks `retired_ids` (4.1). Comparisons of
+stored state for replay exclude the revision.
+
+**History invariants**, checked on load:
+
+- Retained groups have contiguous absolute indices starting at `first_index`.
+- Each group's `revision` is its `base_revision` + 1, and each
+  `base_revision` equals the previous group's `revision`.
+- `kind` is `undo` exactly when `undoes` is present.
+- `undoes` names an earlier index that is not itself an undo group, or an
+  index below `first_index` (compacted away); no index is undone twice.
+- `undo_barrier` lies in `first_index` … the next index.
+- The last retained group's `revision` equals the snapshot's, except when the
+  file was edited by hand: the barrier then equals the next index and the
+  snapshot wins.
 
 **Scale.** Evaluation is defined over the whole document at a revision. An
 unloaded object is never treated as absent. The renderer may load and draw
@@ -539,8 +730,44 @@ snapshot wins and the operation history is kept as record, not replayed over
 the edited snapshot. Long campaigns imply the file is something you keep,
 version, and diff across months.
 
+**The file** holds a fresh snapshot, taken at every save, plus the retained
+groups as history, with their absolute indices, `first_index`, and
+`undo_barrier`. There are no operations "since" the snapshot. A
+`snapshot_hash` detects hand edits. After one, the snapshot wins and the undo
+barrier is set to the next absolute group index, so every earlier group stays
+as record and new groups remain undoable; with an empty retained log the next
+index is `first_index`. Snapshots are taken at every save and at load;
+in-memory checkpoints are Polish, and autosave cadence is M3's. A file with an
+older `schema_version` migrates one version at a time. Compaction drops old
+groups, keeps absolute indices, and raises the barrier to at least
+`first_index`.
+
+**Saving** is atomic and has two failure stages. A failure before the new file
+replaces the old leaves the old file intact and reports an error. A
+durability failure after the replacement (the directory fsync) leaves the new
+file intact and reports that the save completed but durability was not
+confirmed.
+
+**Revisions and assets.** Every group records its `base_revision`; the policy
+for stale writes belongs to M3's protocol. Asset paths in the file are
+relative to the file's directory, never absolute. Parsing a file is pure;
+whether its assets exist is checked only when loading from a path. How an
+image cell names an asset is M4's decision.
+
+**Smaller decisions.**
+
+- The `table` destination (FORMULAS.md 8.2) is resolved by M5 into a board
+  destination; M2's primitives take only board and container destinations.
+- Renaming a cell does not rewrite formulas that name it. It is refused when
+  either name is structural (FORMULAS.md 3.1) or the destination cell exists.
+  Any per-cell visibility recorded for the (absent) destination is replaced
+  with the source's.
+- Spawn initial cells may be literals or formulas (4.1).
+- Reordering `contents` by `shuffle` is allowed despite the membership
+  protection of FORMULAS.md 3.1: it changes order, not membership.
+
 **Platform.** TypeScript end to end. The **authority** is a local process
-(Node or Bun, undecided) that owns the document file, evaluates formulas,
+(Node) that owns the document file, evaluates formulas,
 hosts the MCP server, and serves the UI over localhost with the op stream
 over a WebSocket. The UI is a browser tab in v1; a desktop shell (Tauri or
 Electron) can wrap the same process later. Formulas evaluate only in the
@@ -556,9 +783,8 @@ it. Objects are never DOM nodes. Canvas text is weak at small sizes, which
 show-when zoom thresholds already accommodate. Very large map images are a
 tiling problem and stay in Later.
 
-Left open on purpose: UI framework for the chrome (React is the default
-because of the editor and panel ecosystem), formula parser approach, Node
-versus Bun, and the desktop shell.
+Decided since (CLAUDE.md): React for the chrome, a hand-written Pratt parser,
+and Node for the authority. Left open on purpose: the desktop shell.
 
 ## 8. Scope
 
@@ -700,7 +926,7 @@ a separate player window, shipped game-system content.
   live? Probably the GM binder plus a "give a copy to each character" action,
   or a table-level binder everyone can read.
 - **Edit-template UI.** Gear icon, right-click, or a mode. Not committed.
-- **Rendering stack and platform.** Decided (section 7). Still open within it: UI framework, parser approach, Node versus Bun, desktop shell.
+- **Rendering stack and platform.** Decided (section 7 and CLAUDE.md: React, a hand-written Pratt parser, Node). Still open within it: desktop shell.
 
 ## 10. Decision log
 
@@ -770,3 +996,36 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | Budget replaces any depth limit: 20,000 units per formula evaluation; each cell read, existence check, spatial candidate tested, and id enumerated by `objects()`/`obj()` costs 1; a computed dependency costs 1 regardless of its own cost. Exceeding it is `#LIMIT`. No dependency-depth limit: iterative resolution, each dependency evaluated at most once per revision, identical results across caches and read orders. FORMULAS §7. | The charge and the result are the same on every host and every evaluation order; a depth cap would make results depend on the entry point. |
 | 2026-11-05 | Propagation is lazy pull with dirty marking; a commit marks dependents dirty once; the authority decides which cells to recompute and send. FORMULAS §7. | Recomputation follows what is read and sent, not every edit's full closure. |
 | 2026-11-05 | The M1 fixture runner applies `set`, `override`, `clear_override`, and `move` steps and checks `cell` and `cell_error`; every other step and expectation is skipped and reported. | Covers what the formula engine owns without the M2 authority; skips are visible rather than silent. |
+| 2026-11-05 | A move never changes the `owner` cell; moving onto a board ends containment, not ownership. DESIGN §4.1; FORMULAS §8.3; FIXTURES §6. | "Ownership" meant two things: the `contents` tree and the `owner` cell. A card dropped on the table is still its owner's. |
+| 2026-11-05 | `is_character` is a per-object field like `is_template`, not a cell, copied on spawn. View-as lists objects with `is_character` true and `is_template` false; a non-character viewer sees nothing; `owner` is not validated against it. Fixture runners set it for `setup.characters`. DESIGN §4.1. | View-as needs a definite list of characters; a flag keeps that out of the cell model and lets fixtures declare characters without a new cell. |
+| 2026-11-05 | Spawn: ids `<original id>_<n>` from `next_seq`, skipping reserved ids; every copy's `template` is its own original; root copy `is_template` false, descendants keep theirs; `is_zone`, `is_character`, `tag`, `shape`, actions, per-cell visibility copied; refs into the copied subtree remapped in cell values and per-cell visibility, others kept; formula source verbatim; a container destination without index appends in call order. DESIGN §4.1; FORMULAS §8.3. | Copies must be deterministic and readable (5.3), remapping must reach every place a reference can live, and Lock targets must create rows in target order. |
+| 2026-11-05 | One id namespace for boards and objects; an id is reserved for the document's lifetime once allocated. `next_seq` only increases and `retired_ids` only grows; user undo never reverses either. Undoing a creation removes and retires; undoing a removal restores under the same ids. Only historical rewind resets the counters. DESIGN §4.1. | "Never reused" must survive undo: spawn, undo, spawn must not hand out the same id, and a board id must not collide with an object id. |
+| 2026-11-05 | Removing an object removes its contents recursively; references elsewhere dangle and read as `#REF`; undo restores the subtree under the same ids. DESIGN §4.1. | Cascade follows the containment tree; leaving references in place lets undo heal them. |
+| 2026-11-05 | Structural cells have defaults: `name` empty, `tag` [], `visible_to` all, `owner` and `template` empty, `contents` [], `container` empty, `board` and `position` empty in a container, `rotation` and `z` empty (read as 0), `face_up` true, `opaque` false, `is_zone` false, `shape` empty; `is_template` and `is_character` false. FORMULAS §3.1. | FIXTURES §3 left defaults to M2; every object needs a defined starting state. |
+| 2026-11-05 | `position` is `[x, y]`, present exactly when the object is on a board; board units, x right, y down; `rotation` is degrees clockwise on screen about the anchor; empty `rotation` and `z` read as 0. FORMULAS §3.1. | Geometry, rendering, and fixtures must agree on axes and units. |
+| 2026-11-05 | Landing rule: every move or spawn onto a board, including within one board, sets `z` to 1 + the largest literal `z` of the other objects there (absent or empty as 0; an overridden formula `z` counts as literal) unless `z` is a formula; `position` is written as a hand edit (a formula gets an override); board-to-board moves keep `rotation`; entering a container deletes `position`, `rotation`, `z`, recorded so undo restores formulas; after a move to a board `container` is empty. FORMULAS §3.1. | A dropped object should land on top, as at a physical table; reading only literal `z` keeps the move independent of evaluation. |
+| 2026-11-05 | `tag` is literal only and `set(tag, list)` is allowed. `shape` cannot be written by actions or cell writes; it changes only through the `setShape` edit primitive, which stores a literal shape value, so `shape` is literal only like `name` and `tag`. `template` is set on every spawned copy and is never a formula. FORMULAS §3.1. | Tags and shapes feed the spatial and tag index; keeping their writes literal and explicit keeps the index independent of evaluation. |
+| 2026-11-05 | Exact spatial semantics live in one pure module, `packages/schema/src/geometry/`. The host returns the literal-geometry candidate set; the authority's spatial index computes exactly that set; the evaluator computes membership, overlap, and distance; the opaque-cover test uses the same geometry. DESIGN §4.3; FORMULAS §6. | One implementation of geometry means queries, index, and cover can never disagree. |
+| 2026-11-05 | Point membership is boundary inclusive within 1e-9 board units for every shape; for circles the test is `sqrt(dx²+dy²) <= r + 1e-9`. DESIGN §4.3; FORMULAS §6. | A tolerance on `r²` would vary with radius; a distance-based one means the same 1e-9 everywhere. |
+| 2026-11-05 | Overlap is positive-area intersection; touching or near-tangent (penetration at most 1e-9) is not overlap. Exception: a point footprint overlaps a shape when inside its region, boundary inclusive; two points never overlap. Zones are never in `on()`. Polygons must be simple. DESIGN §4.3; FORMULAS §6. | Stacking must not be triggered by adjacent tokens; the point exception keeps shapeless tokens stackable; a zone is a region, not something stacked. |
+| 2026-11-05 | Opaque cover is independent of `z`: an object is covered when it is on the board of an opaque zone the viewer cannot effectively see and its anchor is in the zone's region; a contained object is covered when its outermost container is; a zone never covers itself; the renderer draws cover above everything. DESIGN §4.4. | Fog must not be defeated by stacking a token above the room; anchor containment matches `contents(zone)`. |
+| 2026-11-05 | A cell is visible to a viewer only if its object is (`object_visible`, which includes cover); then the cell's own visibility and the face-down rule apply. DESIGN §4.4; FIXTURES §7. | A public cell of a hidden object must not leak it. |
+| 2026-11-05 | An absent `visible_to` reads as the default `all`; a present one is converted with `toViewers` (FORMULAS §7) and a failed conversion admits nobody. The `owner` viewer entry resolves against the object holding the viewer set. DESIGN §4.4. | Distinguishes a missing cell (default) from a formula yielding `empty` or an error (fail closed). |
+| 2026-11-05 | Every evaluated visibility input fails closed: an error or non-boolean `face_up` is face down; an error or non-boolean `opaque` is opaque; a zone with unreadable or invalid geometry that the viewer cannot see covers its whole board. The GM is unaffected. DESIGN §4.4. | DESIGN §4.4 says errors fail closed; that has to hold for every input, not only `visible_to`. |
+| 2026-11-05 | Per-cell visibility is per-object metadata, `cell_visibility: {cellName: viewers}`, independent of cell content: valid for any user or structural cell name, including absent and field-backed cells; values are literal viewer sets; no entry means the object's visibility. DESIGN §4.4. | Private `tag` or `contents` has no cell content to hang visibility on; metadata needs no fictitious content. |
+| 2026-11-05 | An operation group holds resolved effects (cell before/after with cause `edit` or `roll`, per-cell visibility changes, field changes, placements, subtree create and remove, reorders, board changes, id allocation and retirement), actor, kind (`edit`, `action`, `undo`), label, origin, `undoes`, `base_revision`, `revision`, and touched objects' names captured at commit (before removal for removed objects). A logged write records the resulting value. DESIGN §7. | Replay, undo, the log panel, and fixtures all read the same record; the log keeps names as they were (4.8). |
+| 2026-11-05 | One transaction is open at a time. The commit point publishes the new document and the group; internal synchronization runs right after, before public notifications; a listener error never turns a commit into an abort. Before the commit point a refusal becomes a rejection result and any other error aborts and propagates; neither consumes dice or randomness. Every commit carries a change summary. DESIGN §7. | No lost updates, no stale reads by early listeners, and scenario errors stay distinct from refusals. |
+| 2026-11-05 | Undo targets: `latest` (most recent non-undo, non-undone group; the fixture `undo` step), `actor`, and explicit `group`. No redo. Undo adds its own group. DESIGN §7; FIXTURES §8. | Selective undo per actor is needed once the agent writes alongside the GM; one default keeps fixtures unambiguous. |
+| 2026-11-05 | Undo conflict: G conflicts with a later H when H is not an undo, not undone, and shares a touched key (cell keys; per-cell visibility touches the cell's key; a move touches the `contents` keys at both ends; create and remove touch every key on the objects and the parent's `contents` key; allocation and retirement touch nothing). Undo groups never conflict. An inverse that fails an invariant is refused as `undo_conflict`. DESIGN §7; FIXTURES §8. | Defines "surviving"; the parent's `contents` key catches a reorder or sibling insertion after a spawn or removal. |
+| 2026-11-05 | Replay applies a group's recorded effects and sets revision to its `revision` (also with no effects); rewind applies exact historical inverses, internal and never persisted, and sets revision to its `base_revision`; a retirement records exactly the ids it added. Stored-state comparison for replay excludes revision. DESIGN §7. | Effects alone never change the revision; rewind must undo retirement exactly while user undo never does. |
+| 2026-11-05 | History invariants checked on load: contiguous absolute indices from `first_index`; revision continuity; `kind: "undo"` iff `undoes`; `undoes` names an earlier non-undo index (or one compacted away), none twice; `undo_barrier` in `first_index` … next index; the last group's revision equals the snapshot's unless hand-edited (barrier then equals next index). DESIGN §7. | Strict schemas alone cannot reject a history that makes undo selection and replay disagree. |
+| 2026-11-05 | The file holds a fresh snapshot at every save plus retained groups as history (absolute indices, `first_index`, `undo_barrier`); no operations "since" the snapshot. A `snapshot_hash` detects hand edits; the snapshot then wins and the barrier moves to the next absolute index (`first_index` for an empty log). Snapshots at every save and load; checkpoints are Polish, autosave cadence M3. Migration is step by step. Compaction keeps absolute indices and raises the barrier to at least `first_index`. DESIGN §7. | Replaces "snapshot plus operations since"; absolute indices keep the barrier right after compaction. |
+| 2026-11-05 | Saving is atomic with two failure stages: before replacement the old file is intact and an error is reported; a durability failure after replacement (directory fsync) leaves the new file and reports the save completed without confirmed durability. DESIGN §7. | "Any failure leaves the original untouched" cannot hold once the rename has happened. |
+| 2026-11-05 | Every group records `base_revision`; stale-write policy is M3's. Asset paths are relative to the file's directory; parsing is pure and asset existence is checked only when loading from a path; how an image cell names an asset is M4's. DESIGN §7. | Parsing without filesystem access needs relative paths; the protocol owns conflict policy. |
+| 2026-11-05 | The `table` destination is resolved by M5 into a board destination. Renaming a cell does not rewrite formulas, refuses a structural name at either end and an existing destination, and replaces destination per-cell visibility with the source's. Spawn initial cells may be literals or formulas. Shuffle reorders `contents` despite the membership protection. DESIGN §7. | Each closes a gap a primitive would otherwise guess at; renaming must not bypass protected cells. |
+| 2026-11-05 | FIXTURES `cell_visibility` maps one to one onto the canonical per-object metadata. FIXTURES §3. | No conversion rules to drift between fixtures and the file. |
+| 2026-11-05 | Confirmed: one group per non-rejected step; undo adds its own group; undo reverses the most recent non-undo, non-undone group; no redo; "surviving" as the undo-conflict row. FIXTURES §8. | FIXTURES §8 baked these in ahead of the engine; M2 makes them the engine's. |
+| 2026-11-05 | Rejected actions consume no dice (consumption is transactional); unused script entries are an error for complete runs. FIXTURES §5. | A partial runner cannot know whether leftover entries were meant for skipped steps. |
+| 2026-11-05 | Set-on-formula, override-on-literal, and clear-without-override stay scenario errors in the format, while the engine's `writeValue` on a formula cell overrides and clearing a missing override is refused. Runners implement the rejection protocol for every step type they support (M2: set, override, clear_override, move, spawn, undo; M5 adds when_false, when_error, step_error). FIXTURES §6, §8. | Fixtures stay precise about intent while the engine follows hand-edit semantics. |
+| 2026-11-05 | `object_visible` includes cover; `cell_visible` holds only if `object_visible` holds; formula positions stay in `placement` in the format while canonically `position` is a cell present iff on a board. FIXTURES §7. | Aligns the expectations with DESIGN §4.4 and FORMULAS §3.1 without changing the format. |
+| 2026-11-05 | The fixture format gains a `replay` expectation (`ReplayExpectationSchema`, optional `note`), top level or step level: replaying every group's recorded effects onto the post-setup document reproduces the stored state (cells as stored, per-cell visibility, placement, contents order, structural fields, `retired_ids`, `next_seq`; never computed results or revision) and consumes no dice. Every scenario's last step and Fireball's first assert it. FIXTURES §7, §11. | DESIGN §7 promises replay never re-rolls; the M0 review deferred the expectation that tests it to M2. |

@@ -351,7 +351,8 @@
           "viewer": "aldric",
           "visible": true,
           "note": "FIXTURES §7: `object_visible` is the effective visibility \"and not drawn under the cover of an opaque zone the viewer cannot see\"; goblin2 is visible_to all and outside the room's region, so no cover is over it."
-        }
+        },
+        { "type": "replay" }
       ]
     }
   ]

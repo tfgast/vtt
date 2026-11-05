@@ -133,7 +133,8 @@
           "board": "table",
           "position": [10, 14],
           "note": "FIXTURES §6: `move` \"Drag an object to a destination\"; FIXTURES §7: `placement` holds when \"The object is on that board at that anchor\"."
-        }
+        },
+        { "type": "replay" }
       ]
     }
   ]

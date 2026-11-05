@@ -175,22 +175,45 @@ Readable like any other cell. Those marked *protected* cannot be set by a
 formula or an override, only by the engine through moves and spawns, because
 they carry the invariants of the table.
 
-| Cell | Type | Notes |
-|---|---|---|
-| `id` | text | *Protected.* Stable, never reused. |
-| `name` | text | Literal only: a formula on `name` is refused by the store. |
-| `tag` | list of text | Literal only: a formula on `tag` is refused by the store. |
-| `visible_to` | viewers | Own visibility; effective visibility is composed (DESIGN.md 4.4). |
-| `owner` | reference or empty | A character. |
-| `template` | reference or empty | The template this was spawned from. |
-| `contents` | list of references | *Protected as to membership.* The objects this one owns. Changed only by `move`, `spawn`, `remove`, `shuffle`. |
-| `container` | reference or empty | *Protected, derived.* The object whose `contents` holds this one. |
-| `board` | reference or empty | *Protected.* Empty when inside a container. |
-| `position`, `rotation`, `z` | number pairs / numbers | Empty when inside a container. May hold formulas (a token that follows another); a cycle through geometry yields `#CYCLE` like any other. |
-| `face_up` | boolean | |
-| `shape` | shape | For zones: the region. For others: the outline. |
-| `opaque` | boolean | Zones only. See DESIGN.md 4.4. |
-| `is_zone` | boolean | *Protected.* True for zones: `shape` is then a region and spatial queries apply. |
+| Cell | Type | Default | Notes |
+|---|---|---|---|
+| `id` | text | allocated (DESIGN.md 4.1) | *Protected.* Stable, never reused. |
+| `name` | text | `empty` | Literal only: a formula on `name` is refused by the store. |
+| `tag` | list of text | `[]` | Literal only: a formula on `tag` is refused by the store. |
+| `visible_to` | viewers | `all` | Own visibility; effective visibility is composed (DESIGN.md 4.4). An absent cell reads as `all`. |
+| `owner` | reference or empty | `empty` | A character. |
+| `template` | reference or empty | `empty` | The template this was spawned from. Set on every spawned copy; never a formula. |
+| `contents` | list of references | `[]` | *Protected as to membership.* The objects this one owns. Changed only by `move`, `spawn`, `remove`, `shuffle`. |
+| `container` | reference or empty | `empty` | *Protected, derived.* The object whose `contents` holds this one. |
+| `board` | reference or empty | `empty` in a container | *Protected.* Empty when inside a container. |
+| `position` | list of two numbers `[x, y]` | `empty` in a container | Present exactly when the object is on a board. Board units, x to the right, y down. May hold a formula (a token that follows another); a cycle through geometry yields `#CYCLE` like any other. |
+| `rotation`, `z` | numbers | `empty` | `rotation` is degrees clockwise on screen about the anchor. Geometry and query order read an empty `rotation` or `z` as 0. Absent when inside a container. May hold formulas, like `position`. |
+| `face_up` | boolean | `true` | |
+| `shape` | shape | `empty` | For zones: the region. For others: the outline. Not writable by actions or cell writes: `set` on `shape` is refused. It changes only through the `setShape` edit primitive the UI and the agent use, which stores a literal shape value: `shape` is literal only, like `name` and `tag`. |
+| `opaque` | boolean | `false` | Zones only. See DESIGN.md 4.4. |
+| `is_zone` | boolean | `false` | *Protected.* True for zones: `shape` is then a region and spatial queries apply. |
+
+The Default column is what an object has when it is created without that
+cell. `is_template` and `is_character` are not cells: they are fields of the
+object, false by default, and formulas do not read them (DESIGN.md 4.1).
+
+**Writing structural cells.** `tag` is literal only (above); `set(tag, list)`
+is allowed and writes a literal list. `shape` is written only through
+`setShape`, which stores a literal; the value it reads as in a formula is the
+shape value of 2.
+`template` is set on every spawned copy and is never a formula. That `name`
+is literal only is stated above and in 3.
+
+**Landing on a board.** Every `move` or `spawn` onto a board, including a move
+within the same board, puts the object on top: its `z` becomes 1 + the
+largest literal `z` among the other objects on that board (an absent or empty
+`z` counts as 0, and an overridden formula `z` counts as literal, as in the
+candidate set of 6), unless the object's `z` holds a formula, which is left
+alone. `position` is written as a hand edit writes it, so a formula
+`position` gets an override. A move from one board to another keeps
+`rotation`. Entering a container deletes `position`, `rotation`, and `z`; the
+deletion is recorded, so undo restores any formulas they held. After a move
+to a board, `container` is empty.
 
 ### 3.2 Syntax
 
@@ -361,6 +384,23 @@ geometry read, including `#CYCLE`, becomes the query's result; a successfully
 evaluated value that is not a valid position excludes the object. A spatial
 index is only a way of computing that set.
 
+**The geometry.** The schema geometry above is one pure module,
+`packages/schema/src/geometry/`, shared by the evaluator, the authority's
+spatial index (which computes exactly the candidate set above), and the
+opaque-cover test (DESIGN.md 4.3, 4.4). (`shape` is literal only, 3.1, so the
+candidate set's formula-valued `shape` case never arises.) Its rules:
+
+- Point membership is boundary inclusive within 1e-9 board units, for every
+  shape. For a circle the test is distance-based:
+  `sqrt(dx² + dy²) <= r + 1e-9`.
+- Two footprints overlap when their intersection has positive area; shapes
+  that touch, or penetrate by at most 1e-9 (near-tangent), do not overlap. The
+  point-footprint exception in the `on` row above is the only one: a point
+  overlaps a shape when it is in the shape's region, boundary inclusive, and
+  two points never overlap.
+- Zones are never in an `on` result.
+- Polygons must be simple.
+
 **Dice:** see 2.2.
 
 ## 7. Evaluation model
@@ -463,11 +503,22 @@ edit would. Writing to a protected cell is an error.
 | `add(path, expr)` | Numeric increment. `#TYPE` if either side is not a number or empty. |
 | `append(path, expr)` | Push onto a list cell. |
 | `roll(dice_expr) -> path` | Roll a dice value, write the roll result. The only source of randomness. |
-| `move(ref, destination)` | Remove the object from its container or board and place it at the destination, atomically. Moving onto a board ends ownership. Refused if it would create a containment cycle. |
-| `spawn(template, destination, {cell: expr, ...})` | Copy the template subgraph (the template and its `contents`, transitively), remap internal references, keep external ones, set the given cells, set `template`, place at the destination. |
+| `move(ref, destination)` | Remove the object from its container or board and place it at the destination, atomically. Moving onto a board ends containment; a move never changes `owner`. Placement follows the landing rule of 3.1. Refused if it would create a containment cycle. |
+| `spawn(template, destination, {cell: expr, ...})` | Copy the template subgraph (the template and its `contents`, transitively), remap internal references, keep external ones, set the given cells, set `template`, place at the destination. Ids, flags, what is copied, remapping, and order are specified in DESIGN.md 4.1. |
 | `remove(ref)` | Delete the object and its `contents`, recursively. References to it elsewhere become `#REF`. |
 | `shuffle(ref)` | Randomly reorder the object's `contents`. |
 | `each(list, step)` | Run one step per item of the snapshotted list, with the item as `it`. One level only; `each` inside `each` is not allowed. |
+
+**Spawned copies** (DESIGN.md 4.1). Each copy gets an id `<original id>_<n>`
+from the document counter, never a reserved id. Every copy's `template`
+refers to its own original; the root copy is not a template, and descendants
+keep their `is_template`. `is_zone`, `is_character`, `tag`, `shape`, actions,
+and per-cell visibility are copied. A reference in a copied cell value or in
+per-cell visibility that names an object in the copied subtree points at that
+object's copy; other references are kept; formula source is copied verbatim.
+Initial cells may be literals or formulas. A container destination appends,
+so `each(targets, spawn(save_row, this, ...))` creates rows in the order of
+`targets`.
 
 There are no conditional steps. A step either always runs or the whole action
 is guarded by `when`. A procedure that needs "do X only if Y" is two actions
