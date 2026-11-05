@@ -1,5 +1,7 @@
 export * from "./App";
 export * from "./actions/invoke";
+export * from "./app/HelpPanel";
+export * from "./app/help-content";
 export * from "./app/keybindings";
 export * from "./app/Notices";
 export * from "./app/StatusBar";

@@ -87,7 +87,7 @@ describe("text fields", () => {
 
 describe("bindKeybindings", () => {
   function setup() {
-    const actions: KeyActions = { undo: vi.fn(), save: vi.fn(), tool: vi.fn() };
+    const actions: KeyActions = { undo: vi.fn(), save: vi.fn(), help: vi.fn(), tool: vi.fn() };
     const off = bindKeybindings(window, actions);
     const { container } = render(
       <div>

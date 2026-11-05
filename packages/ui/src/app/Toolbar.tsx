@@ -2,7 +2,9 @@
  * The toolbar (vtt-3l6.17; DESIGN.md §7 Platform, §8.1): the registered
  * tools (vtt-3l6.22's `ToolRegistry`; M5 adds ink, text and layout,
  * vtt-1xv.23), the fog toggle of the zone tools, the
- * view-as menu (vtt-3l6.10), Undo and Save (vtt-3l6.21).
+ * view-as menu (vtt-3l6.10), Undo and Save (vtt-3l6.21), and the "?"
+ * button of the keyboard and gesture help (vtt-nb8.8). Shortcuts in titles
+ * come from `KEY_BINDINGS`.
  *
  * Fog is one preference shared by the three zone tools: toggling it sets the
  * active zone tool's typed options through `UiStore.setTool`, and activating
@@ -16,7 +18,7 @@ import { ViewAsMenu } from "../nav/ViewAsMenu";
 import { useTableSession, useUi, useUiStore } from "../session/hooks";
 import { save, undo } from "../session/writes";
 import type { UiStore } from "../state/ui-state";
-import { TOOL_KEYS } from "./keybindings";
+import { keysOf } from "./keybindings";
 
 /** The zone tools, whose options carry `fog`. */
 export const ZONE_TOOL_IDS = ["zone-rect", "zone-circle", "zone-polygon"] as const;
@@ -68,11 +70,6 @@ export function activateTool(ui: UiStore, id: ToolId): void {
   }
 }
 
-const shortcutOf = (id: ToolId): string | undefined =>
-  Object.entries(TOOL_KEYS)
-    .find(([, tool]) => tool === id)?.[0]
-    ?.toUpperCase();
-
 const BAR_STYLE: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
@@ -82,11 +79,16 @@ const BAR_STYLE: CSSProperties = {
 };
 const GROUP_STYLE: CSSProperties = { display: "flex", gap: "2px", alignItems: "center" };
 
+const withKeys = (label: string, keys: string | undefined): string =>
+  keys === undefined ? label : `${label} (${keys})`;
+
 export interface ToolbarProps {
   registry: ToolRegistry;
+  /** Opens the keyboard and gesture help; without it there is no "?" button. */
+  onHelp?: () => void;
 }
 
-export function Toolbar({ registry }: ToolbarProps) {
+export function Toolbar({ registry, onHelp }: ToolbarProps) {
   const session = useTableSession();
   const ui = useUiStore();
   const tool = useUi((s) => s.tool);
@@ -99,13 +101,12 @@ export function Toolbar({ registry }: ToolbarProps) {
       <div role="toolbar" aria-label="Tools" style={GROUP_STYLE}>
         {registry.list().map((t) => {
           const label = TOOL_LABELS[t.id] ?? t.id;
-          const key = shortcutOf(t.id);
           return (
             <button
               key={t.id}
               type="button"
               aria-pressed={tool.id === t.id}
-              title={key === undefined ? label : `${label} (${key})`}
+              title={withKeys(label, keysOf("tool", t.id))}
               onClick={() => activateTool(ui, t.id)}
             >
               {label}
@@ -126,12 +127,30 @@ export function Toolbar({ registry }: ToolbarProps) {
       </div>
       <ViewAsMenu />
       <div style={GROUP_STYLE}>
-        <button type="button" title="Undo (Ctrl+Z)" onClick={() => void undo(session)}>
+        <button
+          type="button"
+          title={withKeys("Undo", keysOf("undo"))}
+          onClick={() => void undo(session)}
+        >
           Undo
         </button>
-        <button type="button" title="Save (Ctrl+S)" onClick={() => void save(session)}>
+        <button
+          type="button"
+          title={withKeys("Save", keysOf("save"))}
+          onClick={() => void save(session)}
+        >
           Save
         </button>
+        {onHelp === undefined ? null : (
+          <button
+            type="button"
+            aria-label="Keyboard and gesture help"
+            title={withKeys("Keyboard and gesture help", keysOf("help"))}
+            onClick={onHelp}
+          >
+            ?
+          </button>
+        )}
       </div>
     </header>
   );
