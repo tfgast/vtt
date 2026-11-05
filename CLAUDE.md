@@ -25,7 +25,9 @@ shared by tests and review). See `docs/PROTOCOL.md` for the wire contract.
 - Tooling is pinned to TypeScript 7, Vitest 5, and Biome 2 (exact versions in
   the root `package.json`); configure against those majors.
 - Libraries are consumed as TypeScript source: each package's `exports` maps
-  `"."` to `./src/index.ts`, and Vite, Vitest, and tsx resolve it directly.
+  `"."` to `./src/index.ts`, and Vite, Vitest, and tsx resolve it directly. One exception: `@vtt/authority` also exports the dev-only
+  subpath `"./test-runner": "./test/runner/index.ts"`, its scenario runner helpers
+  for other packages' tests (M5-D22).
   No build step for libraries in v1.
 - Each package has a `tsconfig.json` extending `tsconfig.base.json` and a
   `typecheck` script running `tsc --noEmit`. No composite, no project
