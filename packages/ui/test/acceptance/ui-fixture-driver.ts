@@ -1106,6 +1106,19 @@ async function suppressedStep(w: World, step: Step, row: MatrixRow): Promise<Out
   return invokeOverProtocol(w, actorParam(w, step.actor), d.object, d.action);
 }
 
+/**
+ * Clears the selection with Escape on the canvas (the select tool, no
+ * gesture in progress): a press on an object under a selected one (an
+ * object inside a selected zone) would otherwise drag the selection.
+ */
+async function clearSelection(w: World): Promise<void> {
+  if (w.ui.getState().selection.length === 0) return;
+  act(() => {
+    fireEvent.keyDown(w.canvas, { key: "Escape", code: "Escape" });
+  });
+  await until(() => w.ui.getState().selection.length === 0, "the selection cleared");
+}
+
 /** `drag`: the GM drags the object on the destination board (an entry drag when it is contained). */
 async function dragStep(w: World, step: Step, row: MatrixRow): Promise<Outcome> {
   const d = step.do;
@@ -1121,6 +1134,7 @@ async function dragStep(w: World, step: Step, row: MatrixRow): Promise<Outcome> 
   checkBoard(row, dest);
   await navigate(w, "gm", dest);
   const to: Point = [d.to.position[0], d.to.position[1]];
+  await clearSelection(w);
   const before = w.commits();
   if (chain.length === 0) {
     const anchor = await anchorOf(w, id);
