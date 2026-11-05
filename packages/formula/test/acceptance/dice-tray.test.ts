@@ -4,7 +4,8 @@
  * into the tray's rect) and the cup variant (the `contents` cell). The three
  * Roll steps are the scripted roll results written with `set`.
  */
-import { describe, it } from "vitest";
+import { list, ref } from "@vtt/schema";
+import { describe, expect, it } from "vitest";
 import { acceptance } from "../support/acceptance";
 
 const acc = await acceptance("dice-tray");
@@ -57,6 +58,23 @@ describe(acc.title, () => {
   it(`${acc.at(9)}: a die moved out of the tray's rect leaves its sum`, () => {
     t.do(9);
     t.checkStep(9, ["tray.tray_total", "cup.tray_total"]);
+  });
+});
+
+describe(`${acc.title}: variant of ${acc.at(6)}`, () => {
+  it("a non-die in the cup is ignored, and leaving changes nothing", () => {
+    const t = acc.table();
+    t.set("die_c", "value", acc.roll(2));
+    t.do(6);
+    const withDie = acc.expectedCell(6, "cup", "tray_total");
+    expect(t.value("cup", "tray_total")).toEqual(withDie);
+    // The scenario's gold token (value 50, tag token) goes into the cup.
+    t.move("gold", { container: "cup" });
+    expect(t.value("cup", "contents")).toEqual(list([ref("die_c"), ref("gold")]));
+    expect(t.value("cup", "tray_total")).toEqual(withDie);
+    t.move("gold", { board: "table", position: [0, 6] });
+    expect(t.value("cup", "contents")).toEqual(list([ref("die_c")]));
+    expect(t.value("cup", "tray_total")).toEqual(withDie);
   });
 });
 
