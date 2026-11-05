@@ -579,7 +579,7 @@ target.dex_save)") is a second template whose Lock targets has those extra
 steps; in it the same drift step leaves `damage_dealt` unchanged. No new
 construct is needed.
 
-Scenario: (pending, vtt-1me.11)
+Scenario: [`scenarios/fireball.json`](../packages/fixtures/scenarios/fireball.json)
 
 ### Drawing a card
 
