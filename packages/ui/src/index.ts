@@ -1,5 +1,4 @@
 export { App } from "./App";
-
 export * from "./assets/upload";
 export * from "./canvas/BoardCanvas";
 export * from "./inspector/CellList";
@@ -14,6 +13,10 @@ export * from "./interaction/registry";
 export * from "./interaction/runtime";
 export * from "./interaction/tool";
 export * from "./interaction/use-interaction";
+export * from "./nav/BoardTabs";
+export * from "./nav/board-ids";
+export * from "./nav/first-visit-fit";
+export * from "./nav/ViewAsMenu";
 export * from "./render/canvas2d";
 export * from "./render/image-cache";
 export * from "./render/recording";
