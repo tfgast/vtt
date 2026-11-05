@@ -16,10 +16,14 @@ import { loadScenarios } from "../support/scenarios";
 // (board b p), (beside r) and (container c); spawn's record is
 // (cells (name value)...); roll prints its path after "->".
 
+/** A cell name as printAst prints a name: backticked unless a plain identifier. */
+function printName(name: string): string {
+  return printAst({ kind: "Name", name, start: 0, end: 0 });
+}
+
 function printPath(path: PathNode): string {
-  return path.object === null
-    ? `(path ${path.cell})`
-    : `(path ${printAst(path.object)} ${path.cell})`;
+  const cell = printName(path.cell);
+  return path.object === null ? `(path ${cell})` : `(path ${printAst(path.object)} ${cell})`;
 }
 
 function printDestination(to: DestinationNode): string {
@@ -46,7 +50,7 @@ function printStep(step: Step): string {
     case "move":
       return `(move ${printAst(step.object)} ${printDestination(step.to)})`;
     case "spawn": {
-      const cells = step.cells.map((c) => ` (${c.name} ${printAst(c.value)})`).join("");
+      const cells = step.cells.map((c) => ` (${printName(c.name)} ${printAst(c.value)})`).join("");
       return `(spawn ${printAst(step.template)} ${printDestination(step.to)} (cells${cells}))`;
     }
     case "remove":
@@ -137,7 +141,7 @@ describe("step kinds and arguments", () => {
     ["append(log, 3)", "(append (path log) 3)"],
     ["set(`Max HP`, 3)", "(set (path `Max HP`) 3)"],
     ["set(this.hp, hp - 1)", "(set (path this hp) (- hp 1))"],
-    ["set(obj(\"g\").`Max HP`, 1)", '(set (path (call obj "g") `Max HP`) 1)'],
+    ['set(obj("g").`Max HP`, 1)', '(set (path (call obj "g") `Max HP`) 1)'],
     ["set((a).b, 1)", "(set (path a b) 1)"],
     ["set(a, if(b, 1, 2))", "(set (path a) (call if b 1 2))"],
     ["set(a, {x: 1})", "(set (path a) (record (x 1)))"],
