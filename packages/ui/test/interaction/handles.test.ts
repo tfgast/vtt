@@ -585,6 +585,107 @@ describe("withHandles(selectTool)", () => {
     closePoint(lastHandles(after)?.handles.find((m) => m.key === "se")?.at as Point, [7, -3]);
   });
 
+  describe("the grab offset", () => {
+    // 3 px right and 2 px below the handle's center: inside the hit radius.
+    const off = (at: Point): Point => [at[0] + 3 / PX, at[1] + 2 / PX];
+
+    test.each([
+      ["a rotated rect corner", "r", "se"],
+      ["a rect edge", "u", "e"],
+      ["a circle radius", "c", "radius"],
+      ["a polygon vertex", "p", "v1"],
+    ])("a stationary off-center click on %s writes nothing", (_name, id, key) => {
+      const d = driver({ selection: [id] });
+      const press = off(handleOf(id, key).at);
+      const effects = [
+        ...d.send(pointer("pointer_down", press)),
+        ...d.send(pointer("pointer_move", press)),
+        ...d.send(pointer("pointer_up", press)),
+      ];
+      expect(of(effects, "write")).toEqual([]);
+      expect(of(effects, "notice")).toEqual([]);
+    });
+
+    test("an off-center rect corner drag applies the pointer's displacement to the corner", () => {
+      const d = driver({ selection: ["u"] });
+      const press = off(handleOf("u", "se").at);
+      const write = onlyWrite(d.drag(press, [press[0] + 1, press[1] + 1]));
+      expect(write.ops).toEqual([
+        { type: "set_shape", object: "u", shape: rect(3, 3) },
+        {
+          type: "set_value",
+          object: "u",
+          cell: "position",
+          value: { type: "list", items: [num(6.5), num(-3.5)] },
+        },
+      ]);
+    });
+
+    test("an off-center circle radius drag applies the displacement to the radius handle", () => {
+      const d = driver({ selection: ["c"] });
+      const press = off(handleOf("c", "radius").at);
+      const write = onlyWrite(d.drag(press, [press[0] + 1.5, press[1]]));
+      expect(write.ops).toEqual([{ type: "set_shape", object: "c", shape: circle(2.5) }]);
+    });
+
+    test("an off-center vertex drag applies the displacement to the vertex", () => {
+      const d = driver({ selection: ["p"] });
+      const press = off(handleOf("p", "v1").at);
+      const write = onlyWrite(d.drag(press, [press[0] + 1, press[1] - 1]));
+      const shape = shapeOp(write.ops);
+      expect(shape.type === "polygon" ? shape.points[1] : null).toEqual([2, -2]);
+    });
+  });
+
+  test("a rotation after a resize that has not settled keeps the pending size and position", () => {
+    const d = driver({ selection: ["u"] });
+    const resize = onlyWrite(d.drag(handleOf("u", "se").at, [8, -2]));
+    // u is pending at 3 × 3 about (6.5, -3.5): its rotate handle is above that top edge.
+    const rotate = { at: [6.5, -5 - ROTATE_HANDLE_PX / PX] as Point };
+    const to = world([0, -3], [6.5, -3.5], 90);
+    d.send(pointer("pointer_down", rotate.at));
+    const moving = d.send(pointer("pointer_move", to, SHIFT));
+    const pending = { shape: rect(3, 3), position: [6.5, -3.5] as Point };
+    expect(of(moving, "previews")[0]?.previews.get("u")).toEqual({ ...pending, rotation: 90 });
+    const released = d.send(pointer("pointer_up", to, SHIFT));
+    const write = onlyWrite(released);
+    // The write carries only its own change.
+    expect(write.ops).toEqual([
+      { type: "set_value", object: "u", cell: "rotation", value: num(90) },
+    ]);
+    const held = of(released, "previews")[0];
+    expect(held?.hold?.stamp).toBe(write.stamp);
+    expect(held?.previews.get("u")).toEqual({ ...pending, rotation: 90 });
+    // The handles show both: the se corner of a 3 × 3 square turned a quarter about (6.5, -3.5).
+    const se = () => lastHandles(released)?.handles.find((m) => m.key === "se")?.at as Point;
+    closePoint(se(), [5, -2]);
+    // The resize settles first; until revision 8 is seen nothing changes.
+    d.send({
+      type: "settled",
+      interactionId: resize.stamp.interactionId,
+      outcome: {
+        type: "write",
+        result: {
+          status: "committed",
+          revision: 8,
+          index: 1,
+          created: [],
+          copies: [],
+          bindings: {},
+        },
+      },
+    });
+    expect(of(d.send(pointer("pointer_move", [20, 20])), "overlays")).toEqual([]);
+    // A rejected rotation drops only its own geometry.
+    d.send({
+      type: "settled",
+      interactionId: write.stamp.interactionId,
+      outcome: { type: "write", result: { status: "uncertain", reason: "lost" } },
+    });
+    const after = d.send(pointer("pointer_move", [20, 21]));
+    closePoint(lastHandles(after)?.handles.find((m) => m.key === "se")?.at as Point, [8, -2]);
+  });
+
   test("cursor shows the handle under the pointer and the drag in progress", () => {
     const d = driver({ selection: ["u"] });
     expect(d.tool.cursor(d.state as never)).toBe("default");
