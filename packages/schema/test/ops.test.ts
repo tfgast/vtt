@@ -349,7 +349,7 @@ describe("RejectionSchema", () => {
   });
 
   test("rejects an unknown type", () => {
-    expect(RejectionSchema.safeParse({ type: "when_false" }).success).toBe(false);
+    expect(RejectionSchema.safeParse({ type: "not_a_rejection" }).success).toBe(false);
   });
 });
 

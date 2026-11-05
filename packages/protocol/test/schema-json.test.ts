@@ -153,8 +153,11 @@ describe("tables and constants", () => {
       max_txn_ids_per_client: 1000,
       max_requests_per_second: 200,
       max_buffered_bytes: 67108864,
+      max_each_items: 1000,
+      max_action_writes: 10000,
+      max_face_elements: 200,
     });
-    expect(Object.keys(LIMITS)).toHaveLength(13);
+    expect(Object.keys(LIMITS)).toHaveLength(16);
   });
 
   test("version, port and close codes", () => {

@@ -91,6 +91,30 @@ const cases: [ProtocolRejection, string][] = [
     { type: "undo_target_changed", expected: 7, actual: null },
     "Not undone: there is no edit left to undo, not #7.",
   ],
+  [{ type: "when_false", object: "goblin1", action: "Attack" }, "Attack: its condition is false."],
+  [
+    { type: "when_error", object: "goblin1", action: "Attack", code: "#REF" },
+    "Attack: its condition is an error (#REF).",
+  ],
+  [
+    { type: "when_error", object: "goblin1", action: "Attack", code: "#REF", message: "no hp." },
+    "Attack: its condition is an error (#REF: no hp).",
+  ],
+  [
+    {
+      type: "step_error",
+      object: "fb1",
+      action: "Apply",
+      step: 1,
+      code: "#TYPE",
+      message: "add needs a number",
+    },
+    "Apply: step 2 failed (#TYPE: add needs a number).",
+  ],
+  [
+    { type: "step_error", object: "fb1", action: "Apply", step: 0, message: "no object goblin9." },
+    "Apply: step 1 failed (no object goblin9).",
+  ],
 ];
 
 describe("describeRejection", () => {
@@ -111,6 +135,9 @@ describe("describeRejection", () => {
       invalid: true,
       stale_write: true,
       undo_target_changed: true,
+      when_false: true,
+      when_error: true,
+      step_error: true,
     };
     const all = Object.keys(tags);
     expect([...variants].sort()).toEqual([...all].sort());
