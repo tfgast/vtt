@@ -6,4 +6,5 @@ export * from "./ids";
 export * from "./object";
 export * from "./shape";
 export * from "./structural";
+export * from "./validate";
 export * from "./values";
