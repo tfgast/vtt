@@ -1,4 +1,5 @@
 export * from "./client";
+export * from "./client/recovery";
 export * from "./messages";
 export * from "./methods";
 export * from "./mirror";
