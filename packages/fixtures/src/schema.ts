@@ -25,7 +25,15 @@ export const CellNameSchema = z.string().min(1);
 export const PointSchema = z.tuple([z.number(), z.number()]);
 
 /** FORMULAS §2.3. Errors are only ever expected, never stored. */
-export const ErrorCodeSchema = z.enum(["#CYCLE", "#NAME", "#TYPE", "#REF", "#DIV0", "#LIMIT"]);
+export const ErrorCodeSchema = z.enum([
+  "#CYCLE",
+  "#NAME",
+  "#TYPE",
+  "#REF",
+  "#DIV0",
+  "#LIMIT",
+  "#SYNTAX",
+]);
 
 /** A source text: a formula, a `when` precondition, or an action step. */
 const SourceSchema = z.string().trim().min(1);

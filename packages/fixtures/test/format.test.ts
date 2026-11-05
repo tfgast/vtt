@@ -657,6 +657,11 @@ describe("expectations", () => {
       expectAfter(s, { type: "rejected", reason: { type: "when_false" } });
       expectAfter(s, { type: "rejected", reason: { type: "when_false" } });
     }, /rejected only once/));
+  test("cell_error accepts #SYNTAX", () => {
+    const s = base();
+    expectAfter(s, { type: "cell_error", object: "aldric", cell: "hp", code: "#SYNTAX" });
+    expect(issues(s)).toEqual([]);
+  });
   test("unknown error codes", () =>
     rejects(
       (s) => expectAfter(s, { type: "cell_error", object: "aldric", cell: "hp", code: "#OOPS" }),
