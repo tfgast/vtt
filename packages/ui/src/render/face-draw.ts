@@ -431,6 +431,7 @@ function drawContents(ctx: Ctx2D, p: ContentsPrimitive, env: Env): void {
   ctx.beginPath();
   ctx.rect(x, y, w, h);
   ctx.clip();
+  ctx.save();
   ctx.translate(0, -p.offset);
   for (const entry of p.entries) {
     const [, top, , height] = entry.row;
@@ -438,15 +439,24 @@ function drawContents(ctx: Ctx2D, p: ContentsPrimitive, env: Env): void {
     drawEntry(ctx, p, entry, env);
   }
   ctx.restore();
-  if (p.maxOffset > 0) {
-    const thumb = Math.max(h * (h / (h + p.maxOffset)), 2 * SCROLL_BAR_PX * env.px);
-    const at = y + (h - thumb) * (p.offset / p.maxOffset);
-    const bar = SCROLL_BAR_PX * env.px;
-    ctx.save();
-    ctx.fillStyle = SCROLL_FILL;
-    ctx.fillRect(x + w - bar - env.px, at, bar, thumb);
-    ctx.restore();
-  }
+  if (p.maxOffset > 0) drawScrollIndicator(ctx, p, env);
+  ctx.restore();
+}
+
+/**
+ * The thumb, inside the element's clip (still active) and its own rect:
+ * width, inset and minimum height clamped to what the rect has room for.
+ */
+function drawScrollIndicator(ctx: Ctx2D, p: ContentsPrimitive, env: Env): void {
+  const [x, y, w, h] = p.rect;
+  const inset = Math.min(env.px, w / 4);
+  const bar = Math.min(SCROLL_BAR_PX * env.px, w / 2);
+  const thumb = Math.min(h, Math.max(h * (h / (h + p.maxOffset)), 2 * bar));
+  const at = y + (h - thumb) * Math.min(1, Math.max(0, p.offset / p.maxOffset));
+  ctx.save();
+  ctx.fillStyle = SCROLL_FILL;
+  ctx.fillRect(x + w - bar - inset, at, bar, thumb);
+  ctx.restore();
 }
 
 /** One row, in the element's scrolled frame (element-local rects offset by the rect's corner). */
