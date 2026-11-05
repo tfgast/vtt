@@ -160,7 +160,11 @@ interface Expected {
 
 // ---------------------------------------------- DESIGN.md §4.7, transcribed
 
-/** The Attack card face (DESIGN.md §4.6, Face layouts), verbatim. */
+/**
+ * The Attack card face (DESIGN.md §4.6, Face layouts), verbatim, with
+ * §4.7's exception for `tpl_attack` (M6-D3): Apply `[-1.2, 1.1, 1.15, 0.45]`
+ * `sw="dmg != empty"`, then `button Discard [0.05, 1.1, 1.15, 0.45]`.
+ */
 const ATTACK_FACE: FaceLayout = {
   elements: [
     { type: "value", cell: "name", rect: [-1.2, -1.7, 2.4, 0.4], style: { size: "large" } },
@@ -175,7 +179,8 @@ const ATTACK_FACE: FaceLayout = {
       rect: [0.1, 0.5, 1.1, 0.45],
       show_when: "hit and dmg = empty",
     },
-    { type: "button", action: "Apply", rect: [-1.2, 1.1, 2.4, 0.45], show_when: "not applied" },
+    { type: "button", action: "Apply", rect: [-1.2, 1.1, 1.15, 0.45], show_when: "dmg != empty" },
+    { type: "button", action: "Discard", rect: [0.05, 1.1, 1.15, 0.45] },
   ],
   default_action: "Roll",
 };
@@ -189,7 +194,8 @@ const SHEET_CELLS = (owner: string) => `name: "Sheet"; owner: ${owner}; ac: empt
   damage_dice: 1d8; dex_save: empty; spell_dc: empty; notes: ""; ink: empty`;
 
 const SHEET_FACE = `
-  editor name [-2.8, -3.8, 5.6, 0.6] L
+  editor name [-2.8, -3.8, 5.6, 0.6] L sw="owner = empty"
+  value owner [-2.8, -3.8, 5.6, 0.6] L sw="owner != empty"
   editor ac [-2.8, -3.0, 2.7, 0.5] C m=12
   editor max_hp [0.1, -3.0, 2.7, 0.5] C m=12
   value hp [-2.8, -2.4, 2.7, 0.5] C m=12
@@ -250,11 +256,13 @@ const EXPECTED: Record<string, Expected> = {
     shape: circle(0.5),
     tag: ["creature"],
     cells: `name: "Token"; image: ""; ac: empty; max_hp: empty; damage_taken: 0;
-      hp = max_hp - damage_taken`,
+      attack_bonus: empty; dex_save: empty; hit: false; hp = max_hp - damage_taken`,
     face: `
       value image [-0.5, -0.5, 1, 1]
       value name [-0.8, 0.55, 1.6, 0.3] m=12
-      value hp [0.2, -0.6, 0.5, 0.3] m=12`,
+      value hp [0.2, -0.6, 0.5, 0.3] m=12
+      value hit [-0.7, -0.6, 0.5, 0.3] m=12 sw="hit"
+      contents [-0.8, 0.9, 1.6, 0.8] m=24 collapsed`,
   },
   tpl_zone: { shape: rect(4, 4), is_zone: true, cells: `name: "Zone"` },
   tpl_card: {
@@ -348,7 +356,8 @@ const EXPECTED: Record<string, Expected> = {
       editor dmg_dice [-1.2, -0.7, 2.4, 0.4] C
       value dmg [-1.2, -0.2, 2.4, 0.5] C
       button "Roll damage" [-1.2, 0.5, 2.4, 0.45] sw="dmg = empty"
-      button Apply [-1.2, 1.1, 2.4, 0.45] sw="not applied"`,
+      button Apply [-1.2, 1.1, 1.15, 0.45] sw="dmg != empty"
+      button Discard [0.05, 1.1, 1.15, 0.45]`,
   },
   tpl_area_save: {
     shape: rect(2.5, 3.5),
@@ -370,7 +379,7 @@ const EXPECTED: Record<string, Expected> = {
       contents [-1.2, -0.45, 2.4, 1.4] collapsed
       button "Lock targets" [-1.2, 1.0, 1.15, 0.35] sw="not locked"
       button "Roll damage" [0.05, 1.0, 1.15, 0.35] sw="locked and damage = empty"
-      button "Apply all" [-1.2, 1.4, 1.15, 0.3] sw="not applied"
+      button "Apply all" [-1.2, 1.4, 1.15, 0.3] sw="damage != empty"
       button Discard [0.05, 1.4, 1.15, 0.3]`,
   },
   tpl_area_save_zone: {
