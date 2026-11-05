@@ -15,6 +15,7 @@ import {
   captureStamp,
   createInteractionRuntime,
   createUiStore,
+  type DataDropHandler,
   type EditorOpenRequest,
   type EditorPort,
   type Effect,
@@ -23,6 +24,7 @@ import {
   type Modifiers,
   type NoticeLevel,
   type Previews,
+  type RuntimeExtensions,
   type RuntimeInputs,
   type Scene,
   type SettledOutcome,
@@ -267,7 +269,14 @@ interface WriteCall {
   result: Deferred<WriteOutcome>;
 }
 
-function setup(options: { tool?: ToolId; tools?: (log: Log) => Tool<Phase>[] } = {}) {
+function setup(
+  options: {
+    tool?: ToolId;
+    tools?: (log: Log) => Tool<Phase>[];
+    dataDropHandlers?: DataDropHandler[];
+    extensions?: RuntimeExtensions;
+  } = {},
+) {
   const world: World = { board: "main", viewer: GM, revision: 5 };
   const inputs = fakeInputs(world);
   const ui = createUiStore({ session: fakeUiSession(world) });
@@ -332,6 +341,10 @@ function setup(options: { tool?: ToolId; tools?: (log: Log) => Tool<Phase>[] } =
     toolContext,
     ui,
     editor,
+    ...(options.dataDropHandlers === undefined
+      ? {}
+      : { dataDropHandlers: options.dataDropHandlers }),
+    ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
     whenRevision(revision) {
       const reached = deferred<void>();
       revisions.push({ revision, reached });
@@ -905,4 +918,188 @@ describe("other effects", () => {
     h.ui.setTool("image");
     expect(h.runtime.machine().tool).toBe("token");
   });
+});
+
+describe("cancellation in execution order", () => {
+  test("a set_tool after a write in the same effect list cancels the write's continuations", async () => {
+    const h = setup({
+      tool: "select",
+      tools: (log) => [
+        scriptedTool("select", log, (stamp, _phase, at) => [
+          {
+            type: "write",
+            stamp,
+            ops: [createOp(stamp.board, at, "token")],
+            label: "Create token",
+            continuations: [
+              { type: "select_created", opIndex: 0 },
+              { type: "set_tool", tool: "select" },
+            ],
+          },
+          { type: "set_tool", tool: "image" },
+        ]),
+        scriptedTool("image", log),
+      ],
+    });
+    click(h);
+    expect(h.runtime.machine().tool).toBe("image");
+    h.lastWrite().result.resolve(committed({ created: [{ op_index: 0, id: "token_1" }] }));
+    await flush();
+    expect(h.runtime.machine().tool).toBe("image");
+    expect(h.ui.getState().tool.id).toBe("image");
+    expect(h.ui.getState().selection).toEqual([]);
+  });
+
+  test("a set_tool after held previews in the same effect list clears them at once", async () => {
+    const h = setup({
+      tool: "select",
+      tools: (log) => [
+        scriptedTool("select", log, (stamp, _phase, at) => [
+          {
+            type: "write",
+            stamp,
+            ops: [
+              {
+                type: "move",
+                object: "tok",
+                to: { type: "board", board: stamp.board, position: at },
+              },
+            ],
+            label: "Move tok",
+            continuations: [],
+          },
+          { type: "previews", previews: new Map([["tok", { position: at }]]), hold: { stamp } },
+          { type: "set_tool", tool: "image" },
+        ]),
+        scriptedTool("image", log),
+      ],
+    });
+    click(h, [3, 1]);
+    expect(h.runtime.getView().previews.size).toBe(0);
+    h.lastWrite().result.resolve(committed({ revision: 12 }));
+    await flush();
+    expect(h.runtime.getView().previews.size).toBe(0);
+  });
+});
+
+describe("data-drop handler interactions", () => {
+  const CELL = "application/x-vtt-cell";
+  const handler: DataDropHandler = (event, input) => {
+    if (event.mime !== CELL || input.activeBoard === null) return null;
+    const stamp: InteractionStamp = {
+      interactionId: "drop",
+      board: input.activeBoard,
+      viewer: input.viewer,
+      baseRevision: input.revision,
+    };
+    return [
+      {
+        type: "write",
+        stamp,
+        ops: [
+          { type: "set_value", object: "tok", cell: "hp", value: { type: "number", value: 7 } },
+        ],
+        label: "Drop hp",
+        continuations: [{ type: "select", ids: ["tok"] }],
+      },
+      { type: "previews", previews: new Map([["tok", { position: [1, 1] }]]), hold: { stamp } },
+    ];
+  };
+
+  function dropCell(h: ReturnType<typeof setup>): void {
+    h.runtime.dispatch({
+      type: "data_drop",
+      mime: CELL,
+      data: "{}",
+      screen: [0, 0],
+      board: [0, 0],
+    });
+  }
+
+  test.each<[string, (h: ReturnType<typeof setup>) => void, readonly string[]]>([
+    ["nothing changes", () => undefined, ["tok"]],
+    ["Escape", (h) => h.runtime.dispatch(keyDown("Escape")), []],
+    ["a tool change", (h) => h.ui.setTool("image"), []],
+    [
+      "a board round trip",
+      (h) => {
+        h.change({ board: "other" });
+        h.change({ board: "main" });
+      },
+      [],
+    ],
+    [
+      "a viewer round trip",
+      (h) => {
+        h.change({ viewer: ALDRIC });
+        h.change({ viewer: GM });
+      },
+      [],
+    ],
+  ])("a handled drop's continuations after %s", async (_n, between, expected) => {
+    const h = setup({ dataDropHandlers: [handler] });
+    dropCell(h);
+    expect(h.writes).toHaveLength(1);
+    between(h);
+    h.lastWrite().result.resolve(committed());
+    await flush();
+    expect(h.ui.getState().selection).toEqual(expected);
+    // Nothing settles back to a tool.
+    expect(h.settledOf("token")).toEqual([]);
+    expect(h.settledOf("image")).toEqual([]);
+  });
+
+  test("Escape clears a handled drop's held previews", () => {
+    const h = setup({ dataDropHandlers: [handler] });
+    dropCell(h);
+    expect(h.runtime.getView().previews.size).toBe(1);
+    h.runtime.dispatch(keyDown("Escape"));
+    expect(h.runtime.getView().previews.size).toBe(0);
+  });
+});
+
+describe("extension lookup", () => {
+  test.each(["toString", "nope"])(
+    "an effect named %s with no own handler pushes one warning and settles nothing",
+    async (name) => {
+      const h = setup({
+        extensions: { effects: { ping: async () => "pong" } },
+        tools: (log) => [
+          scriptedTool("select", log),
+          scriptedTool("token", log, (stamp) => [
+            { type: "extension", name, stamp, payload: null },
+          ]),
+        ],
+      });
+      click(h);
+      await flush();
+      expect(h.notices).toEqual([{ level: "warning", text: `Unknown extension "${name}".` }]);
+      expect(h.settledOf("token")).toEqual([]);
+    },
+  );
+
+  test.each(["hasOwnProperty", "nope"])(
+    "a continuation named %s with no own handler pushes one warning",
+    async (name) => {
+      const h = setup({
+        extensions: { continuations: { after: () => undefined } },
+        tools: (log) => [
+          scriptedTool("select", log),
+          scriptedTool("token", log, (stamp) => [
+            {
+              type: "write",
+              stamp,
+              ops: [createOp(stamp.board, [0, 0], "token")],
+              label: "Create",
+              continuations: [{ type: "extension", name, opIndex: 0 }],
+            },
+          ]),
+        ],
+      });
+      click(h);
+      h.lastWrite().result.resolve(committed({ created: [{ op_index: 0, id: "token_1" }] }));
+      await flush();
+      expect(h.notices).toEqual([{ level: "warning", text: `Unknown extension "${name}".` }]);
+    },
+  );
 });

@@ -16,7 +16,9 @@
  *   cancel ends unfinished gestures only; started writes and uploads still
  *   settle back to the tool that started them (the machine's `pending`).
  * - An interaction is cancelled when its tool is cancelled after the
- *   interaction started. The continuations of a committed write run, in
+ *   interaction started, in execution order: a `set_tool` later in the same
+ *   effect list cancels a write earlier in it. A data-drop handler's
+ *   interaction belongs, for cancellation, to the tool active at the drop. The continuations of a committed write run, in
  *   order, only when its interaction was not cancelled and its stamp's board
  *   and viewer are still the active ones. Otherwise none run: the write still
  *   applied to `stamp.board`, and a non-committed outcome is already a notice
@@ -28,7 +30,8 @@
  *
  * Data drops: every `data_drop` is offered to `dataDropHandlers` in order
  * before the active tool; the first non-null result's effects run (stamped
- * as the handler stamped them, owned by no tool, so nothing settles back)
+ * as the handler stamped them; nothing settles back to a tool, but they are
+ * cancelled like the active tool's own)
  * and the event goes no further.
  */
 import type { Viewer } from "@vtt/protocol";
@@ -137,18 +140,30 @@ const EMPTY_PREVIEWS: Previews = new Map();
 
 /** Stamped effects of one interaction the runtime is waiting on. */
 interface Started {
-  /** The tool whose effects these are; null for a data-drop handler's. */
-  tool: ToolId | null;
-  /** The step the interaction started in; a cancel in a later step cancels it. */
-  step: number;
+  /** The key in `started` and `cancelled` (handler ids are kept apart from the machine's). */
+  key: string;
+  /** The tool whose cancel cancels it: the emitting tool, or the tool active at a data drop. */
+  tool: ToolId;
+  /** Whether results settle back to `tool` (false for a data-drop handler's effects). */
+  routed: boolean;
   outstanding: number;
 }
 
 /** Previews held for a stamp's write. */
 interface Hold {
-  interactionId: string;
-  tool: ToolId | null;
-  step: number;
+  key: string;
+  tool: ToolId;
+}
+
+type Origin = "machine" | "handler";
+
+/** The `started` key of an interaction id from `origin`. */
+const keyOf = (interactionId: string, origin: Origin): string =>
+  origin === "machine" ? `m:${interactionId}` : `h:${interactionId}`;
+
+/** `record[name]` when it is the record's own property (never an inherited one like `toString`). */
+function own<T>(record: Record<string, T> | undefined, name: string): T | undefined {
+  return record !== undefined && Object.hasOwn(record, name) ? record[name] : undefined;
 }
 
 function sameViewer(a: Viewer, b: Viewer): boolean {
@@ -192,7 +207,6 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
   const started = new Map<string, Started>();
   /** Interactions whose tool was cancelled after they started (kept: an upload's write reuses its id). */
   const cancelled = new Set<string>();
-  let step = 0;
   let disposed = false;
 
   // -------------------------------------------------------------------------
@@ -238,9 +252,9 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
   /** Records that `tool` is being cancelled: its earlier interactions and held previews end. */
   const markCancelled = (tool: ToolId) => {
     for (const [id, s] of started) {
-      if (s.tool === tool && s.step < step) cancelled.add(id);
+      if (s.tool === tool) cancelled.add(id);
     }
-    if (hold !== null && hold.tool === tool && hold.step < step) setPreviews(EMPTY_PREVIEWS, null);
+    if (hold !== null && hold.tool === tool) setPreviews(EMPTY_PREVIEWS, null);
   };
 
   /** Runs `syncInput` against the current inputs; cancels on a board or viewer change. */
@@ -283,7 +297,6 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
     ) {
       return;
     }
-    step++;
     applyTool({ tool: tool.id, options: tool.options } as SetToolRequest);
   };
 
@@ -292,7 +305,6 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
 
   const dispatch = (event: InteractionEvent) => {
     if (disposed) return;
-    step++;
     const input = snapshot();
     sync(input);
     if (event.type === "data_drop") {
@@ -312,7 +324,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
 
   /** Dispatches an async result back to the tool that started it (machine-owned interactions only). */
   const settle = (s: Started, interactionId: string, outcome: SettledOutcome) => {
-    if (disposed || s.tool === null) return;
+    if (disposed || !s.routed) return;
     try {
       dispatch({ type: "settled", interactionId, outcome });
     } catch (e) {
@@ -321,15 +333,15 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
   };
 
   /** Ends one outstanding effect of `interactionId`. */
-  const finish = (interactionId: string, s: Started) => {
+  const finish = (s: Started) => {
     s.outstanding--;
-    if (s.outstanding <= 0 && started.get(interactionId) === s) started.delete(interactionId);
+    if (s.outstanding <= 0 && started.get(s.key) === s) started.delete(s.key);
   };
 
-  /** Whether the continuations of `stamp`'s interaction may run now. */
-  const live = (stamp: InteractionStamp): boolean =>
+  /** Whether the continuations of `s`'s interaction, stamped `stamp`, may run now. */
+  const live = (s: Started, stamp: InteractionStamp): boolean =>
     !disposed &&
-    !cancelled.has(stamp.interactionId) &&
+    !cancelled.has(s.key) &&
     stamp.board === inputs.activeBoard() &&
     sameViewer(stamp.viewer, inputs.viewer());
 
@@ -350,7 +362,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
           break;
         }
         case "extension": {
-          const handler = extensions.continuations?.[c.name];
+          const handler = own(extensions.continuations, c.name);
           if (handler === undefined) {
             toolContext.notify("warning", `Unknown extension "${c.name}".`);
             break;
@@ -365,17 +377,23 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
   // -------------------------------------------------------------------------
   // Effects
 
-  /** The tool an interaction's effects belong to: the machine's record, else the active tool. */
-  const ownerOf = (interactionId: string, origin: "machine" | "handler"): ToolId | null =>
-    origin === "machine" ? (state.pending[interactionId]?.tool ?? state.tool) : null;
+  /** The tool whose cancel cancels an interaction: the machine's record, else the active tool. */
+  const ownerOf = (interactionId: string, origin: Origin): ToolId =>
+    origin === "machine" ? (state.pending[interactionId]?.tool ?? state.tool) : state.tool;
 
-  const track = (effect: Effect, origin: "machine" | "handler"): Started | null => {
+  const track = (effect: Effect, origin: Origin): Started | null => {
     const interactionId = settlingInteraction(effect);
     if (interactionId === null) return null;
-    let s = started.get(interactionId);
+    const key = keyOf(interactionId, origin);
+    let s = started.get(key);
     if (s === undefined) {
-      s = { tool: ownerOf(interactionId, origin), step, outstanding: 0 };
-      started.set(interactionId, s);
+      s = {
+        key,
+        tool: ownerOf(interactionId, origin),
+        routed: origin === "machine",
+        outstanding: 0,
+      };
+      started.set(key, s);
     }
     s.outstanding++;
     return s;
@@ -394,10 +412,10 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
       toolContext.notify("error", `"${effect.label}" was not applied: ${message}`);
       result = { status: "failed", error: { code: "internal", message } };
     }
-    finish(stamp.interactionId, s);
-    const allowed = result.status === "committed" && live(stamp);
+    finish(s);
+    const allowed = result.status === "committed" && live(s, stamp);
     // Previews held for this stamp, unless newer previews replaced them meanwhile.
-    const h = hold !== null && hold.interactionId === stamp.interactionId ? hold : null;
+    const h = hold !== null && hold.key === s.key ? hold : null;
     if (h !== null) {
       if (result.status === "committed") {
         whenRevision(result.revision).then(
@@ -419,7 +437,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
     } catch {
       file = null;
     }
-    finish(effect.stamp.interactionId, s);
+    finish(s);
     settle(s, effect.stamp.interactionId, { type: "file_picked", file });
   };
 
@@ -431,14 +449,14 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
     } catch (e) {
       outcome = { type: "upload_failed", message: messageOf(e) };
     }
-    finish(effect.stamp.interactionId, s);
+    finish(s);
     settle(s, effect.stamp.interactionId, outcome);
   };
 
   const extension = async (effect: ExtensionEffect, s: Started | null) => {
-    const handler = extensions.effects?.[effect.name];
+    const handler = own(extensions.effects, effect.name);
     if (handler === undefined) {
-      if (s !== null && effect.stamp !== undefined) finish(effect.stamp.interactionId, s);
+      if (s !== null && effect.stamp !== undefined) finish(s);
       toolContext.notify("warning", `Unknown extension "${effect.name}".`);
       return;
     }
@@ -450,7 +468,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
       result = undefined;
     }
     if (s === null || effect.stamp === undefined) return;
-    finish(effect.stamp.interactionId, s);
+    finish(s);
     settle(s, effect.stamp.interactionId, { type: "extension", name: effect.name, result });
   };
 
@@ -459,7 +477,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
     p.catch((e: unknown) => toolContext.notify("error", `The interaction failed: ${messageOf(e)}`));
   };
 
-  function run(effects: readonly Effect[], origin: "machine" | "handler"): void {
+  function run(effects: readonly Effect[], origin: Origin): void {
     for (const effect of effects) {
       if (disposed) return;
       const s = track(effect, origin);
@@ -482,9 +500,8 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
             effect.hold === undefined
               ? null
               : {
-                  interactionId: effect.hold.stamp.interactionId,
+                  key: keyOf(effect.hold.stamp.interactionId, origin),
                   tool: ownerOf(effect.hold.stamp.interactionId, origin),
-                  step,
                 },
           );
           break;
@@ -526,7 +543,6 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
 
   const offInputs = inputs.onChange(() => {
     if (disposed) return;
-    step++;
     sync({ activeBoard: inputs.activeBoard(), viewer: inputs.viewer() });
   });
   const offUi = ui.subscribe(followUi);
