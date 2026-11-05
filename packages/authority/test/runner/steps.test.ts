@@ -30,7 +30,9 @@ describe("a scripted dice source through rollInto", () => {
     expect(state.dice.remaining()).toBe(1);
     expect(state.table.value("aldric", "attack")).toEqual(roll("1d20", [14], 14));
     const group = state.table.store.history.groups().at(-1);
-    expect(group?.effects).toContainEqual(expect.objectContaining({ cause: "roll", cell: "attack" }));
+    expect(group?.effects).toContainEqual(
+      expect.objectContaining({ cause: "roll", cell: "attack" }),
+    );
 
     transactStep(state, { type: "gm" }, "roll", (tx) => {
       rollInto(tx, state.dice, "aldric", "damage", "2d6");
@@ -40,13 +42,13 @@ describe("a scripted dice source through rollInto", () => {
   });
 
   test("a refused step consumes nothing", () => {
-    const state = newRunState(valid({ dice: [roll("1d20", [14], 14)] }));
+    const state = newRunState(valid({ dice: [roll("1d20", [14], 14), roll("1d20", [3], 3)] }));
     const result = transactStep(state, { type: "gm" }, "roll", (tx) => {
       rollInto(tx, state.dice, "aldric", "attack", "1d20");
       rollInto(tx, state.dice, "aldric", "id", "1d20");
     });
     expect(result.ok).toBe(false);
-    expect(state.dice.remaining()).toBe(1);
+    expect(state.dice.remaining()).toBe(2);
   });
 
   test("a scripted-dice mismatch inside a step is a scenario error, not a rejection", () => {

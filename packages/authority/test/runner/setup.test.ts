@@ -24,7 +24,8 @@ describe("documentFromSetup", () => {
           },
           {
             id: "follower",
-            placement: { board: "table", position: { type: "formula", source: "aldric.position" } },
+            placement: { board: "table", position: { type: "formula", source: "leader.position" } },
+            cells: { leader: r("aldric") },
           },
           {
             id: "room",
@@ -66,7 +67,7 @@ describe("documentFromSetup", () => {
       actions: [],
     });
     expect(doc.objects.follower?.cells.position).toEqual({
-      content: { type: "formula", source: "aldric.position" },
+      content: { type: "formula", source: "leader.position" },
     });
     expect(doc.objects.room).toMatchObject({ is_zone: true, board: "side", contents: ["tpl"] });
     expect(doc.objects.tpl).toMatchObject({
@@ -90,7 +91,7 @@ describe("documentFromSetup", () => {
           id: "chest",
           tag: ["loot"],
           placement: { board: "table", position: [1, 1] },
-          cells: { visible_to: all },
+          cells: { visible_to: all, secret: n(1) },
           cell_visibility: { contents: gmOnly, tag: all, secret: gmOnly },
         },
       ],
@@ -105,14 +106,18 @@ describe("documentFromSetup", () => {
     steps: [],
   });
 
-  test("cell_visibility on cells that are not stored converts verbatim", () => {
+  test("cell_visibility on field-backed cells converts verbatim", () => {
     const doc = documentFromSetup(withVisibility.setup);
     expect(doc.objects.chest?.cell_visibility).toEqual({
       contents: gmOnly,
       tag: all,
       secret: gmOnly,
     });
-    expect(Object.keys(doc.objects.chest?.cells ?? {}).sort()).toEqual(["position", "visible_to"]);
+    expect(Object.keys(doc.objects.chest?.cells ?? {}).sort()).toEqual([
+      "position",
+      "secret",
+      "visible_to",
+    ]);
   });
 
   test("it survives a round-trip hop unchanged", () => {
@@ -131,7 +136,13 @@ describe("documentFromSetup", () => {
     const wrong = valid({
       ...withVisibility,
       expect: [
-        { type: "cell_visible", object: "chest", cell: "contents", viewer: "aldric", visible: true },
+        {
+          type: "cell_visible",
+          object: "chest",
+          cell: "contents",
+          viewer: "aldric",
+          visible: true,
+        },
       ],
     });
     expect(() => runScenario(wrong)).toThrow(/setup, expect #0 \(cell_visible\)/);

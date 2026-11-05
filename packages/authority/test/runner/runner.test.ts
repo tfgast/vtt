@@ -82,7 +82,9 @@ describe.each([
   test("a predicted rejection that does not happen fails", () => {
     const err = thrown(() =>
       run(
-        valid({ steps: [setDamage(5, [{ type: "rejected", reason: { type: "protected_cell" } }])] }),
+        valid({
+          steps: [setDamage(5, [{ type: "rejected", reason: { type: "protected_cell" } }])],
+        }),
       ),
     );
     expect(err).toBeInstanceOf(ScenarioFailure);
@@ -93,9 +95,7 @@ describe.each([
     setup: {
       boards: [{ id: "table" }],
       characters: [],
-      objects: [
-        { id: "bag", placement: { board: "table", position: [0, 0] as [number, number] } },
-      ],
+      objects: [{ id: "bag", placement: { board: "table", position: [0, 0] as [number, number] } }],
     },
   };
   const bagIntoItself = {
@@ -245,7 +245,10 @@ describe.each([
           },
         ],
       },
-      steps: [setDamage(5), { actor: "gm", do: { type: "invoke", object: "aldric", action: "Roll" } }],
+      steps: [
+        setDamage(5),
+        { actor: "gm", do: { type: "invoke", object: "aldric", action: "Roll" } },
+      ],
     });
     expect(run(s)).toEqual({
       title: "Synthetic",
@@ -365,7 +368,13 @@ describe.each([
       setup,
       steps: [
         {
-          do: { type: "bind", as: "five", tag: "coin", where: { cell: "value", value: n(5) }, in: "bag" },
+          do: {
+            type: "bind",
+            as: "five",
+            tag: "coin",
+            where: { cell: "value", value: n(5) },
+            in: "bag",
+          },
           expect: [
             { type: "container", object: "five", container: "bag", index: 1 },
             { type: "log_groups", count: 0 },
@@ -376,7 +385,9 @@ describe.each([
     expect(run(ok).complete).toBe(true);
     const none = valid({
       setup,
-      steps: [{ do: { type: "bind", as: "x", tag: "coin", where: { cell: "value", value: n(7) } } }],
+      steps: [
+        { do: { type: "bind", as: "x", tag: "coin", where: { cell: "value", value: n(7) } } },
+      ],
     });
     expect(thrown(() => run(none))).toBeInstanceOf(ScenarioError);
     const two = valid({ setup, steps: [{ do: { type: "bind", as: "x", tag: "coin" } }] });
