@@ -167,6 +167,11 @@ Only historical rewind, which replays or rewinds recorded effects from a
 snapshot (section 7), resets `next_seq` and `retired_ids`, because it
 reconstructs a past document exactly.
 
+An object created without an explicit id is allocated `<base>_<n>` the way
+spawn allocates copies (below): `n` from `next_seq`, skipping any reserved
+id. The base is the creator's `id_base` (the UI passes the kind it creates:
+`token`, `card`, `note`, `zone`, `image`), else `obj` (docs/PROTOCOL.md §5).
+
 There are no built-in object classes. "Die," "token," and "character sheet"
 are *templates*: objects (often with contents) that are copied. A d20 template
 is an object with a `value` cell, a `modifier` cell, a `total = value +
@@ -219,7 +224,9 @@ Cells behave like spreadsheet cells:
 - A computed cell can be manually overridden. The override is visible as
   such, and the cell stops following its inputs until the override is cleared.
   Overriding `hp` means later damage will not show until the override is
-  cleared; the inspector says so.
+  cleared; the inspector says so. Replacing the formula itself with a value
+  is a separate, explicit command (4.6, **Typing into a cell**), not an
+  override.
 - A formula may depend on cells the viewer cannot see. The viewer sees the
   result but not the input. An attack card's `hit = total >= target.ac` shows
   hit or miss without revealing AC. Whoever writes a formula is a trusted
@@ -327,8 +334,9 @@ People are a later layer: a participant controls one or more characters and
 sees the union of what those characters see. Union is a deliberate policy, not
 individualized secrecy between a player's own characters. V1 has exactly one
 person, the GM, who can switch to **view as** any character to check what that
-character would see. Multiplayer changes who may drive a character and adds a
-rights model; it does not change what is on the table.
+character would see (in the UI: 4.6, **View as in the UI**). Multiplayer
+changes who may drive a character and adds a rights model; it does not change
+what is on the table.
 
 **Effective visibility** is composed, and the composition is the whole rule:
 
@@ -345,7 +353,8 @@ rights model; it does not change what is on the table.
   who can see the object; every other cell has its visibility intersected
   with its owner. All restrictions intersect; none replaces another. A
   face-down object owned by Aldric with a GM-only AC cell shows AC to no one
-  but the GM. The GM always sees everything.
+  but the GM. The GM always sees everything. In v1 every face-down object is
+  drawn with a generic back (4.6, **Appearance cells**).
 - Zones do not affect visibility. If a region should hide what is in it, it is
   a container with a region-shaped face, not a zone. The GM screen is such a
   container.
@@ -383,7 +392,9 @@ the same board as an opaque zone the viewer cannot effectively see and its
 anchor lies in the zone's region (with the tolerance of 4.3). An object inside
 a container is covered when its outermost container is. A zone never covers
 itself. A covered object is not visible to that viewer. The renderer still
-draws the cover above everything on the board.
+draws the cover, above every object on the board and every object-related
+overlay; only viewer-independent chrome is drawn above it, and the in-place
+editor never shows over it (4.6, **Appearance cells**).
 
 **What a viewer is sent** (docs/PROTOCOL.md §7, §9). Every view, query
 result, log entry, and explanation computed for a character applies the same
@@ -493,7 +504,9 @@ without code.
 
 **The formula bar.** One persistent bar, as in a spreadsheet, showing the
 formula of whichever cell is focused, whether focused on the face or in the
-inspector. It is the only place formulas are typed.
+inspector. It is where the focused cell's current formula source is shown
+and edited. Formulas may also be typed anywhere a value is typed, with a
+leading `=` (**Typing into a cell** below).
 
 **Dependency tracing.** Hovering a formula highlights the objects and zones it
 references on the canvas, filtered by what the viewer may see. Hovering a zone
@@ -504,6 +517,89 @@ agent-written formula legible to the GM.
 **Who sees what.** The face and in-place editing of literals are for everyone
 at the table, subject to ownership and visibility. The inspector, formulas,
 and actions are GM and agent territory in v1.
+
+**Appearance cells.** The renderer reads a few ordinary user cells by name.
+They are not structural cells and have no defaults; formulas, overrides and
+per-cell visibility apply to them as to any cell, so an agent hatches a zone
+by setting its `pattern` cell to `"hatch"`.
+
+| Cell | Value | Drawn as |
+|---|---|---|
+| `image` | text: an asset path relative to the table file, as listed in the file's `assets` (7, **Revisions and assets**) | the image, inside the object's shape |
+| `color` | text: a CSS color | the fill |
+| `pattern` | text: `"hatch"`; other values are ignored | `"hatch"` draws lines at 45° |
+| `text` | any value | the value, shown compact inside the object |
+| `name` | text (structural, FORMULAS.md 3.1) | the label below the object |
+
+An appearance cell the viewer cannot read, or whose value is of the wrong
+kind (an error, a `color` that is not text), is simply not drawn. Drawing
+rules:
+
+- A non-zone without `color` gets a neutral fill. A zone is transparent with
+  a thin outline unless it has `color` or `pattern`.
+- The GM sees an opaque zone with a 35 % dark fill and a dashed outline, and
+  a badge on every object whose `visible_to` is not exactly `all`.
+- A character sees a revealed opaque zone only through its `color` and
+  `pattern`.
+- Covers (4.4) are solid and drawn above every object and every
+  object-related overlay (selection outlines, handles, highlights, drag
+  ghosts, creation previews). Only viewer-independent chrome (the marquee
+  rectangle, a cursor crosshair) is drawn above covers. The DOM in-place
+  editor opens only when its screen rectangle intersects no cover of the
+  current viewer, and closes without committing when a cover appears over it
+  or the viewer changes.
+- A shapeless object is a 10 px marker.
+- A face-down object shows a generic back plus its `name` to everyone (the
+  GM also sees a face-down glyph), because the face-down exemption set
+  (docs/PROTOCOL.md §7.4, `FACE_DOWN_EXEMPT`) has no appearance cell.
+  Per-object backs would need a cell in that set and are Later.
+
+**Default rendering until faces.** Until face layouts arrive (M5), an object
+draws its shape, `image`, `color`, `pattern`, `text` and `name` label. The
+one level-of-detail rule: labels hide below 24 px on screen. Edit in place
+covers `text`, or `name` when the object has no `text` cell. Dependency
+tracing highlights the objects referenced by a hovered formula (from
+`explain_cell`, with the current viewer) and a hovered zone's contents (from
+`zones`, likewise), so both are filtered by the viewer (docs/PROTOCOL.md §9).
+
+**Typing into a cell.** The formula bar, the inspector and the in-place
+editor share one input grammar:
+
+- `name` input is always text, verbatim, even with a leading `=` (a formula
+  on `name` is refused by the store, FORMULAS.md 3.1).
+- In any other cell, a leading `=` makes a formula of the rest: formulas may
+  be typed anywhere a value is typed. Input that does not parse is refused in
+  the UI with the parser's message.
+- `visible_to` also accepts `all`, `gm`, `owner` and `@id`, comma-separated,
+  as a viewers value.
+- Otherwise literal syntax (FORMULAS.md 3.2) is that value: numbers,
+  `"quoted text"`, `true`/`false`, `empty`, dice expressions, and lists of
+  literals. `@id` is a reference. Empty input is `empty`. Anything else is
+  text, verbatim.
+- A literal typed over a formula is an override (4.2).
+- Replacing a formula with a value is an explicit inspector command. It
+  writes `set_value` with `replace: true` (docs/PROTOCOL.md §5): one write
+  from the formula (and any override) to the literal, also on structural
+  cells such as `visible_to`.
+
+**On the canvas.**
+
+- Copy versus move is decided when a drag starts. Dragging exactly one
+  selected template without Alt spawns a copy where it is dropped (4.7:
+  dragging a template straight onto the table creates a copy there); with
+  Alt it moves the template. Any other selection (several templates, or
+  templates mixed with other objects) is moved, never spawned.
+- For a non-template drag, Alt held at the drop onto an object (not a zone)
+  puts the dragged objects into its `contents`; a plain drop places them on
+  the board, where they stack (4.3).
+- Alt+click cycles through the objects under the pointer, so a zone under a
+  map image can be selected.
+- Objects move between boards with "Move selection to board…", not by
+  dragging.
+
+**View as in the UI.** View-as (4.4) switches the viewer of what is drawn,
+inspected and traced. The inspector and formula bar are read-only there and
+show the character's view. Canvas edits are still the GM's.
 
 ### 4.7 Procedure cards and the binder
 
@@ -612,7 +708,10 @@ covers:
 
 Design rule: **anything a human can do through the UI must be expressible
 through this surface**, and vice versa. If the agent cannot do it, the GM
-cannot ask for help with it.
+cannot ask for help with it. Image assets are the one write outside the
+protocol: asset upload is HTTP (`POST /assets`, docs/PROTOCOL.md §1), and the
+UI and the MCP process (tool `import_asset`) both use it, so the rule holds
+for images too (7, **Revisions and assets**).
 
 In v1 the server is local, trusts its single connection, and acts with GM
 authority. Query and write limits exist so a runaway agent cannot stall the
@@ -625,7 +724,8 @@ launches; it attaches to the running authority as an ordinary protocol client
 whose actor is `agent`, so the agent is a peer of the UI and the table
 outlives agent sessions. Its tools follow the four groups above: query
 (`table_info`, `list_objects`, `get_objects`, `evaluate`, `zones`,
-`at_position`, `changes_since`, `log`), write (`transact`, `undo`, `save`),
+`at_position`, `changes_since`, `log`), write (`transact`, `undo`, `save`,
+and `import_asset`, which uploads a local image file for an `image` cell),
 explain (`explain_cell`, `explain_group`, `explain_action`), and subscribe
 (`subscribe`, `poll_changes`, `unsubscribe`); invoking actions arrives with
 M5.
@@ -649,7 +749,9 @@ M5.
 
 The canonical schema must be readable, stable, and documented. The language
 must be small enough to specify completely in the agent's context. Object ids,
-cell names, and tags must be human-meaningful by default.
+cell names, and tags must be human-meaningful by default. Objects created in
+the UI therefore get ids from their kind (`token_12`, `zone_3`) through
+`create_object`'s `id_base` (4.1, **Identity**; docs/PROTOCOL.md §5).
 
 ## 6. Vision and fog of war
 
@@ -748,6 +850,15 @@ Undo groups never conflict. A conflicting undo is refused as `undo_conflict`,
 and so is an undo whose inverse fails an invariant on commit. A later group
 that conflicts in this sense is what FIXTURES.md 8 calls a *surviving*
 operation.
+
+**Undo and writes in the UI.** The UI's undo targets the GM's own latest
+group (`mine`: the `actor` target with the connection's own actor,
+docs/PROTOCOL.md §6), so the GM's undo never reverses the agent's newer work.
+Every UI write carries the revision its interaction began on (drag start,
+editor open, formula bar focus, or the click for instantaneous commands),
+never the latest one, so a conflicting write committed since the
+interaction began makes it `stale_write` (5.2). Stale writes and uncertain
+outcomes are shown to the GM and never retried automatically.
 
 **Replay and rewind.** Replaying a group applies its recorded effects and sets
 the revision to the group's `revision`, also for a group with no effects.
@@ -851,7 +962,19 @@ docs/PROTOCOL.md §6.
 
 Asset paths in the file are relative to the file's directory, never
 absolute. Parsing a file is pure; whether its assets exist is checked only
-when loading from a path. How an image cell names an asset is M4's decision.
+when loading from a path.
+
+An image cell is the ordinary text cell `image` (4.6, **Appearance cells**)
+holding an asset path relative to the table file, as listed in the file's
+`assets`. Imported images are stored in `<table basename>.assets/` beside the
+file, named `<slug>-<hash8>.<ext>` (`hash8` being the first 8 hex digits of
+the bytes' SHA-256); PNG, JPEG, WebP and GIF are accepted, SVG is not (it can
+carry script). An imported path is listed in the file's `assets` from the
+next save. Assets are never garbage-collected in v1. Asset upload is HTTP
+(`POST /assets`, docs/PROTOCOL.md §1), not a document operation: a map image
+exceeds the 1 MiB client frame limit. The UI and the MCP process (tool
+`import_asset`, docs/PROTOCOL.md §11) both use it, so the parity rule of 5.2
+holds.
 
 **Smaller decisions.**
 
@@ -868,9 +991,12 @@ when loading from a path. How an image cell names an asset is M4's decision.
 **Platform.** TypeScript end to end. The **authority** is a local process
 (Node), one per table (`vtt-serve <file>`), that owns the document file,
 evaluates formulas, ships the MCP server, and serves the UI over localhost
-with the op stream over a WebSocket. The MCP server runs as its own stdio
-process (`vtt-mcp`), launched by the agent host, and attaches to the running
-authority as a protocol client with an `agent` actor. The wire schemas and
+with the op stream over a WebSocket. It serves the built UI at `/` with the
+session token injected into the page, and refuses HTTP requests whose `Host`
+is not its own loopback address (docs/PROTOCOL.md §1, §2). The MCP server
+runs as its own stdio process (`vtt-mcp`), launched by the agent host, and
+attaches to the running authority as a protocol client with an `agent`
+actor. The wire schemas and
 the client (`ProtocolClient`, `ViewMirror`) live in the browser-safe package
 `@vtt/protocol`, which depends only on `@vtt/schema` and zod and is shared by
 the authority, the MCP server and the UI; its wire schemas are
@@ -884,11 +1010,12 @@ protocol, so the protocol is designed first, not deferred.
 
 In the tab, the scene is drawn on a canvas and the chrome (inspector, formula
 bar, binder, log) is DOM. In-place editing is a DOM overlay positioned over
-the cell. Canvas2D with viewport culling and per-object render caching, behind
-a small renderer interface; PixiJS is the known upgrade if profiling demands
-it. Objects are never DOM nodes. Canvas text is weak at small sizes, which
-show-when zoom thresholds already accommodate. Very large map images are a
-tiling problem and stay in Later.
+the cell. Canvas2D with viewport culling and an image cache; per-object
+render caching is deferred until profiling asks (vtt-qf5.10). The renderer
+sits behind a small renderer interface; PixiJS is the known upgrade if
+profiling demands it. Objects are never DOM nodes. Canvas text is weak at
+small sizes, which show-when zoom thresholds already accommodate. Very large
+map images are a tiling problem and stay in Later.
 
 **Protocol.** The wire protocol is specified in docs/PROTOCOL.md: JSON
 messages over one WebSocket, a token handshake, one batched write command
@@ -1176,3 +1303,20 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M3-D32. Compatibility: the authority parses client messages strictly (unknown keys are `bad_request`); clients parse server messages forward-compatibly (unknown keys ignored, unknown message types and event kinds ignored with a warning, unknown `EffectView` variants dropped with a warning, never a disconnect for these); a response's `result` is validated by the client against the schema of the pending request's method (looked up by id), and a result that fails it fails that request only; a change that breaks a v1 client bumps `protocol`. PROTOCOL §10, §12. | Strict input catches client bugs at the boundary; loose output lets protocol v1 grow additively (M5's fields) without breaking older clients. |
 | 2026-11-05 | M3-D33. Stale locks: v1 refuses stale locks; takeover is manual via `vtt-serve --force-unlock`. PROTOCOL §2. | No file-system protocol available here can tell a stale lock from a live one created between the read and the takeover, so automatic takeover could let two authorities own one file. |
 | 2026-11-05 | M3-D34. Object-free ad hoc evaluation: `AdhocOptions.thisId` is optional; with no object, `this` is `#REF` ("no object in scope"), a bare cell name is `#NAME`, and everything else evaluates as usual, with budget and dependency recording unchanged. `evaluate` without `this` uses it. FORMULAS §2; PROTOCOL §9. | Replaces vtt-5su.8's workaround of evaluating on the first board, which made `this` a board reference and answered `#REF` for everything when the document had no boards. |
+| 2026-11-05 | M4-D1. The authority serves the built UI at `/` with the session token injected into the page and refuses HTTP requests whose `Host` is not its own loopback address; image assets are served at `/assets/` only for paths listed in the table file's `assets`, with `no-store` and the same `Host` check, and uploaded with `POST /assets`. PROTOCOL §1, §2; DESIGN §7. | One process and one URL for the GM; the `Host` check closes DNS rebinding, which the WebSocket `Origin` check already covers for `/ws`. |
+| 2026-11-05 | M4-D2. An image cell is the ordinary text cell `image` holding an asset path relative to the table file, as listed in the file's `assets`; imported images are stored in `<table>.assets/` as `<slug>-<hash8>.<ext>` (PNG, JPEG, WebP, GIF; no SVG) and never garbage-collected in v1. Replaces "how an image cell names an asset is M4's decision" in §7. DESIGN §4.6, §7. | A text cell needs no new value type, schema or formula change; hashed names are readable, collision-free and deduplicated; SVG can carry script. |
+| 2026-11-05 | M4-D3. Asset upload is HTTP (`POST /assets`); the UI and the MCP process (tool `import_asset`) both use it. DESIGN §5.2, §7; PROTOCOL §1, §11. | A map image exceeds the 1 MiB client frame limit and is not a document operation; the MCP process is local and can read a path and POST it, so §5.2's parity rule holds with no gap. |
+| 2026-11-05 | M4-D4. Appearance is ordinary user cells read by the renderer: `image`, `color`, `pattern` (`hatch`), `text`, with `name` as the label; unreadable or ill-typed appearance cells are not drawn. DESIGN §4.6. | Keeps appearance inside the cell model (formulas, overrides, per-cell visibility apply unchanged) and keeps M3-D26's `pattern: "hatch"` as written; a structured `style` cell is not storable and structural appearance cells would change FORMULAS §3.1 and every view. |
+| 2026-11-05 | M4-D5. Face-down objects show a generic back in v1 (plus `name`; the GM also sees a face-down glyph); per-object backs would need a cell in the face-down exemption set. DESIGN §4.4, §4.6. | `FACE_DOWN_EXEMPT` has no appearance cell, so a per-object back cannot be shown to non-owners without an M2 change; no fixture needs one (Later). |
+| 2026-11-05 | M4-D6. Cell input: a leading `=` is a formula, in any value editor (the formula bar shows and edits the current formula source; `name` is always text); otherwise literal syntax (numbers, quoted text, booleans, `empty`, dice, lists) or `@id` is that value and anything else is text; a literal typed over a formula is an override; replacing a formula is an explicit command. Replaces "the only place formulas are typed" in §4.6. DESIGN §4.6. | One grammar for every editor; spreadsheets train `=`; typing a literal over a formula keeps §4.2's override model instead of silently discarding the formula. |
+| 2026-11-05 | M4-D7. The UI's undo targets the GM's own latest group (`mine`); every UI write carries the revision its interaction began on; stale writes and uncertain outcomes are shown to the GM and never retried automatically. DESIGN §7 Undo. | `latest` would undo the agent's last edit when the GM presses Ctrl+Z after an agent write; a revision taken when the interaction began is what makes a concurrent edit stale (a later one would hide the conflict); the mirror already shows the winner, so a retry or rebase would overwrite it. |
+| 2026-11-05 | M4-D8. On the canvas, copy-versus-move is decided at drag start: one selected template without Alt spawns a copy where it is dropped, Alt moves it; other selections containing templates are moved. DESIGN §4.6, §4.7. | §4.7's "dragging a template straight onto the table creates a copy there" without binders, which M5's drag-out reuses; deciding at drag start keeps a modifier change mid-gesture from changing the outcome, and a multi-object spawn would have no single drop target. |
+| 2026-11-05 | M4-D9. On the canvas, for non-template drags, Alt held at the drop onto an object puts the dragged objects into its `contents`; a plain drop places on the board (stacking). DESIGN §4.6. | Nesting on every drop would be too easy to do by accident; a die stacked on a token must stay a board placement for `on()`. |
+| 2026-11-05 | M4-D10. Until face layouts (M5) an object draws its shape, image, color, pattern, `text` and `name` label; labels hide below 24 px on screen; dependency tracing highlights what a hovered formula references and a hovered zone's contents, filtered by the viewer. DESIGN §4.6. | Fixes what M4's "§4.6 (partial)" covers: enough to see and edit objects before faces, with one level-of-detail rule; tracing uses the protocol's `explain_cell` and `zones`, which are already viewer-filtered. |
+| 2026-11-05 | M4-D11. View-as switches the viewer of what is drawn and inspected; the inspector is read-only there and shows the character's view; edits on the canvas are still the GM's. DESIGN §4.4, §4.6. | The GM drives everything in play (§8.4 step 8) while checking what a character sees ("HIT shows; AC does not"); the inspector is GM territory (§4.6), so it shows but does not edit the character's view. |
+| 2026-11-05 | M4-D12. `create_object` takes an optional `id_base`; the authority allocates `<id_base>_<n>` as spawn does; GM object views carry `absent_cell_visibility` so visibility rules on absent cells can be inspected. PROTOCOL §5, §7.2; DESIGN §4.1, §4.4, §5.3. | UI-created objects must be human-meaningful from the first commit (§5.3) without a racy client-side retry loop; per-cell visibility is valid for absent cells (§4.4), so the GM's inspector must be able to see and clear such entries. Both are additive (PROTOCOL §12). |
+| 2026-11-05 | M4-D13. UI tests: pure logic in node, the renderer against a recording 2D context, components in jsdom with an injected renderer, integration against a real in-process authority; no browser automation in v1's test suite. CLAUDE.md Conventions. | Fast, deterministic tests in the existing four checks; jsdom has no 2D context and a native canvas or canvas mock adds weight without asserting draw order; browser automation needs a Chromium download on every machine (the manual browser checklist stays the user's). |
+| 2026-11-05 | M4-D14. `@testing-library/user-event` 14.6.8 (dev dependency of `@vtt/ui`) for UI interaction tests. | Realistic typing and pointer sequences in jsdom; its peer `@testing-library/dom` is already present. Pinned exactly per CLAUDE.md. |
+| 2026-11-05 | M4-D15. Per-object render caching is deferred until profiling asks; v1 ships viewport culling and an image cache (vtt-qf5.10). Replaces "per-object render caching" in §7 Platform. DESIGN §7. | Bitmap caches add invalidation logic before any profile shows a need; principle 8 (§3) allows deferring performance work. |
+| 2026-11-05 | M4-D16. Covers are drawn above every object and object-related overlay; only viewer-independent chrome is drawn above them, and the in-place editor never shows over a cover (its rectangle must intersect none). DESIGN §4.4, §4.6. | A selection outline, handle, ghost or editor drawn over a cover would reveal the shape or position of a covered object; chrome such as the marquee carries nothing about the table. |
+| 2026-11-05 | M4-D17. "Replace formula with value" is `set_value` with `replace: true`: one cell effect from the formula (and any override) to the literal, valid on structural cells, undoable. PROTOCOL §5; DESIGN §4.2, §4.6. | `delete_cell` is refused on structural cells such as `visible_to` (a zone's re-hiding formula), and `delete_cell` + `set_value` would be two effects; one invariant-preserving cell effect keeps the replacement one exact undo. |
