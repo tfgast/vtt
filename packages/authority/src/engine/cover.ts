@@ -8,14 +8,18 @@
  * geometry), every zone on the board whose `opaque` holds a formula, and,
  * defensively, every zone the index could not place by literal geometry.
  * Each zone's `is_zone`, `opaque`, `position`, `rotation` and `shape` are
- * read through the reader (the engine). A zone whose reads are all valid,
- * with `opaque` true and the anchor in its region (`pointInRegion`), is
- * `covering`; a zone with any read that is an error or of the wrong type is
- * `undetermined` (fail closed). A zone never covers itself.
+ * read through the reader (the engine). An `opaque` that is an error of any
+ * code or not a boolean is treated as opaque (fail closed), so such a zone
+ * covers exactly its region, like one whose `opaque` is true. A zone that is
+ * opaque (so treated or true), with valid geometry and the anchor in its
+ * region (`pointInRegion`), is `covering`. A zone whose `is_zone`,
+ * `position`, `rotation` or `shape` read is an error or of the wrong type is
+ * `undetermined` (fail closed): its region is unknown. A zone never covers
+ * itself.
  *
  * When the object's own anchor cannot be read as two finite numbers, every
- * zone on the board that might be opaque (valid reads with `opaque` true, or
- * any invalid read) is `undetermined`.
+ * zone on the board that might be opaque (valid geometry with `opaque` true
+ * or treated as opaque, or any invalid geometry read) is `undetermined`.
  */
 import { type ObjectId, type Point, pointInRegion, type Result, type Shape } from "@vtt/schema";
 import type { SpatialIndex } from "../spatial/index";
@@ -28,7 +32,7 @@ export type CoverSource = Pick<
   "revision" | "getObject" | "getCell" | "boardOf" | "containerOf"
 >;
 
-/** A zone's evaluated geometry, or "invalid" when any read failed. */
+/** A zone's evaluated geometry, or "invalid" when a geometry read failed. */
 type ZoneRead =
   | { opaque: boolean; anchor: Point; rotation: number; shape: Shape | null }
   | "invalid";
@@ -154,7 +158,11 @@ export class EngineCover implements CoverOracle {
     return ids;
   }
 
-  /** Reads a zone through the reader; "invalid" when any read is an error or the wrong type. */
+  /**
+   * Reads a zone through the reader; "invalid" when `is_zone` or a geometry
+   * read is an error or the wrong type. An erroneous or non-boolean `opaque`
+   * reads as opaque (DESIGN.md §4.4).
+   */
   #readZone(zone: ObjectId): ZoneRead {
     const read = (cell: string) => this.#reader.value(zone, cell);
     const isZone = read("is_zone");
@@ -162,11 +170,11 @@ export class EngineCover implements CoverOracle {
     const anchor = anchorOf(read("position"));
     const rotation = rotationOf(read("rotation"));
     const shape = read("shape");
-    if (isZone.type !== "boolean" || opaque.type !== "boolean") return "invalid";
+    if (isZone.type !== "boolean") return "invalid";
     if (anchor === undefined || rotation === undefined) return "invalid";
     if (shape.type !== "shape" && shape.type !== "empty") return "invalid";
     return {
-      opaque: isZone.value && opaque.value,
+      opaque: isZone.value && (opaque.type !== "boolean" || opaque.value),
       anchor,
       rotation,
       shape: shape.type === "shape" ? shape.shape : null,
