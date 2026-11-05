@@ -13,7 +13,9 @@
  *   `valueToInputText`; a value with no input text (an error, a roll, …)
  *   opens an empty **replace value** editor with the reason beside it. Enter
  *   commits through `cellInputToOps` (a literal, an override on a formula
- *   cell, or with a leading `=` a formula) unless `isUnchangedInput`; Escape
+ *   cell, or with a leading `=` a formula) unless `isUnchangedInput` on a
+ *   literal or overridden cell (on a formula cell without an override any
+ *   literal, even the shown value, is an override: vtt-1xv.29); Escape
  *   cancels. The write carries the revision captured when the editor opened.
  * - "Edit formula" focuses the cell for the formula bar; "Replace formula with
  *   value" is one `set_value {replace: true}` with the shown value; "Clear
@@ -257,9 +259,12 @@ export function CellRow({
   const commitEditor = (current: ValueEditor) => {
     // A replace-value editor's "" is a placeholder, not the value: anything
     // typed there writes (also `empty`); only an untouched editor writes nothing.
+    // A formula cell without an override is prefilled with its evaluated value,
+    // so any literal committed there is an override (M4-D6), even that value.
+    const followsFormula = cell.kind === "formula" && cell.overridden !== true;
     const unchanged =
       current.reason === undefined
-        ? isUnchangedInput(current.initial, current.text, name)
+        ? !followsFormula && isUnchangedInput(current.initial, current.text, name)
         : current.text === "";
     if (unchanged) {
       setEditor(null);

@@ -186,8 +186,12 @@ export async function cleanupAuthorities(): Promise<void> {
   await Promise.all([...started].map((a) => a.cleanup()));
 }
 
-/** Waits for `pred`, polling every 5 ms, or fails after `ms`. */
-export async function until(pred: () => boolean, what: string, ms = 4000): Promise<void> {
+/**
+ * Waits for `pred`, polling every 5 ms, or fails after `ms`. The default is
+ * generous because a round trip through the in-process authority can take
+ * seconds on a loaded CI runner (vtt-qf5.9); a passing wait returns at once.
+ */
+export async function until(pred: () => boolean, what: string, ms = 20_000): Promise<void> {
   const end = Date.now() + ms;
   while (!pred()) {
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
