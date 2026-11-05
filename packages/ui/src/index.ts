@@ -1,4 +1,6 @@
 export { App } from "./App";
+
+export * from "./assets/upload";
 export * from "./canvas/BoardCanvas";
 export * from "./interaction/contracts";
 export * from "./interaction/effects";

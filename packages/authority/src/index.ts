@@ -1,6 +1,7 @@
 export const PACKAGE = "@vtt/authority";
 
 export * from "./engine/index";
+export * from "./host/assets";
 export * from "./host/identity";
 export * from "./host/lock";
 export * from "./host/new-table";
@@ -17,6 +18,7 @@ export * from "./protocol/log-window";
 export * from "./protocol/queries";
 export * from "./protocol/subscriptions";
 export * from "./protocol/views";
+export * from "./server/http-assets";
 export * from "./server/http-ui";
 export * from "./server/server";
 export * from "./server/session-file";
