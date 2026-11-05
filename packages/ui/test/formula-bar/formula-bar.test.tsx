@@ -63,6 +63,8 @@ const SEED: WireOp[] = [
         lastroll: { type: "roll", expr: "1d20", dice: [17], dropped: [], total: 17 },
         target: ref("ghost"),
         tiny: num(1e-7),
+        multi: formula("max_hp +\n1"),
+        lines: text("line one\nline two"),
       },
     },
   },
@@ -74,6 +76,7 @@ interface Setup {
   session: TableSession;
   ui: UiStore;
   other: Awaited<ReturnType<Awaited<ReturnType<typeof startAuthority>>["client"]>>;
+  unmount(): void;
   /** The `transact` params the session sent since setup. */
   transacts(): { ops: WireOp[]; base_revision?: number }[];
 }
@@ -88,12 +91,13 @@ async function setup(): Promise<Setup> {
   await session.whenRevision(1);
   await until(() => session.objectView("goblin") !== null, "the goblin view");
   const ui = createUiStore({ session });
-  render(<FormulaBar session={session} ui={ui} />);
+  const utils = render(<FormulaBar session={session} ui={ui} />);
   const request = vi.spyOn(session.client, "request");
   return {
     session,
     ui,
     other,
+    unmount: () => utils.unmount(),
     transacts: () =>
       request.mock.calls
         .filter(([method]) => method === "transact")
@@ -104,16 +108,17 @@ async function setup(): Promise<Setup> {
 const cellOf = (session: TableSession, object: string, cell: string): CellView | undefined =>
   session.objectView(object)?.cells[cell];
 
-const input = () => screen.queryByRole("textbox", { name: "Formula" }) as HTMLInputElement | null;
+const input = () =>
+  screen.queryByRole("textbox", { name: "Formula" }) as HTMLTextAreaElement | null;
 
-function bar(): HTMLInputElement {
+function bar(): HTMLTextAreaElement {
   const found = input();
   if (found === null) throw new Error("the formula bar has no input");
   return found;
 }
 
-function focus(ui: UiStore, cell: string, object = "goblin"): void {
-  act(() => ui.focusCell({ object, cell }));
+function focus(ui: UiStore, cell: string | null, object = "goblin"): void {
+  act(() => ui.focusCell(cell === null ? null : { object, cell }));
 }
 
 const part = (name: string) => document.querySelector<HTMLElement>(`[data-part="${name}"]`);
@@ -369,5 +374,76 @@ describe("formula bar", () => {
     focus(ui, "hp");
     expect(bar().value).toBe("=max_hp - damage_taken");
     expect(transacts()).toHaveLength(0);
+  });
+  test("a multiline formula source round-trips unchanged; Shift+Enter inserts a newline", async () => {
+    const { session, ui, transacts } = await setup();
+    focus(ui, "multi");
+    expect(bar().tagName).toBe("TEXTAREA");
+    expect(bar().value).toBe("=max_hp +\n1");
+    const user = userEvent.setup();
+    await user.click(bar());
+    await user.keyboard("{Enter}");
+    expect(transacts()).toHaveLength(0);
+    await user.click(bar());
+    await user.type(bar(), "{Shift>}{Enter}{/Shift}+ 2{Enter}");
+    await until(
+      () => cellOf(session, "goblin", "multi")?.source === "max_hp +\n1\n+ 2",
+      "the source",
+    );
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_formula", object: "goblin", cell: "multi", source: "max_hp +\n1\n+ 2" },
+    ]);
+    await user.click(bar());
+    await user.type(bar(), "x");
+    await user.keyboard("{Escape}");
+    expect(bar().value).toBe("=max_hp +\n1\n+ 2");
+  });
+
+  test("a multiline text literal round-trips unchanged", async () => {
+    const { session, ui, transacts } = await setup();
+    focus(ui, "lines");
+    expect(bar().value).toBe("line one\nline two");
+    const user = userEvent.setup();
+    await user.click(bar());
+    await user.keyboard("{Enter}");
+    expect(transacts()).toHaveLength(0);
+    await user.click(bar());
+    await user.type(bar(), "!{Enter}");
+    await until(
+      () =>
+        JSON.stringify(cellOf(session, "goblin", "lines")?.value) ===
+        JSON.stringify(text("line one\nline two!")),
+      "the text",
+    );
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_value", object: "goblin", cell: "lines", value: text("line one\nline two!") },
+    ]);
+  });
+
+  test("the bar's hover clears when focus is removed, and never clears another component's hover", async () => {
+    const { ui, unmount } = await setup();
+    focus(ui, "hp");
+    const user = userEvent.setup();
+    const root = part("formula-bar") as HTMLElement;
+    await user.hover(root);
+    expect(ui.getState().hoveredCell).toEqual({ object: "goblin", cell: "hp" });
+    focus(ui, null);
+    expect(ui.getState().hoveredCell).toBeNull();
+    await user.unhover(root);
+    expect(ui.getState().hoveredCell).toBeNull();
+
+    // Another component's hover survives the bar's leave and unmount.
+    focus(ui, "ac");
+    await user.hover(root);
+    expect(ui.getState().hoveredCell).toEqual({ object: "goblin", cell: "ac" });
+    act(() => ui.setHoveredCell({ object: "goblin", cell: "max_hp" }));
+    await user.unhover(root);
+    expect(ui.getState().hoveredCell).toEqual({ object: "goblin", cell: "max_hp" });
+
+    // The bar's own hover is cleared on unmount.
+    await user.hover(root);
+    expect(ui.getState().hoveredCell).toEqual({ object: "goblin", cell: "ac" });
+    unmount();
+    expect(ui.getState().hoveredCell).toBeNull();
   });
 });

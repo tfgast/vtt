@@ -271,11 +271,12 @@ async function setup() {
       viewer: { type: "gm" },
       baseRevision: session.getSnapshot().revision,
     }),
-    dblClick(board: Point) {
+    /** Double-clicks board point `board` under a camera centered at the origin with `zoom`. */
+    dblClick(board: Point, zoom = 1) {
       act(() => {
         fireEvent.doubleClick(canvas, {
-          clientX: 400 + board[0] * 64,
-          clientY: 300 + board[1] * 64,
+          clientX: 400 + board[0] * 64 * zoom,
+          clientY: 300 + board[1] * 64 * zoom,
         });
       });
     },
@@ -618,5 +619,30 @@ describe("in-place editor", () => {
     act(() => port.open({ stamp: { ...stamp(), board: "elsewhere" }, object: "note" }));
     await settle();
     expect(editorOf("text")).toBeNull();
+  });
+  test("a small explicit rect is positioned exactly and opens beside an adjacent cover", async () => {
+    const { port, stamp, setCovers } = await setup();
+    // The rect is 32 × 16 px; the cover touches its right edge without overlapping it.
+    setCovers([cover("c1", { minX: 8.5, minY: -1, maxX: 9.5, maxY: 0 })]);
+    act(() =>
+      port.open({
+        stamp: stamp(),
+        object: "big",
+        cell: "text",
+        rect: { minX: 8, minY: -1, maxX: 8.5, maxY: -0.75 },
+      }),
+    );
+    await openEditor("text");
+    expect(frame()).toEqual({ left: 912, top: 236, width: 32, height: 16 });
+  });
+
+  test("a zoomed-out object is positioned exactly and opens beside an adjacent cover", async () => {
+    const { ui, setCovers, dblClick } = await setup();
+    act(() => ui.setCamera({ x: 0, y: 0, zoom: 0.25 }));
+    // The note (x 1..3, y 0.5..1.5) is 32 × 16 px; the cover touches its right edge.
+    setCovers([cover("c1", { minX: 3, minY: 0.5, maxX: 4, maxY: 1.5 })]);
+    dblClick([2, 1], 0.25);
+    await openEditor("text");
+    expect(frame()).toEqual({ left: 416, top: 308, width: 32, height: 16 });
   });
 });
