@@ -63,49 +63,49 @@
       "object": "room",
       "cell": "visible_to",
       "value": { "type": "viewers", "viewers": ["gm"] },
-      "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": no pc inside, so gm."
+      "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": no pc's anchor is inside, so gm."
     },
     {
       "type": "object_visible",
       "object": "room",
       "viewer": "aldric",
       "visible": false,
-      "note": "Before entry the room is hidden from Aldric. The room's visible_to is gm."
+      "note": "\"Before entry: `object_visible` of the room and of the goblin are false for Aldric\" (FIXTURES §9). FIXTURES §7: `object_visible` is the effective visibility \"and not drawn under the cover of an opaque zone the viewer cannot see\"; the room's own visible_to is gm."
     },
     {
       "type": "object_visible",
       "object": "goblin1",
       "viewer": "aldric",
       "visible": false,
-      "note": "DESIGN §4.4: a viewer who cannot see the zone sees its region drawn as a solid cover over everything beneath it, including objects they could otherwise see. The goblin is marked all but stands under the hidden opaque room."
+      "note": "FIXTURES §7: \"a goblin marked `all` inside a hidden opaque room is not visible to Aldric\". DESIGN §4.4: \"a viewer who cannot see the zone sees its region drawn as a solid cover over everything beneath it, including objects they could otherwise see.\""
     },
     {
       "type": "object_visible",
       "object": "room",
       "viewer": "gm",
       "visible": true,
-      "note": "DESIGN §4.4: the GM always sees everything."
+      "note": "\"true for the GM\" (FIXTURES §9). DESIGN §4.4: \"The GM always sees everything.\""
     },
     {
       "type": "object_visible",
       "object": "goblin1",
       "viewer": "gm",
       "visible": true,
-      "note": "The GM always sees everything."
+      "note": "\"true for the GM\" (FIXTURES §9). DESIGN §4.4: \"The GM always sees everything.\""
     },
     {
       "type": "object_visible",
       "object": "goblin2",
       "viewer": "aldric",
       "visible": true,
-      "note": "The goblin outside the room is under no cover."
+      "note": "FIXTURES §7: `object_visible` is the effective visibility \"and not drawn under the cover of an opaque zone the viewer cannot see\"; goblin2 is visible_to all and outside the room's region, so no cover is over it."
     },
     {
       "type": "override",
       "object": "room",
       "cell": "visible_to",
       "overridden": false,
-      "note": "visible_to follows its formula; no one has typed over it."
+      "note": "\"Setting `visible_to` by hand would create an override and stop the formula; the inspector says so.\" Nothing has been set by hand yet, so no override."
     }
   ],
   "steps": [
@@ -123,7 +123,7 @@
           "object": "room",
           "cell": "visible_to",
           "value": { "type": "viewers", "viewers": ["all"] },
-          "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": a pc is inside, so all."
+          "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": a pc's anchor is inside, so all."
         },
         {
           "type": "object_visible",
@@ -137,7 +137,7 @@
           "object": "goblin1",
           "viewer": "aldric",
           "visible": true,
-          "note": "The room is visible to Aldric, so it covers nothing for him; the goblin's own all applies."
+          "note": "\"`move` Aldric's token (tag `pc`) into the room: both visible to Aldric\" (FIXTURES §9)."
         }
       ]
     },
@@ -155,42 +155,42 @@
           "object": "room",
           "cell": "visible_to",
           "value": { "type": "viewers", "viewers": ["gm"] },
-          "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": no pc inside, so gm."
+          "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": no pc's anchor is inside, so gm."
         },
         {
           "type": "object_visible",
           "object": "room",
           "viewer": "aldric",
           "visible": false,
-          "note": "\"Re-hiding a room when the party leaves\": with no pc inside the formula gives gm again. The room's visible_to is gm."
+          "note": "\"`move` him out: hidden again\" (FIXTURES §9). FIXTURES §7: `object_visible` is the effective visibility \"and not drawn under the cover of an opaque zone the viewer cannot see\"; the room's own visible_to is gm."
         },
         {
           "type": "object_visible",
           "object": "goblin1",
           "viewer": "aldric",
           "visible": false,
-          "note": "DESIGN §4.4: a viewer who cannot see the zone sees its region drawn as a solid cover over everything beneath it, including objects they could otherwise see. The goblin is marked all but stands under the hidden opaque room."
+          "note": "FIXTURES §7: \"a goblin marked `all` inside a hidden opaque room is not visible to Aldric\". DESIGN §4.4: \"a viewer who cannot see the zone sees its region drawn as a solid cover over everything beneath it, including objects they could otherwise see.\""
         },
         {
           "type": "object_visible",
           "object": "room",
           "viewer": "gm",
           "visible": true,
-          "note": "DESIGN §4.4: the GM always sees everything."
+          "note": "\"true for the GM\" (FIXTURES §9). DESIGN §4.4: \"The GM always sees everything.\""
         },
         {
           "type": "object_visible",
           "object": "goblin1",
           "viewer": "gm",
           "visible": true,
-          "note": "The GM always sees everything."
+          "note": "\"true for the GM\" (FIXTURES §9). DESIGN §4.4: \"The GM always sees everything.\""
         },
         {
           "type": "object_visible",
           "object": "goblin2",
           "viewer": "aldric",
           "visible": true,
-          "note": "The goblin outside the room is under no cover."
+          "note": "FIXTURES §7: `object_visible` is the effective visibility \"and not drawn under the cover of an opaque zone the viewer cannot see\"; goblin2 is visible_to all and outside the room's region, so no cover is over it."
         }
       ]
     },
@@ -208,7 +208,7 @@
           "object": "room",
           "cell": "visible_to",
           "value": { "type": "viewers", "viewers": ["all"] },
-          "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": a pc is inside, so all."
+          "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": a pc's anchor is inside, so all."
         },
         {
           "type": "object_visible",
@@ -222,7 +222,7 @@
           "object": "goblin1",
           "viewer": "aldric",
           "visible": true,
-          "note": "The room is visible to Aldric, so it covers nothing for him; the goblin's own all applies."
+          "note": "\"`move` Aldric's token (tag `pc`) into the room: both visible to Aldric\" (FIXTURES §9)."
         }
       ]
     },
@@ -241,21 +241,21 @@
           "object": "room",
           "cell": "visible_to",
           "overridden": true,
-          "note": "\"Setting `visible_to` by hand would create an override and stop the formula; the inspector says so.\" The inspector's override marker is on."
+          "note": "\"Setting `visible_to` by hand would create an override and stop the formula; the inspector says so.\" \"an `override` of `visible_to` ... asserted with `override: true`\" (FIXTURES §9)."
         },
         {
           "type": "cell",
           "object": "room",
           "cell": "visible_to",
           "value": { "type": "viewers", "viewers": ["all"] },
-          "note": "The override's value."
+          "note": "DESIGN §4.2: \"The override is visible as such, and the cell stops following its inputs\"; the cell holds the typed all."
         },
         {
           "type": "object_visible",
           "object": "room",
           "viewer": "aldric",
           "visible": true,
-          "note": "visible_to is all."
+          "note": "FIXTURES §7: `object_visible` is the effective visibility \"and not drawn under the cover of an opaque zone the viewer cannot see\"; the room's visible_to is all."
         }
       ]
     },
@@ -287,14 +287,14 @@
           "object": "room",
           "viewer": "aldric",
           "visible": true,
-          "note": "FIXTURES §9: moving the PC out no longer re-hides the room."
+          "note": "\"moving the PC out no longer re-hides the room\" (FIXTURES §9)."
         },
         {
           "type": "object_visible",
           "object": "goblin1",
           "viewer": "aldric",
           "visible": true,
-          "note": "The room is visible, so it covers nothing; the goblin's own all applies."
+          "note": "DESIGN §4.4: \"a viewer who cannot see the zone sees its region drawn as a solid cover over everything beneath it, including objects they could otherwise see.\" Aldric can see the room, so it covers nothing for him and the goblin's own all applies."
         }
       ]
     },
@@ -308,49 +308,49 @@
           "object": "room",
           "cell": "visible_to",
           "overridden": false,
-          "note": "\"the inspector says so\": no override now."
+          "note": "FIXTURES §6: `clear_override` \"Remove an override; the cell follows its formula again.\""
         },
         {
           "type": "cell",
           "object": "room",
           "cell": "visible_to",
           "value": { "type": "viewers", "viewers": ["gm"] },
-          "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": no pc inside, so gm."
+          "note": "\"visible_to = if(len(contents(this).where(tag has \"pc\")) > 0, all, gm)\": no pc's anchor is inside, so gm."
         },
         {
           "type": "object_visible",
           "object": "room",
           "viewer": "aldric",
           "visible": false,
-          "note": "The formula is back and no pc is inside, so the room re-hides. The room's visible_to is gm."
+          "note": "FIXTURES §6: `clear_override`: \"the cell follows its formula again\"; no pc is inside, so the room re-hides. FIXTURES §7: `object_visible` is the effective visibility \"and not drawn under the cover of an opaque zone the viewer cannot see\"; the room's own visible_to is gm."
         },
         {
           "type": "object_visible",
           "object": "goblin1",
           "viewer": "aldric",
           "visible": false,
-          "note": "DESIGN §4.4: a viewer who cannot see the zone sees its region drawn as a solid cover over everything beneath it, including objects they could otherwise see. The goblin is marked all but stands under the hidden opaque room."
+          "note": "FIXTURES §7: \"a goblin marked `all` inside a hidden opaque room is not visible to Aldric\". DESIGN §4.4: \"a viewer who cannot see the zone sees its region drawn as a solid cover over everything beneath it, including objects they could otherwise see.\""
         },
         {
           "type": "object_visible",
           "object": "room",
           "viewer": "gm",
           "visible": true,
-          "note": "DESIGN §4.4: the GM always sees everything."
+          "note": "\"true for the GM\" (FIXTURES §9). DESIGN §4.4: \"The GM always sees everything.\""
         },
         {
           "type": "object_visible",
           "object": "goblin1",
           "viewer": "gm",
           "visible": true,
-          "note": "The GM always sees everything."
+          "note": "\"true for the GM\" (FIXTURES §9). DESIGN §4.4: \"The GM always sees everything.\""
         },
         {
           "type": "object_visible",
           "object": "goblin2",
           "viewer": "aldric",
           "visible": true,
-          "note": "The goblin outside the room is under no cover."
+          "note": "FIXTURES §7: `object_visible` is the effective visibility \"and not drawn under the cover of an opaque zone the viewer cannot see\"; goblin2 is visible_to all and outside the room's region, so no cover is over it."
         }
       ]
     }

@@ -34,9 +34,13 @@
       "object": "aldric",
       "cell": "hp",
       "overridden": false,
-      "note": "\"hp = max_hp - damage_taken\" is a formula and nobody has typed over it yet."
+      "note": "\"hp = max_hp - damage_taken\" is a formula; FIXTURES §6: an override is how one would \"Type a literal over a formula cell\", and none has been typed."
     },
-    { "type": "log_groups", "count": 0, "note": "Nothing has happened yet; the log is empty." }
+    {
+      "type": "log_groups",
+      "count": 0,
+      "note": "FIXTURES §8: \"Every step that is neither rejected nor `bind` appends exactly one group\"; no step has run."
+    }
   ],
   "steps": [
     {
@@ -54,16 +58,20 @@
           "object": "aldric",
           "cell": "hp",
           "value": { "type": "number", "value": 22 },
-          "note": "\"hp = max_hp - damage_taken\": 27 - 5 = 22; the formula follows its input."
+          "note": "\"A `set` on `damage_taken` moves `hp`\" (FIXTURES §9); \"hp = max_hp - damage_taken\": 27 - 5 = 22."
         },
         {
           "type": "override",
           "object": "aldric",
           "cell": "hp",
           "overridden": false,
-          "note": "Changing an input is not an override of hp."
+          "note": "\"A `set` on `damage_taken` moves `hp`\" (FIXTURES §9): hp still follows its formula, so no marker."
         },
-        { "type": "log_groups", "count": 1, "note": "FIXTURES §8: a set is one group." },
+        {
+          "type": "log_groups",
+          "count": 1,
+          "note": "FIXTURES §8: \"An `invoke` is one group for the whole action; `set`, `override`, `clear_override`, `move`, and `spawn` are one group each\"."
+        },
         {
           "type": "log_includes",
           "group": -1,
@@ -73,7 +81,7 @@
             "cell": "damage_taken",
             "value": { "type": "number", "value": 5 }
           },
-          "note": "FIXTURES §7: the set is recorded as a write of the value."
+          "note": "FIXTURES §7: \"A `write` matches a resolved cell write in the group: the value written\"."
         }
       ]
     },
@@ -99,9 +107,13 @@
           "object": "aldric",
           "cell": "hp",
           "overridden": true,
-          "note": "\"Overriding `hp` by hand freezes it until the override is cleared; the inspector marks it.\" The inspector's marker is on."
+          "note": "\"the inspector marks it\"; \"the `override` expectation shows the inspector's marker\" (FIXTURES §9)."
         },
-        { "type": "log_groups", "count": 2, "note": "FIXTURES §8: an override is one group." },
+        {
+          "type": "log_groups",
+          "count": 2,
+          "note": "FIXTURES §8: \"An `invoke` is one group for the whole action; `set`, `override`, `clear_override`, `move`, and `spawn` are one group each\"."
+        },
         {
           "type": "log_includes",
           "group": -1,
@@ -111,7 +123,7 @@
             "cell": "hp",
             "value": { "type": "number", "value": 30 }
           },
-          "note": "FIXTURES §7: for an override, the write is the overriding value."
+          "note": "FIXTURES §7: the write matched is \"for `override`, the overriding value\"."
         }
       ]
     },
@@ -130,21 +142,21 @@
           "object": "aldric",
           "cell": "hp",
           "value": { "type": "number", "value": 30 },
-          "note": "\"Overriding `hp` by hand freezes it until the override is cleared; the inspector marks it.\" hp stays 30 although 27 - 10 would be 17."
+          "note": "\"a further `set` on `damage_taken` is asserted *not* to change `hp`\" (FIXTURES §9); DESIGN §4.2: \"Overriding `hp` means later damage will not show until the override is cleared\"."
         },
         {
           "type": "override",
           "object": "aldric",
           "cell": "hp",
           "overridden": true,
-          "note": "\"Overriding `hp` by hand freezes it until the override is cleared; the inspector marks it.\" Still marked."
+          "note": "\"Overriding `hp` by hand freezes it until the override is cleared; the inspector marks it.\" Not yet cleared, so still marked."
         },
         {
           "type": "cell",
           "object": "aldric",
           "cell": "damage_taken",
           "value": { "type": "number", "value": 10 },
-          "note": "The input itself did change; only hp is frozen."
+          "note": "FIXTURES §6: `set` is \"Hand-edit a literal\"; the input itself changes, only hp is frozen."
         }
       ]
     },
@@ -158,14 +170,14 @@
           "object": "aldric",
           "cell": "hp",
           "value": { "type": "number", "value": 17 },
-          "note": "\"... freezes it until the override is cleared\": cleared, so \"hp = max_hp - damage_taken\" = 27 - 10 = 17."
+          "note": "\"`clear_override` restores tracking\" (FIXTURES §9); \"hp = max_hp - damage_taken\" = 27 - 10 = 17."
         },
         {
           "type": "override",
           "object": "aldric",
           "cell": "hp",
           "overridden": false,
-          "note": "\"the inspector marks it\": with the override cleared the marker is gone."
+          "note": "\"freezes it until the override is cleared; the inspector marks it\": cleared, so no marker."
         }
       ]
     },
@@ -179,26 +191,26 @@
           "object": "aldric",
           "cell": "hp",
           "value": { "type": "number", "value": 30 },
-          "note": "FIXTURES §8: undo reverses the most recent group, the clear, so the override of 30 is back."
+          "note": "\"An `undo` of the clear brings the override back\" (FIXTURES §9): hp is the override's 30 again."
         },
         {
           "type": "override",
           "object": "aldric",
           "cell": "hp",
           "overridden": true,
-          "note": "\"the inspector marks it\": the restored override is marked again."
+          "note": "\"An `undo` of the clear brings the override back\" (FIXTURES §9), and \"the inspector marks it\"."
         },
         {
           "type": "cell",
           "object": "aldric",
           "cell": "damage_taken",
           "value": { "type": "number", "value": 10 },
-          "note": "Undo reversed only the clear; the earlier damage write stands."
+          "note": "FIXTURES §8: \"`undo` reverses the most recent group that is neither an undo nor already undone\": that is the clear, so the set to 10 stands."
         },
         {
           "type": "log_groups",
           "count": 5,
-          "note": "FIXTURES §8: set, override, set, clear_override, undo; undo is itself a group and deletes nothing."
+          "note": "FIXTURES §8: set, override, set, clear_override, undo; \"`undo` is one group, because undo is itself an operation\", and \"It does not delete that group\"."
         }
       ]
     }

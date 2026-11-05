@@ -53,7 +53,7 @@
       "object": "aldric",
       "cell": "speed",
       "value": { "type": "number", "value": 30 },
-      "note": "\"speed = base_speed / if(len(zones_containing(this).where(tag has \"difficult\")) > 0, 2, 1)\": [0, 0] is in no zone, so 30 / 1."
+      "note": "\"speed = base_speed / if(len(zones_containing(this).where(tag has \"difficult\")) > 0, 2, 1)\": FORMULAS §6: `zones_containing(obj)` is \"Zones on the object's board whose region contains its anchor.\" [0, 0] is in no zone, so 30 / 1."
     }
   ],
   "steps": [
@@ -71,7 +71,7 @@
           "object": "aldric",
           "cell": "speed",
           "value": { "type": "number", "value": 30 },
-          "note": "\"speed = base_speed / if(len(zones_containing(this).where(tag has \"difficult\")) > 0, 2, 1)\": the road contains him but is not tagged difficult, so 30 / 1."
+          "note": "\"speed = base_speed / if(len(zones_containing(this).where(tag has \"difficult\")) > 0, 2, 1)\": the road contains him but fails .where(tag has \"difficult\"), so 30 / 1."
         }
       ]
     },
@@ -89,7 +89,7 @@
           "object": "aldric",
           "cell": "speed",
           "value": { "type": "number", "value": 15 },
-          "note": "\"move the token into the zone (speed 15)\" (FIXTURES §9): [10, 10] is in the swamp, 30 / 2."
+          "note": "\"`move` the token into the zone (`speed` 15)\" (FIXTURES §9): [10, 10] is in the swamp, 30 / 2."
         }
       ]
     },
@@ -132,7 +132,7 @@
           "object": "aldric",
           "board": "table",
           "position": [10, 14],
-          "note": "The move's destination."
+          "note": "FIXTURES §6: `move` \"Drag an object to a destination\"; FIXTURES §7: `placement` holds when \"The object is on that board at that anchor\"."
         }
       ]
     }

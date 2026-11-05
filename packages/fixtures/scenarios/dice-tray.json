@@ -82,14 +82,14 @@
       "object": "tray",
       "cell": "tray_total",
       "value": { "type": "number", "value": 0 },
-      "note": "\"tray_total = sum(contents(this).where(tag has \"die\").value)\": nothing is inside x 8..12, y -2..2; sum of [] is 0 (§6)."
+      "note": "\"tray_total = sum(contents(this).where(tag has \"die\").value)\": nothing's anchor is inside x 8..12, y -2..2; FORMULAS §6: the empty-list result of `sum` is `0`."
     },
     {
       "type": "cell",
       "object": "cup",
       "cell": "tray_total",
       "value": { "type": "number", "value": 0 },
-      "note": "\"For a cup container instead of a zone: `sum(contents.where(tag has \"die\").value)`.\" The cup is empty; sum of [] is 0."
+      "note": "\"For a cup container instead of a zone: `sum(contents.where(tag has \"die\").value)`.\" The cup's contents are []; FORMULAS §6: the empty-list result of `sum` is `0`."
     }
   ],
   "steps": [
@@ -103,14 +103,14 @@
           "object": "die_a",
           "cell": "value",
           "value": { "type": "roll", "expr": "1d6", "dice": [4], "dropped": [], "total": 4 },
-          "note": "The die's Roll writes the scripted roll result: \"Die values are roll results from the script\" (FIXTURES §9)."
+          "note": "\"Die values are roll results from the script; the sums are numbers.\" (FIXTURES §9). FORMULAS §8.3: \"`roll(dice_expr) -> path` | Roll a dice value, write the roll result.\""
         },
         {
           "type": "cell",
           "object": "tray",
           "cell": "tray_total",
           "value": { "type": "number", "value": 0 },
-          "note": "die_a at [0, 0] is outside the tray's region."
+          "note": "FORMULAS §6: `contents(zone)` is \"Objects on the same board whose anchor lies inside the zone's region\"; die_a's anchor [0, 0] is outside x 8..12."
         }
       ]
     },
@@ -124,7 +124,7 @@
           "object": "die_b",
           "cell": "value",
           "value": { "type": "roll", "expr": "1d6", "dice": [6], "dropped": [], "total": 6 },
-          "note": "The scripted roll result."
+          "note": "\"Die values are roll results from the script; the sums are numbers.\" (FIXTURES §9). FORMULAS §8.3: \"`roll(dice_expr) -> path` | Roll a dice value, write the roll result.\""
         }
       ]
     },
@@ -138,14 +138,14 @@
           "object": "die_c",
           "cell": "value",
           "value": { "type": "roll", "expr": "1d6", "dice": [3], "dropped": [], "total": 3 },
-          "note": "The scripted roll result."
+          "note": "\"Die values are roll results from the script; the sums are numbers.\" (FIXTURES §9). FORMULAS §8.3: \"`roll(dice_expr) -> path` | Roll a dice value, write the roll result.\""
         },
         {
           "type": "cell",
           "object": "tray",
           "cell": "tray_total",
           "value": { "type": "number", "value": 0 },
-          "note": "No die is inside the tray yet."
+          "note": "FORMULAS §6: `contents(zone)` is \"Objects on the same board whose anchor lies inside the zone's region\"; every die's anchor is at x 0, outside x 8..12."
         }
       ]
     },
@@ -163,7 +163,7 @@
           "object": "tray",
           "cell": "tray_total",
           "value": { "type": "number", "value": 4 },
-          "note": "\"tray_total = sum(contents(this).where(tag has \"die\").value)\": [9, 1] is inside x 8..12, y -2..2; sum = 4."
+          "note": "\"Dice are `move`d to board positions inside and outside the rectangle ... `tray_total` follows\" (FIXTURES §9): [9, 1] is inside; sum = 4 (FORMULAS §2.2: a roll result \"acts as a number (its total) in arithmetic and comparison\")."
         }
       ]
     },
@@ -181,7 +181,7 @@
           "object": "tray",
           "cell": "tray_total",
           "value": { "type": "number", "value": 10 },
-          "note": "\"a point on the boundary is inside, §6\": [12, 0] is on the edge x = 12; 4 + 6 = 10."
+          "note": "\"(a point on the boundary is inside, §6)\" (FIXTURES §9); FORMULAS §6: \"A point on the boundary is inside.\" [12, 0] is on the edge x = 12; 4 + 6 = 10."
         }
       ]
     },
@@ -216,7 +216,7 @@
           "type": "contents",
           "object": "cup",
           "contents": ["die_c"],
-          "note": "Moved in with a container destination."
+          "note": "\"dice are `move`d into it with a container destination\" (FIXTURES §9)."
         },
         {
           "type": "cell",
@@ -230,7 +230,7 @@
           "object": "tray",
           "cell": "tray_total",
           "value": { "type": "number", "value": 10 },
-          "note": "The zone tray is unchanged."
+          "note": "FORMULAS §6: `contents(zone)` is \"Objects on the same board whose anchor lies inside the zone's region\"; no anchor entered or left the region."
         }
       ]
     },
@@ -247,14 +247,14 @@
           "type": "contents",
           "object": "cup",
           "contents": ["die_a", "die_c"],
-          "note": "index 0 puts die_a first; FIXTURES §9: the contents expectation asserts order."
+          "note": "\"the `contents` expectation asserts order\" (FIXTURES §9); FIXTURES §6: \"`index` is the object's position in the container's contents after the move\"."
         },
         {
           "type": "container",
           "object": "die_a",
           "container": "cup",
           "index": 0,
-          "note": "die_a is first in the cup."
+          "note": "FIXTURES §6: \"`index` is the object's position in the container's contents after the move\"."
         },
         {
           "type": "cell",
@@ -268,7 +268,7 @@
           "object": "tray",
           "cell": "tray_total",
           "value": { "type": "number", "value": 6 },
-          "note": "DESIGN §4.3: objects inside a container are not on a board and do not appear in any zone query; only die_b remains."
+          "note": "DESIGN §4.3: \"Objects inside a container are not on a board, have no board position, and do not appear in any zone query.\" Only die_b's 6 remains."
         }
       ]
     },
@@ -285,14 +285,14 @@
           "type": "contents",
           "object": "cup",
           "contents": ["die_a"],
-          "note": "die_c left the cup's contents."
+          "note": "DESIGN §4.3: container \"membership is a fact in its `contents` cell, set by dragging in or out\"."
         },
         {
           "type": "placement",
           "object": "die_c",
           "board": "table",
           "position": [10, 1],
-          "note": "Now on the board, inside x 8..12, y -2..2."
+          "note": "FIXTURES §6: `move` \"Drag an object to a destination\"; FIXTURES §7: `placement` holds when \"The object is on that board at that anchor\". [10, 1] is inside x 8..12, y -2..2."
         },
         {
           "type": "cell",
@@ -324,14 +324,14 @@
           "object": "tray",
           "cell": "tray_total",
           "value": { "type": "number", "value": 3 },
-          "note": "\"tray_total = sum(contents(this).where(tag has \"die\").value)\": x 12.5 is outside x 8..12; only die_c's 3 remains."
+          "note": "\"Dice are `move`d to board positions inside and outside the rectangle\" (FIXTURES §9): x 12.5 is outside x 8..12; only die_c's 3 remains."
         },
         {
           "type": "cell",
           "object": "cup",
           "cell": "tray_total",
           "value": { "type": "number", "value": 4 },
-          "note": "The cup does not care where loose dice are."
+          "note": "\"For a cup container instead of a zone: `sum(contents.where(tag has \"die\").value)`.\" reads only the cup's contents, which did not change."
         }
       ]
     }

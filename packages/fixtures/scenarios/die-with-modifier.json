@@ -76,21 +76,21 @@
           "object": "gm_die",
           "board": "table",
           "position": [4, 0],
-          "note": "The spawn's destination."
+          "note": "FORMULAS §8.3: `spawn` \"Copy the template subgraph ... set the given cells, set `template`, place at the destination.\""
         },
         {
           "type": "cell",
           "object": "gm_die",
           "cell": "template",
           "value": { "type": "ref", "object": "d20" },
-          "note": "FORMULAS §8.3 spawn: set `template`."
+          "note": "FORMULAS §8.3: `spawn` \"Copy the template subgraph ... set the given cells, set `template`, place at the destination.\""
         },
         {
           "type": "cell",
           "object": "gm_die",
           "cell": "owner",
           "value": { "type": "empty" },
-          "note": "\"A GM's loose die has `modifier` empty, so `total` equals `value`.\" A loose die has no owner."
+          "note": "\"A GM's loose die has `modifier` empty, so `total` equals `value`.\" A loose die is spawned with no owner; the template's owner is empty."
         },
         {
           "type": "cell",
@@ -104,13 +104,13 @@
           "object": "gm_die",
           "cell": "total",
           "value": { "type": "number", "value": 0 },
-          "note": "\"total = value + modifier\" with both empty: \"empty in arithmetic is 0\" (§2.1)."
+          "note": "\"total = value + modifier\" with both empty; FORMULAS §2.1: \"`empty` in arithmetic is `0`\" (\"`total` is `0` before the roll\", FIXTURES §9)."
         },
         {
           "type": "contents",
           "object": "gm_binder",
           "contents": ["d20"],
-          "note": "Spawning copies the template; the template stays in the binder."
+          "note": "FORMULAS §8.3: `spawn` \"Copy the template subgraph ... set the given cells, set `template`, place at the destination.\" A copy is made; the template stays in the binder."
         }
       ]
     },
@@ -124,14 +124,14 @@
           "object": "gm_die",
           "cell": "value",
           "value": { "type": "roll", "expr": "1d20", "dice": [14], "dropped": [], "total": 14 },
-          "note": "\"[Roll] roll(1d20) -> value\" writes the roll result."
+          "note": "\"[Roll]  roll(1d20) -> value\"; FIXTURES §5: \"Each `roll(...)` step that runs takes the next entry ... The roll result is written as given.\""
         },
         {
           "type": "cell",
           "object": "gm_die",
           "cell": "total",
           "value": { "type": "number", "value": 14 },
-          "note": "\"A GM's loose die has `modifier` empty, so `total` equals `value`.\" 14 + empty = 14."
+          "note": "\"A GM's loose die has `modifier` empty, so `total` equals `value`.\" FORMULAS §2.2: a roll result \"acts as a number (its total) in arithmetic and comparison\"; 14 + empty = 14."
         },
         {
           "type": "log_includes",
@@ -142,7 +142,7 @@
             "cell": "value",
             "value": { "type": "roll", "expr": "1d20", "dice": [14], "dropped": [], "total": 14 }
           },
-          "note": "§8.1: the log records each step with the dice rolled."
+          "note": "\"the `log_includes` roll effect asserts it was recorded\" (FIXTURES §9). FORMULAS §8.1: logged with \"the resolved values (the dice rolled, the id spawned)\"; FIXTURES §7: \"A `roll` matches a roll the group recorded and the cell it was written to.\""
         }
       ]
     },
@@ -172,14 +172,14 @@
           "object": "aldric_die",
           "cell": "modifier",
           "value": { "type": "number", "value": 5 },
-          "note": "\"A character's attack die is this template with `modifier = owner.attack_bonus` as a formula and `owner` set at spawn.\" Aldric's attack_bonus is 5."
+          "note": "\"A character's attack die is this template with `modifier = owner.attack_bonus` as a formula and `owner` set at spawn.\" FORMULAS §3: \"Dot-access follows a reference: `target.ac`, `owner.attack_bonus`\"; Aldric's attack_bonus is 5."
         },
         {
           "type": "cell",
           "object": "aldric_die",
           "cell": "total",
           "value": { "type": "number", "value": 5 },
-          "note": "\"total = value + modifier\": empty + 5 = 5 before the roll."
+          "note": "\"total = value + modifier\": empty + 5 = 5 before the roll; FORMULAS §2.1: \"`empty` in arithmetic is `0`\"."
         }
       ]
     },
@@ -193,21 +193,21 @@
           "object": "aldric_die",
           "cell": "value",
           "value": { "type": "roll", "expr": "1d20", "dice": [11], "dropped": [], "total": 11 },
-          "note": "\"[Roll] roll(1d20) -> value\"."
+          "note": "\"[Roll]  roll(1d20) -> value\"; FIXTURES §5: \"Each `roll(...)` step that runs takes the next entry ... The roll result is written as given.\""
         },
         {
           "type": "cell",
           "object": "aldric_die",
           "cell": "total",
           "value": { "type": "number", "value": 16 },
-          "note": "\"total = value + modifier\": 11 + 5 = 16."
+          "note": "\"total = value + modifier\": 11 + 5 = 16; FORMULAS §2.2: a roll result \"acts as a number (its total) in arithmetic and comparison\"."
         },
         {
           "type": "cell",
           "object": "gm_die",
           "cell": "total",
           "value": { "type": "number", "value": 14 },
-          "note": "Each spawned die has its own cells; the loose die is unchanged."
+          "note": "FORMULAS §8.3: `spawn` \"Copy the template subgraph ... set the given cells, set `template`, place at the destination.\" Each copy has its own cells, so the loose die keeps its 14."
         },
         {
           "type": "log_includes",
@@ -218,7 +218,7 @@
             "cell": "value",
             "value": { "type": "roll", "expr": "1d20", "dice": [11], "dropped": [], "total": 11 }
           },
-          "note": "§8.1: the roll is logged."
+          "note": "FORMULAS §8.1: logged with \"the resolved values (the dice rolled, the id spawned)\"; FIXTURES §7: \"A `roll` matches a roll the group recorded and the cell it was written to.\""
         }
       ]
     },
@@ -237,26 +237,26 @@
           "object": "aldric_die",
           "cell": "modifier",
           "value": { "type": "number", "value": 6 },
-          "note": "\"A character's attack die is this template with `modifier = owner.attack_bonus` as a formula and `owner` set at spawn.\" The formula follows owner.attack_bonus."
+          "note": "\"`modifier = owner.attack_bonus` as a formula\"; DESIGN §4.2: \"Formulas are reactive. Change an input and dependents recompute.\""
         },
         {
           "type": "cell",
           "object": "aldric_die",
           "cell": "total",
           "value": { "type": "number", "value": 17 },
-          "note": "\"total = value + modifier\": 11 + 6 = 17 without a reroll; value is unchanged."
+          "note": "\"A later `set` of Aldric's `attack_bonus` moves `total` without a reroll\" (FIXTURES §9): 11 + 6 = 17."
         },
         {
           "type": "cell",
           "object": "aldric_die",
           "cell": "value",
           "value": { "type": "roll", "expr": "1d20", "dice": [11], "dropped": [], "total": 11 },
-          "note": "No roll happened; the written roll result stands."
+          "note": "FORMULAS §8: \"Actions are the only place anything is written or rolled\"; no action ran, so the roll result stands."
         },
         {
           "type": "log_groups",
           "count": 5,
-          "note": "FIXTURES §8: spawn, invoke, spawn, invoke, set; one group each."
+          "note": "FIXTURES §8: \"An `invoke` is one group for the whole action; `set`, `override`, `clear_override`, `move`, and `spawn` are one group each\": spawn, invoke, spawn, invoke, set."
         },
         {
           "type": "log_includes",
@@ -267,7 +267,7 @@
             "cell": "value",
             "value": { "type": "roll", "expr": "1d20", "dice": [11], "dropped": [], "total": 11 }
           },
-          "note": "The earlier Roll group still records the 11 it rolled."
+          "note": "FIXTURES §8: \"`log_includes.group` indexes groups from the start, 0-based\"; group 3 is Aldric's Roll and still records the 11."
         }
       ]
     },
@@ -304,7 +304,7 @@
           "object": "goblin_die",
           "cell": "total",
           "value": { "type": "number", "value": 4 },
-          "note": "\"total = value + modifier\": empty + 4."
+          "note": "\"total = value + modifier\": empty + 4 = 4; FORMULAS §2.1: \"`empty` in arithmetic is `0`\"."
         }
       ]
     },
@@ -318,21 +318,21 @@
           "object": "goblin_die",
           "cell": "value",
           "value": { "type": "roll", "expr": "1d20", "dice": [9], "dropped": [], "total": 9 },
-          "note": "\"[Roll] roll(1d20) -> value\"."
+          "note": "\"[Roll]  roll(1d20) -> value\"; FIXTURES §5: \"Each `roll(...)` step that runs takes the next entry ... The roll result is written as given.\""
         },
         {
           "type": "cell",
           "object": "goblin_die",
           "cell": "total",
           "value": { "type": "number", "value": 13 },
-          "note": "\"total = value + modifier\": 9 + 4 = 13."
+          "note": "\"total = value + modifier\": 9 + 4 = 13; FORMULAS §2.2: a roll result \"acts as a number (its total) in arithmetic and comparison\"."
         },
         {
           "type": "cell",
           "object": "aldric_die",
           "cell": "total",
           "value": { "type": "number", "value": 17 },
-          "note": "Aldric's die follows Aldric, not the goblin."
+          "note": "\"modifier = owner.attack_bonus\": aldric_die's owner is Aldric (6), so 11 + 6 is unchanged by the goblin's die."
         },
         {
           "type": "log_includes",
@@ -343,12 +343,12 @@
             "cell": "value",
             "value": { "type": "roll", "expr": "1d20", "dice": [9], "dropped": [], "total": 9 }
           },
-          "note": "§8.1: the roll is logged."
+          "note": "FORMULAS §8.1: logged with \"the resolved values (the dice rolled, the id spawned)\"; FIXTURES §7: \"A `roll` matches a roll the group recorded and the cell it was written to.\""
         },
         {
           "type": "log_groups",
           "count": 7,
-          "note": "Seven groups: three spawns, three rolls, one set."
+          "note": "FIXTURES §8: \"An `invoke` is one group for the whole action; `set`, `override`, `clear_override`, `move`, and `spawn` are one group each\": three spawns, three invokes, one set."
         }
       ]
     }
