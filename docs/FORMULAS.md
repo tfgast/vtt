@@ -132,6 +132,7 @@ they carry the invariants of the table.
 | `face_up` | boolean | |
 | `shape` | shape | For zones: the region. For others: the outline. |
 | `opaque` | boolean | Zones only. See DESIGN.md 4.4. |
+| `is_zone` | boolean | *Protected.* True for zones: `shape` is then a region and spatial queries apply. |
 
 ## 4. Operators and precedence
 

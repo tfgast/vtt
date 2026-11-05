@@ -157,11 +157,11 @@ An object:
 | `container` | never written; derived from `contents` |
 | `board`, `position` | the object's `placement` |
 | `shape` | the object's `shape` |
-| zone marker | the object's `is_zone` (see **Zones** below) |
+| `is_zone` | the object's `is_zone` (see **Zones** below) |
 | `name`, `visible_to`, `owner`, `template`, `face_up`, `opaque`, `rotation`, `z` | ordinary entries in `cells` |
 
-Writing `id`, `tag`, `contents`, `container`, `board`, `position`, or `shape`
-in `cells` is a validation error. The cells that may appear in `cells` are
+Writing `id`, `tag`, `contents`, `container`, `board`, `position`, `shape`,
+or `is_zone` in `cells` is a validation error. The cells that may appear in `cells` are
 type-checked when literal: `name` text; `visible_to` viewers; `owner` a
 reference or empty; `template` a reference or empty; `face_up` and `opaque`
 booleans; `rotation` and `z` numbers or empty. `opaque` is valid only on an
@@ -199,8 +199,9 @@ give shapes explicitly.
 `contents(zone)` and `zones_containing(obj)` consider only `is_zone` objects
 as zones; shape kind and tags never make an object a zone. An `is_zone` object's `shape` is its
 region; anyone else's is its outline. A spawned copy keeps its template's
-`is_zone`. (The name of the structural cell this field maps to in the document
-is pending; see the decision note in the vtt-1me.8 report.)
+`is_zone`. The field sets the protected structural cell `is_zone` (FORMULAS
+§3.1), so `is_zone` cannot appear in `cells`. A cell named `zone` is an
+ordinary user cell, like the Fireball card's reference to its zone.
 
 **References** are `ref` values in ordinary cells (`target`, `owner`,
 `zone`). They are non-owning; only `contents` owns. A reference in setup must

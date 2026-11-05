@@ -28,6 +28,7 @@ export const NON_CELL_STRUCTURAL: readonly string[] = [
   "board",
   "position",
   "shape",
+  "is_zone",
 ];
 
 /** Every structural cell of FORMULAS §3.1; any of them may carry its own visibility. */
@@ -47,6 +48,7 @@ export const STRUCTURAL_CELLS: ReadonlySet<string> = new Set([
   "face_up",
   "shape",
   "opaque",
+  "is_zone",
 ]);
 
 /** Allowed literal value types for structural cells that may appear in `cells`. */

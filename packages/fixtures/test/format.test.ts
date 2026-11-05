@@ -279,6 +279,13 @@ describe("zones", () => {
         cells: { opaque: { type: "boolean", value: true } },
       });
     }, /"opaque" is for zones only/));
+  test("is_zone is structural and rejected inside cells", () =>
+    rejects((s) => {
+      (s.setup.objects[0] as { cells: Record<string, unknown> }).cells.is_zone = {
+        type: "boolean",
+        value: true,
+      };
+    }, /structural/));
   test("a cell named zone is ordinary (Fireball's reference to its zone)", () => {
     const s = base();
     (s.setup.objects[2] as { cells: Record<string, unknown> }).cells.zone = {
