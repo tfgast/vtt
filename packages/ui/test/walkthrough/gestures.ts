@@ -231,7 +231,7 @@ interface Spot {
 
 /** What a spot is resolved from (re-resolved after every scroll). */
 type Aim =
-  | { kind: "board"; id: ObjectId; use: "body" | "press" }
+  | { kind: "board"; id: ObjectId; use: "body" | "press" | "under" }
   | { kind: "entry"; container: ObjectId; entry: ObjectId; part: "row" | "chevron" | "gear" }
   | { kind: "element"; object: ObjectId; element: Element }
   | { kind: "contents"; object: ObjectId }
@@ -289,6 +289,11 @@ function resolveSpot(scene: FaceScene, aim: Aim): Spot {
         shows:
           side > 0 ? [{ rect: [0, 0, side, side], toBoard: IDENTITY, minSize: BODY_MIN_PX }] : [],
         accept: (hit, p, s, cam) => {
+          if (aim.use === "under") {
+            // Anywhere in the hit list, under a plain body (so the press reaches the select tool).
+            if (!hitsAt(s, p, cam).includes(aim.id)) return false;
+            return hit === null || (hit.path.length === 0 && hit.target.type === "body");
+          }
           if (hit?.object !== aim.id || hit.path.length > 0) return false;
           if (hitsAt(s, p, cam)[0] !== aim.id) return false;
           if (aim.use === "body") return hit.target.type === "body";
@@ -1120,11 +1125,50 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
     await until(() => ctx.ui.getState().selection.join() === id, `${id} selected`, CHROME_MS);
   };
 
+  /**
+   * Clicks `id` with the select tool (its body, or its row). A board object
+   * that is never first under the pointer (a zone under a map image: objects
+   * are hit before zones, DESIGN.md §4.6) is pressed where it is in the hit
+   * list, then Alt+clicked at that same point until the cycle reaches it.
+   */
   const clickTarget = async (id: ObjectId): Promise<void> => {
     if (ctx.ui.getState().tool.id !== "select") pressKey("v");
-    const p = await reveal(aimOf(id));
+    const aim = aimOf(id);
+    let p: Point;
+    try {
+      p = await reveal(aim);
+    } catch (e) {
+      if (aim.kind !== "board") throw e;
+      p = await reveal({ ...aim, use: "under" }).catch(() => {
+        throw e;
+      });
+    }
     tap(p);
     await settle(20);
+    await cycleTo(id, p);
+  };
+
+  const selectedIs = (id: ObjectId): boolean => ctx.ui.getState().selection.join() === id;
+
+  /**
+   * After a plain click at `p` left something else selected, Alt+clicks at
+   * `p` (no movement, so within `ALT_CYCLE_RADIUS_PX`) at most once per hit
+   * there until `id` is the selection. A first Alt+click selects the first
+   * hit, each next one the following hit.
+   */
+  const cycleTo = async (id: ObjectId, p: Point): Promise<void> => {
+    if (selectedIs(id)) return;
+    const hits = hitsAt(faces(), p, camera());
+    if (!hits.includes(id)) return;
+    for (let i = 0; i < hits.length && !selectedIs(id); i++) {
+      tap(p, { alt: true });
+      await settle(20);
+    }
+    if (!selectedIs(id)) {
+      throw new Error(
+        `click: Alt+click cycling at ${JSON.stringify(p)} never selected ${id} (hits ${hits.join(", ")}; selection ${ctx.ui.getState().selection.join(", ") || "none"})`,
+      );
+    }
   };
 
   /** The `li` of `cell` in the inspector's cell list (the Structural group opened when needed). */
@@ -1448,6 +1492,20 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
       await until(
         () => locate(faces(), entry)?.entry?.entry.expanded === true,
         `${entry} expanded`,
+        CHROME_MS,
+      );
+      await settle(20);
+      await ctx.frame();
+    },
+
+    async collapseEntry(container, entry) {
+      const l = locate(faces(), entry);
+      if (l?.entry != null && !l.entry.entry.expanded) return;
+      const p = await reveal({ kind: "entry", container, entry, part: "chevron" });
+      tap(p);
+      await until(
+        () => locate(faces(), entry)?.entry?.entry.expanded === false,
+        `${entry} collapsed`,
         CHROME_MS,
       );
       await settle(20);

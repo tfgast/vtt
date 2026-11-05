@@ -156,6 +156,8 @@ export interface Gestures {
     options?: { expectDisabled?: boolean },
   ): Promise<void>;
   expandEntry(container: ObjectId, entry: ObjectId): Promise<void>;
+  /** Collapses an expanded entry with its chevron (`expandEntry`'s inverse); no-op if collapsed. */
+  collapseEntry(container: ObjectId, entry: ObjectId): Promise<void>;
   gear(entry: ObjectId): Promise<void>;
   dragEntry(container: ObjectId, entry: ObjectId, to: EntryDropTarget): Promise<void>;
   dropOnEditor(dragged: ObjectId, target: ObjectId, cell: string): Promise<void>;
