@@ -404,7 +404,8 @@ effective visibility:
   viewer can see now, object names only where the viewer can read the `name`
   cell, an object that no longer exists counted as invisible, groups with
   nothing left omitted. The header is kept, but its label is shown only when
-  every effect of the group is visible to the viewer unreduced.
+  every effect of the group other than id bookkeeping (`allocate`, `retire`)
+  is visible to the viewer unreduced.
 - **Explain** names hidden cells without their values and shows objects the
   viewer cannot see as unnamed (`object: null`); an explain target the viewer
   cannot see answers exactly as a nonexistent one does.
@@ -629,11 +630,13 @@ explain (`explain_cell`, `explain_group`, `explain_action`), and subscribe
 (`subscribe`, `poll_changes`, `unsubscribe`); invoking actions arrives with
 M5.
 
-- **Stale writes.** Every write carries the revision it was based on. It is
-  refused as `stale_write` when a group committed since then shares an undo
-  conflict key (7) with the keys the write declares or with the keys its
-  effects actually touch, or when that revision predates retained history.
-  Disjoint writes commit; nothing is rebased or re-evaluated.
+- **Stale writes.** Every `transact` (the batched write command) carries the
+  revision it was based on. It is refused as `stale_write` when a group
+  committed since then shares an undo conflict key (7) with the keys its ops
+  declare or with the keys its effects actually touch, or when that revision
+  predates retained history. Disjoint writes commit; nothing is rebased or
+  re-evaluated. `undo` carries no base revision and is never stale-checked; it
+  may pin its target with `expect_index`. `save` has neither.
 - **Limits.** Client messages are at most 1 MiB, a batch at most 1,000 ops,
   pages at most 200 items, and a connection at most 200 requests per second;
   a connection that does not read its messages is closed. Server messages
@@ -827,22 +830,24 @@ identity paths derive from the table file's real path, so symlink aliases
 share them. Details in docs/PROTOCOL.md §2.
 
 **Revisions and assets.** Every group records its `base_revision`, and every
-protocol write carries one. A write is refused as `stale_write` when its
-`base_revision` is below the retained-history floor, when a group committed
-after it (undo groups included) shares a key with the write's declared
+protocol `transact` carries one. A `transact` is refused as `stale_write`
+when its `base_revision` is below the retained-history floor, when a group
+committed after it (undo groups included) shares a key with its ops' declared
 intended-write keys (checked before any primitive runs, so a write to an
 object removed since is stale rather than a primitive refusal), or when such a
-group shares a key with the write's actual effects (checked after the ops ran,
-before commit). The keys are the undo conflict keys above. Disjoint writes
-commit; nothing is rebased or re-evaluated. Undo is not stale-checked and may
-pin its target with an expected index. A write may carry a client-chosen
-transaction id: a repeat from the same client instance with the same
-parameters returns the stored result instead of executing again, a repeat
-with different parameters is rejected, and a client resends a write whose
-response was lost only to the same authority session, once; any other
-unsettled outcome is reported as uncertain, never re-executed. The
-deduplication store is in memory (the last 1,000 per client instance) and
-persistent deduplication is Later. Details in docs/PROTOCOL.md §6.
+group shares a key with its actual effects (checked after the ops ran, before
+commit). The keys are the undo conflict keys above. Disjoint writes commit;
+nothing is rebased or re-evaluated. `undo` takes no `base_revision` and is
+never stale-checked; it may pin its target with `expect_index`. `save` has
+neither. A `transact` may carry a client-chosen transaction id (`txn_id`): a
+repeat from the same client instance with the same parameters returns the
+stored result instead of executing again, and a repeat with different
+parameters is rejected. A client resends a `transact` whose response was lost
+only to the same authority session, once; `undo` is never resent. Any other
+unsettled outcome of a sent `transact` or `undo` is reported as uncertain,
+never re-executed. The deduplication store is in memory (the last 1,000 per
+client instance) and persistent deduplication is Later. Details in
+docs/PROTOCOL.md §6.
 
 Asset paths in the file are relative to the file's directory, never
 absolute. Parsing a file is pure; whether its assets exist is checked only
