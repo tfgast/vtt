@@ -104,7 +104,7 @@ function session(script: RollValue[] = []) {
   const actionState = (object: ObjectId, action: string) =>
     new ViewBuilder(table, GM)
       .objectView(object, "all")
-      ?.action_states.find((s) => s.name === action);
+      ?.action_states?.find((s) => s.name === action);
   return { table, dice, prep, press, ok, onBoard, element, shown, actionState };
 }
 
