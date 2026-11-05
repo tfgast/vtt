@@ -25,6 +25,10 @@
  * Hovering sets `UiStore.hoveredCell` and leaving clears it (tracing is
  * vtt-3l6.24's); a click focuses the cell. The row element carries
  * `data-cell` with the cell's name.
+ *
+ * In the GM view (not view-as) the row is a drag source of
+ * `application/x-vtt-cell` with data `{object, cell}` while no editor is open
+ * (vtt-1xv.27): dropped on the object, it adds a value element to its face.
  */
 import type {
   CellView,
@@ -37,12 +41,14 @@ import type {
 import { CellNameSchema, type ObjectId, STRUCTURAL_CELLS } from "@vtt/schema";
 import {
   type CSSProperties,
+  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
   useEffect,
   useMemo,
   useState,
 } from "react";
+import { CELL_DRAG_MIME, cellDragData } from "../face-editor/cell-drop";
 import type { WritePort } from "../interaction/contracts";
 import { useUiStore } from "../session/hooks";
 import type { TableSession } from "../session/table-session";
@@ -370,6 +376,13 @@ export function CellRow({
     origin !== undefined &&
     (session.objectView(origin.object) !== null || session.directory().has(origin.object));
 
+  // A drag source of the cell for face layouts (vtt-1xv.27), GM view only.
+  const draggable = !readOnly && editor === null && rename === null;
+  const onDragStart = (event: DragEvent) => {
+    event.dataTransfer.setData(CELL_DRAG_MIME, cellDragData(object, name));
+    event.dataTransfer.effectAllowed = "copy";
+  };
+
   const isFormula = cell.kind === "formula";
   const showSource = !readOnly && isFormula && cell.source !== undefined;
   const visibility = !readOnly ? cell.visibility : undefined;
@@ -382,6 +395,8 @@ export function CellRow({
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       onClick={() => ui.focusCell(address)}
+      draggable={draggable}
+      onDragStart={draggable ? onDragStart : undefined}
     >
       {rename === null ? (
         <span style={NAME_STYLE}>{name}</span>
