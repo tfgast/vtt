@@ -26,9 +26,15 @@ importers:
       '@vtt/formula':
         specifier: workspace:*
         version: link:../formula
+      '@vtt/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@vtt/schema':
         specifier: workspace:*
         version: link:../schema
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       '@vtt/fixtures':
         specifier: workspace:*
@@ -49,6 +55,15 @@ importers:
       '@vtt/fixtures':
         specifier: workspace:*
         version: link:../fixtures
+
+  packages/protocol:
+    dependencies:
+      '@vtt/schema':
+        specifier: workspace:*
+        version: link:../schema
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   packages/schema:
     dependencies:

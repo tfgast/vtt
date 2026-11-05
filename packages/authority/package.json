@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@vtt/formula": "workspace:*",
-    "@vtt/schema": "workspace:*"
+    "@vtt/protocol": "workspace:*",
+    "@vtt/schema": "workspace:*",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@vtt/fixtures": "workspace:*"
