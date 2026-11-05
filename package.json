@@ -8,13 +8,14 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "pnpm -r --parallel typecheck",
+    "typecheck": "tsc --noEmit -p . && pnpm -r --parallel typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
     "format:check": "biome format ."
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.5",
+    "@types/node": "26.6.6",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
   }
