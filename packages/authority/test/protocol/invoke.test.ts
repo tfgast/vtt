@@ -672,7 +672,7 @@ describe("invoke: limits", () => {
       step: 1,
     });
     await unchanged(w, before);
-  });
+  }, 30_000); // ~1,000 executor reads; slow on loaded CI runners (vtt-qf5.9)
 });
 
 // ---------------------------------------------------------------------------
