@@ -518,7 +518,7 @@ to Aldric while the goblin's `ac` is not (`cell_visible`). Show-when on the
 face is out of scope (M5 extends the format additively); the guards are what
 the fixture tests.
 
-Scenario: (pending, vtt-1me.10)
+Scenario: [`scenarios/attack-card.json`](../packages/fixtures/scenarios/attack-card.json)
 
 ### A Fireball card with a circle zone
 
@@ -593,7 +593,7 @@ is true for Aldric and false for another character, and moving a card back out
 restores `all` (§4.4 composition). The third Draw: `action` disabled, then an
 invocation `rejected` with `when_false`.
 
-Scenario: (pending, vtt-1me.10)
+Scenario: [`scenarios/drawing-a-card.json`](../packages/fixtures/scenarios/drawing-a-card.json)
 
 ### Shuffling
 
@@ -602,7 +602,7 @@ script holds `{"type":"permutation","order":[2,0,1]}`; the `contents`
 expectation asserts the exact resulting order (`[c, a, b]` from `[a, b, c]`).
 `undo` restores the original order.
 
-Scenario: (pending, vtt-1me.10)
+Scenario: [`scenarios/shuffling.json`](../packages/fixtures/scenarios/shuffling.json)
 
 ### Re-hiding a room when the party leaves (phase 1 vision, optional)
 
