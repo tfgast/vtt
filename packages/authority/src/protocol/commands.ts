@@ -758,8 +758,10 @@ export function executeTransact(ctx: CommandContext, params: TransactParams): Wi
 
 /**
  * Executes an `undo` (PROTOCOL.md §6) as `ctx.actor`. `mine` selects the
- * connection's actor's latest candidate. With `expect_index`, a different
- * selected target, or none, is refused `undo_target_changed`. Never
+ * connection's actor's latest candidate; `human` (M6-D2), the latest by `gm`
+ * or any character, goes to the store unchanged for every connection kind.
+ * With `expect_index`, a different selected target, or none, is refused
+ * `undo_target_changed`. Never
  * stale-checked. `label`, at most 200 characters (else `bad_request`),
  * labels the undo group; without it the store's default applies.
  */

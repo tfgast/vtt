@@ -152,6 +152,7 @@ export const UndoParamsSchema = z.strictObject({
     z.strictObject({ type: z.literal("mine") }),
     z.strictObject({ type: z.literal("actor"), actor: ActorSchema }),
     z.strictObject({ type: z.literal("group"), index: Count }),
+    z.strictObject({ type: z.literal("human") }),
   ]),
   expect_index: Count.optional(),
   label: z.string().max(200).optional(),
