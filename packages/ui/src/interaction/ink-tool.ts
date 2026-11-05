@@ -24,6 +24,7 @@ import type { InputValue, ObjectInit, ObjectView, WireOp, WireResult } from "@vt
 import type { ObjectId, Point } from "@vtt/schema";
 import { hitsAt } from "../scene/hit-test";
 import type { InteractionStamp } from "./contracts";
+import { MAX_LABEL_LENGTH } from "./create-tools";
 import type { Effect } from "./effects";
 import type { InteractionEvent } from "./events";
 import { PRIMARY_BUTTON } from "./machine";
@@ -145,6 +146,23 @@ function captureTarget(input: ToolInput, point: Point): InkTarget | null {
   };
 }
 
+/**
+ * The label of a stroke on an object: "Draw ink on <name>", shortened with
+ * an ellipsis (whole code points, never half a surrogate pair) to fit
+ * MAX_LABEL_LENGTH (PROTOCOL.md §4), as vtt-3l6.8's `importLabel` does.
+ */
+export function inkLabel(name: string): string {
+  const prefix = "Draw ink on ";
+  const full = `${prefix}${name}`;
+  if (full.length <= MAX_LABEL_LENGTH) return full;
+  let label = prefix;
+  for (const ch of name) {
+    if (label.length + ch.length + 1 > MAX_LABEL_LENGTH) break;
+    label += ch;
+  }
+  return `${label}…`;
+}
+
 const text = (value: string) => ({ type: "text" as const, value });
 
 /** The effects ending a stroke of at least two points. */
@@ -163,9 +181,7 @@ function finish(stroke: InkStroke): Effect[] {
     const local = points.map((p) => toObjectLocal(p, target.anchor, target.rotation));
     const value: InputValue = { type: "ink", strokes: [...target.ink, local] };
     const op: WireOp = { type: "set_value", object: target.id, cell: "ink", value };
-    return [
-      { type: "write", stamp, ops: [op], label: `Draw ink on ${target.name}`, continuations: [] },
-    ];
+    return [{ type: "write", stamp, ops: [op], label: inkLabel(target.name), continuations: [] }];
   }
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
