@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 (($# == 1)) || usage
 epic_id=$1
 
-require_tools git bd codex
+require_tools git bd codex jq
 
 top=$(repo_toplevel)
 cd "$top"
@@ -23,13 +23,14 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 bd show "$epic_id" >"$tmp/epic.txt" || die "bd show $epic_id failed"
-# Flat list lines look like "<status> <id> [P1] [task] - <title> ...".
-bd list --parent "$epic_id" --all --flat --limit 0 --no-color >"$tmp/list.txt" ||
+# Children by parent relationship, not by id prefix: a bead reparented into
+# the epic keeps its original id.
+bd list --parent "$epic_id" --all --limit 0 --json >"$tmp/children.json" ||
   die "bd list --parent $epic_id failed"
 children=()
 while IFS= read -r id; do
   [[ -n $id ]] && children+=("$id")
-done < <(awk -v p="$epic_id." 'index($2, p) == 1 { print $2 }' "$tmp/list.txt" | sort -V)
+done < <(jq -r '.[].id' "$tmp/children.json" | sort -V)
 ((${#children[@]} > 0)) || die "epic $epic_id has no children"
 
 {

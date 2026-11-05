@@ -4,7 +4,7 @@ Project conventions and workflow in [CLAUDE.md](CLAUDE.md).
 ## Workflow
 
 Scripts in [scripts/](scripts/) encode the loop in [CLAUDE.md](CLAUDE.md). They are plain bash
-and need `git`, `bd`, `pnpm`, and `codex` on `PATH`; each exits non-zero with a message if a tool
+and need `git`, `bd`, `pnpm`, `codex`, and `jq` on `PATH`; each exits non-zero with a message if a tool
 it uses is missing.
 
 - `scripts/worktree.sh <bead-id> <slug>` creates branch `<bead-id>/<slug>` from `main` in
