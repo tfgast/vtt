@@ -19,6 +19,7 @@ import { MemoryHost } from "./memory-host";
 /** `setup#i` for the top-level expectations, `step N#i` for step N's. */
 export type Location = string;
 
+/** `checked` lists every evaluated `cell`/`cell_error` location, pass or fail; `failures` the mismatches among them. */
 export interface Report {
   title: string;
   checked: Location[];
@@ -72,12 +73,16 @@ function checkAll(engine: Engine, list: readonly Expectation[], where: string, r
     const location = `${where}#${i}`;
     if (e.type === "cell") {
       const actual = engine.value(e.object, e.cell);
-      if (fixtureValueEquals(e.value, actual)) report.checked.push(location);
-      else report.failures.push({ location, expected: e.value, actual });
+      report.checked.push(location);
+      if (!fixtureValueEquals(e.value, actual)) {
+        report.failures.push({ location, expected: e.value, actual });
+      }
     } else if (e.type === "cell_error") {
       const actual = engine.value(e.object, e.cell);
-      if (actual.type === "error" && actual.code === e.code) report.checked.push(location);
-      else report.failures.push({ location, expected: { type: "error", code: e.code }, actual });
+      report.checked.push(location);
+      if (actual.type !== "error" || actual.code !== e.code) {
+        report.failures.push({ location, expected: { type: "error", code: e.code }, actual });
+      }
     } else {
       report.skipped.push({ location, reason: `type ${(e as { type: string }).type}` });
     }

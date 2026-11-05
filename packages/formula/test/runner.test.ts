@@ -18,7 +18,7 @@ describe("runFormulaScenario", () => {
     e.value = num(-999);
     const report = runFormulaScenario(copy);
     expect(report.failures).toEqual([{ location: `step 1#${i}`, expected: num(-999), actual }]);
-    expect(report.checked).not.toContain(`step 1#${i}`);
+    expect(report.checked).toContain(`step 1#${i}`);
   });
 
   test("an unknown expectation type is skipped, not failed", () => {
@@ -75,7 +75,7 @@ describe("runFormulaScenario", () => {
       ],
     };
     const report = runFormulaScenario(base);
-    expect(report.checked).toEqual(["setup#0", "step 0#0"]);
+    expect(report.checked).toEqual(["setup#0", "setup#1", "step 0#0", "step 0#1"]);
     expect(report.failures.map((f) => f.location)).toEqual(["setup#1", "step 0#1"]);
     expect(report.failures[0]?.actual).toMatchObject({ type: "error", code: "#DIV0" });
     expect(report.failures[1]?.actual).toEqual(num(0.5));
