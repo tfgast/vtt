@@ -11,6 +11,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@vtt/formula": "workspace:*",
+    "@vtt/protocol": "workspace:*",
+    "@vtt/schema": "workspace:*",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
