@@ -112,6 +112,9 @@ export type ToolInput = ReducerInput & { interactionId: string };
  */
 export type CancelReason = "escape" | "tool_switch" | "board_change" | "viewer_change";
 
+/** A `wheel` event, which a tool may claim before the camera zooms (`Tool.wheel`). */
+export type WheelInteractionEvent = Extract<InteractionEvent, { type: "wheel" }>;
+
 export interface ToolResult<TPhase = unknown, K extends ToolId = ToolId> {
   state: ToolState<TPhase, K>;
   effects: Effect[];
@@ -129,6 +132,16 @@ export interface Tool<TPhase = unknown, K extends ToolId = ToolId> {
     input: ToolInput,
   ): ToolResult<TPhase, K>;
   cancel(state: ToolState<TPhase, K>, reason: CancelReason): ToolResult<TPhase, K>;
+  /**
+   * Offered every `wheel` event before the camera zooms (vtt-1xv.16; M5 plan
+   * review r2 finding 1): a result claims the event (the camera does not
+   * zoom), null leaves it to the zoom. A tool without it never sees wheels.
+   */
+  wheel?(
+    state: ToolState<TPhase, K>,
+    event: WheelInteractionEvent,
+    input: ToolInput,
+  ): ToolResult<TPhase, K> | null;
 }
 
 /**
