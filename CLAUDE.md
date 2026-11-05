@@ -36,7 +36,8 @@ undo, persistence, spatial index, WebSocket protocol, MCP server), `ui`,
   with no alias or tsconfig `paths`.
 - Every package must have at least one test file. Vitest only fails an
   entirely empty run, so an inline reporter in the root config fails
-  `pnpm test` when any project globs zero test files, even on filtered runs.
+  `pnpm test` when any selected project globs zero test files (path filters
+  keep all projects selected; `--project` narrows the set).
 
 ## Tracking: beads
 
