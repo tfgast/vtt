@@ -564,10 +564,12 @@ type SubscriptionDelta = { subscription: string; objects: ObjectView[]; removed:
 - Applying every delta to the initial result yields what a fresh `subscribe`
   at that revision returns.
 - Board creation and removal (including by undo) are visibility-relevant for
-  character subscriptions: object views holding refs to that board (for
-  example in viewers values) are rebuilt, and log-window group views holding
-  refs to it are rebuilt (`redacted` while the board is gone, restored on
-  undo).
+  character subscriptions. In object views, a literal ref to a removed board
+  or object evaluates to `#REF` (FORMULAS.md §2.4), and a `visible_to` holding
+  one admits nobody; the holders' views are rebuilt on removal and again on
+  restoration. Log-window group views holding refs to it are rebuilt too;
+  there the ref is `redacted` while the board is gone and restored on undo,
+  the group-view representation (§7.6).
 
 **Evaluation** (FORMULAS.md §7). After each commit the authority evaluates
 what the changed subscribed views need: their cells, those cells' transitive
