@@ -2,8 +2,14 @@ export { App } from "./App";
 
 export * from "./assets/upload";
 export * from "./canvas/BoardCanvas";
+export * from "./inspector/ActionsList";
 export * from "./inspector/CellList";
 export * from "./inspector/CellRow";
+export * from "./inspector/ContentsList";
+export * from "./inspector/Inspector";
+export * from "./inspector/ObjectHeader";
+export * from "./inspector/ObjectList";
+export * from "./inspector/ShapeControl";
 export * from "./inspector/ViewersPicker";
 export * from "./interaction/contracts";
 export * from "./interaction/effects";

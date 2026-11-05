@@ -40,7 +40,7 @@ const SEED: WireOp[] = [
     init: {
       is_zone: true,
       shape: { type: "rect", width: 10, height: 10 },
-      cells: { name: text("Guard room"), z: num(0) },
+      cells: { name: text("Guard room") },
     },
   },
   {
@@ -49,20 +49,20 @@ const SEED: WireOp[] = [
     to: at(0, 0),
     init: {
       shape: { type: "rect", width: 40, height: 40 },
-      cells: { name: text("Map"), image: text("map.png"), z: num(10) },
+      cells: { name: text("Map"), image: text("map.png") },
     },
   },
   {
     type: "create_object",
     id: "aldric",
     to: at(1, 1),
-    init: { is_character: true, cells: { name: text("Aldric"), z: num(20) } },
+    init: { is_character: true, cells: { name: text("Aldric") } },
   },
   {
     type: "create_object",
     id: "goblin",
     to: at(3, 3),
-    init: { cells: { name: text("Goblin"), z: num(5) } },
+    init: { cells: { name: text("Goblin") } },
   },
   {
     type: "create_object",
@@ -75,7 +75,7 @@ const SEED: WireOp[] = [
     id: "trap",
     to: at(4, 4),
     init: {
-      cells: { name: text("Trap"), z: num(30), visible_to: { type: "viewers", viewers: ["gm"] } },
+      cells: { name: text("Trap"), visible_to: { type: "viewers", viewers: ["gm"] } },
     },
   },
   {
@@ -84,6 +84,16 @@ const SEED: WireOp[] = [
     to: { type: "board", board: "crypt", position: [0, 0] },
     init: { cells: { name: text("Statue") } },
   },
+  // Creation lands each object on top (FORMULAS.md §3.1); fix the stacking order.
+  ...(
+    [
+      ["room", 0],
+      ["map", 10],
+      ["aldric", 20],
+      ["goblin", 5],
+      ["trap", 30],
+    ] as const
+  ).map(([object, z]): WireOp => ({ type: "set_value", object, cell: "z", value: num(z) })),
 ];
 
 async function setup(): Promise<{ session: TableSession; ui: UiStore }> {
