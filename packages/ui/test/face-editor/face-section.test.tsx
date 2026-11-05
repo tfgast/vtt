@@ -8,7 +8,7 @@
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { WireOp } from "@vtt/protocol";
-import type { FaceLayout } from "@vtt/schema";
+import type { FaceElement, FaceLayout } from "@vtt/schema";
 import {
   createUiStore,
   defaultLayoutFor,
@@ -218,12 +218,20 @@ describe("editing fields", () => {
     const r = session.getSnapshot().revision;
     const x = within(element(2)).getByRole("textbox", { name: "x" });
     await user.click(x);
-    const theirs: FaceLayout = { elements: [FACE.elements[0] as FaceLayout["elements"][0]] };
+    // Another client changes the face (another element) after the focus.
+    const theirs: FaceLayout = {
+      ...FACE,
+      elements: [
+        FACE.elements[0] as FaceElement,
+        { ...(FACE.elements[1] as FaceElement), rect: [-2, -0.9, 3, 0.6] },
+        FACE.elements[2] as FaceElement,
+      ],
+    };
     await other.transact([{ type: "set_face", object: "tok", face: theirs }], {
       label: "Scribe sets the face",
     });
     await session.whenRevision(r + 1);
-    await until(() => faceOf(session)?.elements.length === 1, "the other face");
+    await until(() => faceOf(session)?.elements[1]?.rect[2] === 3, "the other face");
     await user.clear(x);
     await user.type(x, "1{Enter}");
     const notices = sessionNotices(session);
