@@ -128,6 +128,61 @@ export const ActionSchema = z.strictObject({
   steps: z.array(SourceSchema).min(1),
 });
 
+// ------------------------------------------------------------------- faces
+
+/** `[x, y, w, h]` in the object's unrotated local frame (DESIGN §4.6); `w`, `h` > 0. */
+const RectSchema = z.tuple([z.number(), z.number(), z.number().positive(), z.number().positive()]);
+
+const FaceStyleSchema = z.strictObject({
+  size: z.enum(["small", "normal", "large", "huge"]).optional(),
+  align: z.enum(["left", "center", "right"]).optional(),
+  caption: z.boolean().optional(),
+});
+
+const faceCommon = {
+  rect: RectSchema,
+  show_when: SourceSchema.optional(),
+  min_size: z.number().nonnegative().optional(),
+};
+
+/** One face element (DESIGN §4.6): a cell's value or editor, a button, or the contents. */
+export const FaceElementSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("value"),
+    cell: CellNameSchema,
+    ...faceCommon,
+    style: FaceStyleSchema.optional(),
+  }),
+  z.strictObject({
+    type: z.literal("editor"),
+    cell: CellNameSchema,
+    ...faceCommon,
+    style: FaceStyleSchema.optional(),
+  }),
+  z.strictObject({
+    type: z.literal("button"),
+    action: z.string().min(1),
+    ...faceCommon,
+    label: z.string().optional(),
+  }),
+  z.strictObject({
+    type: z.literal("contents"),
+    ...faceCommon,
+    entries: z.enum(["collapsed", "full"]).optional(),
+  }),
+]);
+
+/**
+ * A face layout (DESIGN §4.6; FIXTURES §3 Face, §11): the encoding of the
+ * object field `face`, copied verbatim on spawn. Structural only; the
+ * engine's limits (element counts, name lengths) are its own.
+ */
+export const FaceLayoutSchema = z.strictObject({
+  elements: z.array(FaceElementSchema),
+  collapsed: z.array(FaceElementSchema).optional(),
+  default_action: z.string().min(1).optional(),
+});
+
 export const ObjectSchema = z.strictObject({
   id: NameSchema,
   note: z.string().optional(),
@@ -140,6 +195,7 @@ export const ObjectSchema = z.strictObject({
   cells: z.record(CellNameSchema, CellContentSchema).optional(),
   cell_visibility: z.record(CellNameSchema, ViewersValueSchema).optional(),
   actions: z.array(ActionSchema).optional(),
+  face: FaceLayoutSchema.optional(),
 });
 
 export const BoardSchema = z.strictObject({
@@ -252,6 +308,21 @@ const note = { note: z.string().optional() };
  */
 export const ReplayExpectationSchema = z.strictObject({ type: z.literal("replay"), ...note });
 
+/**
+ * A face element is shown in a viewer's face view (FIXTURES §7, §11):
+ * `element` is its index in the stored list (`list` `"full"`, the default,
+ * for `elements`; `"collapsed"` for `collapsed`), `viewer` defaults to `gm`.
+ */
+export const FaceElementExpectationSchema = z.strictObject({
+  type: z.literal("face_element"),
+  object: NameSchema,
+  element: z.int().nonnegative(),
+  list: z.enum(["full", "collapsed"]).optional(),
+  viewer: ViewerSchema.optional(),
+  shown: z.boolean(),
+  ...note,
+});
+
 export const ExpectationSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("cell"),
@@ -326,6 +397,7 @@ export const ExpectationSchema = z.discriminatedUnion("type", [
     ...note,
   }),
   ReplayExpectationSchema,
+  FaceElementExpectationSchema,
 ]);
 
 export const StepSchema = z.strictObject({

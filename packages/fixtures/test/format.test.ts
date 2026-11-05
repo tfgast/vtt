@@ -728,3 +728,167 @@ describe("expectations", () => {
   test("replay takes no other fields", () =>
     rejects((s) => expectAfter(s, { type: "replay", extra: 1 }), /./));
 });
+
+describe("faces (M5, M5-D15)", () => {
+  /** A face on `aldric`: a value, a button for his Hurt action, and a collapsed list. */
+  const face = () => ({
+    elements: [
+      { type: "value", cell: "hp", rect: [-1, -0.5, 2, 0.5], style: { caption: true } },
+      {
+        type: "button",
+        action: "Hurt",
+        rect: [-1, 0, 2, 0.5],
+        label: "Hurt",
+        show_when: "hp > 0",
+        min_size: 12,
+      },
+      { type: "editor", cell: "damage_taken", rect: [-1, 0.5, 2, 0.5] },
+      { type: "contents", rect: [-1, 1, 2, 1], entries: "collapsed" },
+    ],
+    collapsed: [{ type: "value", cell: "name", rect: [0, 0, 6, 0.6] }],
+    default_action: "Hurt",
+  });
+  const withFace = (s: ReturnType<typeof base>, f: unknown) => {
+    (s.setup.objects[0] as Record<string, unknown>).face = f;
+  };
+  const expectAfter = (s: ReturnType<typeof base>, e: unknown) => {
+    (s.steps[0] as { expect: unknown[] }).expect.push(e);
+  };
+
+  test("a setup object may carry a face layout", () => {
+    const s = base();
+    withFace(s, face());
+    expect(issues(s)).toEqual([]);
+    expect(parseScenario(s).setup.objects[0]?.face).toEqual(face());
+  });
+  test("a face with only elements is valid", () => {
+    const s = base();
+    withFace(s, { elements: [] });
+    expect(issues(s)).toEqual([]);
+  });
+  test("a face rejects an unknown key", () =>
+    rejects((s) => withFace(s, { ...face(), colour: "red" }), /./));
+  test("a face element rejects an unknown key", () =>
+    rejects(
+      (s) =>
+        withFace(s, { elements: [{ type: "value", cell: "hp", rect: [0, 0, 1, 1], when: "x" }] }),
+      /./,
+    ));
+  test("an unknown element type", () =>
+    rejects((s) => withFace(s, { elements: [{ type: "slider", rect: [0, 0, 1, 1] }] }), /./));
+  test("a rect is four numbers with positive width and height", () => {
+    rejects((s) => withFace(s, { elements: [{ type: "contents", rect: [0, 0, 1] }] }), /./);
+    rejects((s) => withFace(s, { elements: [{ type: "contents", rect: [0, 0, 0, 1] }] }), /./);
+  });
+  test("show_when is non-blank source text", () =>
+    rejects(
+      (s) => withFace(s, { elements: [{ type: "contents", rect: [0, 0, 1, 1], show_when: "  " }] }),
+      /./,
+    ));
+
+  test("face_element is accepted with its defaults and with every field", () => {
+    const s = base();
+    withFace(s, face());
+    expectAfter(s, { type: "face_element", object: "aldric", element: 1, shown: true });
+    expectAfter(s, {
+      type: "face_element",
+      object: "aldric",
+      element: 0,
+      list: "collapsed",
+      viewer: "aldric",
+      shown: false,
+      note: "the collapsed face",
+    });
+    s.expect = [{ type: "face_element", object: "aldric", element: 1, list: "full", shown: true }];
+    expect(issues(s)).toEqual([]);
+  });
+  test("face_element rejects an unknown key", () =>
+    rejects(
+      (s) =>
+        expectAfter(s, {
+          type: "face_element",
+          object: "aldric",
+          element: 1,
+          shown: true,
+          visible: true,
+        }),
+      /./,
+    ));
+  test("face_element's element is a non-negative integer index", () => {
+    const fe = (element: unknown) => ({
+      type: "face_element",
+      object: "aldric",
+      element,
+      shown: true,
+    });
+    rejects((s) => expectAfter(s, fe(-1)), /./);
+    rejects((s) => expectAfter(s, fe(1.5)), /./);
+    rejects((s) => expectAfter(s, fe("Roll")), /./);
+  });
+  test("face_element's list is full or collapsed", () =>
+    rejects(
+      (s) =>
+        expectAfter(s, {
+          type: "face_element",
+          object: "aldric",
+          element: 0,
+          list: "expanded",
+          shown: true,
+        }),
+      /./,
+    ));
+  test("face_element names a known object", () =>
+    rejects(
+      (s) => expectAfter(s, { type: "face_element", object: "ghost", element: 0, shown: true }),
+      /unknown object or binding "ghost"/,
+    ));
+});
+
+describe("the Attack card scenario's face (FIXTURES.md §9, §11)", () => {
+  const file = join(import.meta.dirname, "..", "scenarios", "attack-card.json");
+
+  test("validates, with the Attack card face of DESIGN.md §4.6 on the template", async () => {
+    const s = await loadScenario(file);
+    const card = s.setup.objects.find((o) => o.id === "attack_card");
+    const buttons = card?.face?.elements.flatMap((e, i) =>
+      e.type === "button" ? [[i, e.action, e.show_when]] : [],
+    );
+    expect(buttons).toEqual([
+      [5, "Roll", "roll = empty"],
+      [6, "Roll damage", "hit and dmg = empty"],
+      [7, "Apply", "not applied"],
+    ]);
+    expect(card?.face?.default_action).toBe("Roll");
+  });
+
+  test("asserts the Roll (5) and Apply (7) buttons' show-when before and after Roll and Apply", async () => {
+    const s = await loadScenario(file);
+    const seen = (stepIndex: number) =>
+      (s.steps[stepIndex]?.expect ?? []).flatMap((e) =>
+        e.type === "face_element" && e.object === "attack1" && (e.viewer ?? "gm") === "gm"
+          ? [[e.element, e.shown]]
+          : [],
+      );
+    const roll = s.steps.findIndex((st) => st.do.type === "invoke" && st.do.action === "Roll");
+    const apply = s.steps.findIndex((st) => st.do.type === "invoke" && st.do.action === "Apply");
+    expect(seen(roll - 1)).toEqual(
+      expect.arrayContaining([
+        [5, true],
+        [7, true],
+      ]),
+    );
+    expect(seen(roll)).toEqual(
+      expect.arrayContaining([
+        [5, false],
+        [7, true],
+      ]),
+    );
+    expect(seen(apply - 1)).toEqual(expect.arrayContaining([[7, true]]));
+    expect(seen(apply)).toEqual(
+      expect.arrayContaining([
+        [5, false],
+        [7, false],
+      ]),
+    );
+  });
+});

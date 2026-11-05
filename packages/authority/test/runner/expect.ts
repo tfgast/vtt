@@ -1,12 +1,18 @@
 /**
- * Expectations (FIXTURES.md §7, §8, §11; vtt-75c.13). Each check returns
- * normally when it holds, throws ScenarioFailure when it does not, and
- * throws ScenarioError when the scenario uses it wrongly (an unknown name,
- * an expectation other than `exists` on a removed object). `action` is
- * skipped (M5); `rejected` is the rejection protocol's, in run.ts.
+ * Expectations (FIXTURES.md §7, §8, §11; vtt-75c.13, vtt-1xv.10). Each check
+ * returns normally when it holds, throws ScenarioFailure when it does not,
+ * and throws ScenarioError when the scenario uses it wrongly (an unknown
+ * name, an expectation other than `exists` on a removed object, an action
+ * or face element the object does not have). `rejected` is the rejection
+ * protocol's, in run.ts.
+ *
+ * `action` is what `explain_action` reports as `enabled`: no `when`, or
+ * `table.engine.evaluate(when, {thisId})` is boolean `true`. `face_element`
+ * is `faceElementVisible`, the predicate live face views use (review r2
+ * finding 11, r3 finding 6), so this runner and the protocol runner agree.
  */
 
-import { diffStoredState, replay, ScenarioError } from "@vtt/authority";
+import { diffStoredState, faceElementVisible, replay, ScenarioError } from "@vtt/authority";
 import type { Expectation, LogEffect } from "@vtt/fixtures";
 import type { CellState, Effect, Result, Value, ViewerEntry } from "@vtt/schema";
 import { liveObject, type RunState, resolveName, resolveValue } from "./steps";
@@ -99,13 +105,46 @@ function effectMatches(state: RunState, want: LogEffect, e: Effect): boolean {
   return written !== undefined && fixtureValueEquals(resolveValue(state, want.value), written);
 }
 
-/** Checks one expectation other than `rejected`. Returns false when it is skipped. */
+/**
+ * Checks one expectation other than `rejected`. Returns false when it is
+ * skipped; since M5 every type is checked, so it always returns true.
+ */
 export function checkExpectation(state: RunState, e: Expectation): boolean {
   const { table } = state;
   const { store } = table;
   switch (e.type) {
-    case "action":
-      return false;
+    case "action": {
+      const obj = liveObject(state, e.object);
+      const def = store.getObject(obj)?.actions.find((a) => a.name === e.action);
+      if (def === undefined) throw new ScenarioError(`${e.object} has no action "${e.action}"`);
+      const guard =
+        def.when === undefined ? undefined : table.engine.evaluate(def.when, { thisId: obj });
+      const got = guard === undefined || (guard.type === "boolean" && guard.value);
+      holds(
+        got === e.enabled,
+        () =>
+          `${e.object}[${e.action}]: expected enabled ${e.enabled}, got ${got}${guard === undefined ? " (no guard)" : ` (guard ${def.when} is ${show(guard)})`}`,
+      );
+      return true;
+    }
+    case "face_element": {
+      const obj = liveObject(state, e.object);
+      const list = e.list ?? "full";
+      const viewer = e.viewer ?? "gm";
+      const where = `${e.object} face ${list}[${e.element}]`;
+      const face = store.getObject(obj)?.face;
+      if (face === undefined) throw new ScenarioError(`${e.object} has no face layout`);
+      const stored = list === "full" ? face.elements : (face.collapsed ?? []);
+      if (e.element >= stored.length) {
+        throw new ScenarioError(`${where}: the stored list has ${stored.length} elements`);
+      }
+      const got = faceElementVisible(table, viewerOf(state, viewer), obj, {
+        list,
+        index: e.element,
+      });
+      holds(got === e.shown, () => `${where} for ${viewer}: expected shown ${e.shown}, got ${got}`);
+      return true;
+    }
     case "rejected":
       throw new Error("checkExpectation: rejected belongs to the rejection protocol");
     case "cell": {

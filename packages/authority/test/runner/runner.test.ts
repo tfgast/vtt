@@ -230,57 +230,9 @@ describe.each([
       run(valid({ dice: [roll14, roll14], steps: [setDamage(5), setDamage(6)] })),
     );
     expect(err).toBeInstanceOf(ScenarioError);
-    expect(err.message).toBe('"Synthetic": after step 1: 2 scripted dice entries unused');
-  });
-
-  test("a leftover dice entry in a partial run is not judged", () => {
-    const s = valid({
-      dice: [roll14],
-      setup: {
-        ...valid({}).setup,
-        objects: [
-          {
-            ...(valid({}).setup.objects[0] as object),
-            id: "aldric",
-            actions: [{ name: "Roll", steps: ["roll(1d20) -> value"] }],
-          },
-        ],
-      },
-      steps: [
-        setDamage(5),
-        { actor: "gm", do: { type: "invoke", object: "aldric", action: "Roll" } },
-      ],
-    });
-    expect(run(s)).toEqual({
-      title: "Synthetic",
-      complete: false,
-      stepsRun: 1,
-      stepsTotal: 2,
-      skipped: {},
-    });
-  });
-
-  test("action expectations are skipped and counted; other expectations still hold", () => {
-    const s = valid({
-      setup: {
-        ...valid({}).setup,
-        objects: [
-          {
-            ...(valid({}).setup.objects[0] as object),
-            id: "aldric",
-            actions: [{ name: "Heal", steps: ["set(damage_taken, 0)"] }],
-          },
-        ],
-      },
-      expect: [{ type: "action", object: "aldric", action: "Heal", enabled: true }],
-      steps: [
-        setDamage(5, [
-          { type: "action", object: "aldric", action: "Heal", enabled: true },
-          { type: "cell", object: "aldric", cell: "hp", value: n(22) },
-        ]),
-      ],
-    });
-    expect(run(s).skipped).toEqual({ action: 2 });
+    expect(err.message).toBe(
+      '"Synthetic": after step 1, expect dice script exhausted: 2 scripted dice entries unused',
+    );
   });
 
   test("acting on a removed object is a scenario error", () => {

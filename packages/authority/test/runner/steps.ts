@@ -1,18 +1,26 @@
 /**
- * Run state and the M2 steps (FIXTURES.md §1 Names, §6; vtt-75c.13): `set`,
- * `override`, `clear_override`, `move`, `spawn`, `undo` and `bind`.
+ * Run state and the steps (FIXTURES.md §1 Names, §6; vtt-75c.13, vtt-1xv.10):
+ * `set`, `override`, `clear_override`, `invoke`, `move`, `spawn`, `undo` and
+ * `bind`.
  *
- * Every step but `bind` and `undo` is one `transactWithDice` transaction, so
- * a refusal comes back as a rejection (for the rejection protocol, run.ts)
- * and a ScenarioError (a bad name, a step used wrongly, a bad dice script)
- * propagates. `undo` is the store's own transaction (`undo(store, actor,
- * {type: "latest"})`); it consumes no dice. `bind` changes nothing.
+ * `set`, `override`, `clear_override`, `move` and `spawn` are each one
+ * `transactWithDice` transaction, so a refusal comes back as a rejection
+ * (for the rejection protocol, run.ts) and a ScenarioError (a bad name, a
+ * step used wrongly, a bad dice script) propagates. `invoke` is the
+ * executor's `invokeAction` (core and placement handlers, review r2 finding
+ * 8) with the step's actor and the run's scripted dice: one group, or a
+ * refusal that consumes no dice. `undo` is the store's own transaction
+ * (`undo(store, actor, {type: "latest"})`); it consumes no dice. `bind`
+ * changes nothing.
  */
 
 import {
   clearOverride,
+  coreHandlers,
+  createExecutor,
   type Destination,
   move,
+  placementHandlers,
   ScenarioError,
   type ScriptedDiceEntry,
   ScriptedDiceSource,
@@ -147,7 +155,10 @@ const outcome = (r: TransactResult): StepOutcome =>
 /** The stored content of `obj`.`cell` in the transaction's working copy. */
 const stored = (tx: Transaction, obj: ObjectId, cell: string) => tx.doc.getCell(obj, cell);
 
-/** Applies one step that is not `invoke`. */
+/** The executor `invoke` steps run through: every step kind (FORMULAS §8.3). */
+const EXECUTOR = createExecutor({ handlers: [...coreHandlers, ...placementHandlers] });
+
+/** Applies one step. */
 export function applyStep(state: RunState, step: Step): StepOutcome {
   const d = step.do;
   if (d.type === "bind") {
@@ -230,8 +241,15 @@ export function applyStep(state: RunState, step: Step): StepOutcome {
     }
     case "undo":
       return outcome(undo(state.table.store, actor, { type: "latest" }));
-    case "invoke":
-      throw new ScenarioError("invoke steps are not supported before M5");
+    case "invoke": {
+      const obj = liveObject(state, d.object);
+      const result = EXECUTOR.invokeAction(state.table, state.dice, {
+        object: obj,
+        action: d.action,
+        actor,
+      });
+      return result.ok ? { type: "committed" } : { type: "refused", rejection: result.rejection };
+    }
   }
 }
 

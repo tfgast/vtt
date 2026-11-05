@@ -12,6 +12,9 @@ import type {
   DoSchema,
   ErrorCodeSchema,
   ExpectationSchema,
+  FaceElementExpectationSchema,
+  FaceElementSchema,
+  FaceLayoutSchema,
   FormulaSchema,
   LogEffectSchema,
   ObjectSchema,
@@ -37,6 +40,8 @@ export type TableObject = z.infer<typeof ObjectSchema>;
 export type Placement = z.infer<typeof PlacementSchema>;
 export type Shape = z.infer<typeof ShapeSchema>;
 export type Action = z.infer<typeof ActionSchema>;
+export type FaceLayout = z.infer<typeof FaceLayoutSchema>;
+export type FaceElement = z.infer<typeof FaceElementSchema>;
 
 export type Value = z.infer<typeof ValueSchema>;
 export type RefValue = z.infer<typeof RefValueSchema>;
@@ -56,5 +61,6 @@ export type Destination = z.infer<typeof DestinationSchema>;
 
 export type Expectation = z.infer<typeof ExpectationSchema>;
 export type ReplayExpectation = z.infer<typeof ReplayExpectationSchema>;
+export type FaceElementExpectation = z.infer<typeof FaceElementExpectationSchema>;
 export type RejectionReason = z.infer<typeof RejectionReasonSchema>;
 export type LogEffect = z.infer<typeof LogEffectSchema>;
