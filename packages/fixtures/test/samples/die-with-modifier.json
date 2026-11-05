@@ -1,0 +1,182 @@
+{
+  "title": "A d20 template rolled loose and as a character's attack die",
+  "source": "A die with a modifier",
+  "description": "One die template. The GM's loose die has modifier empty, so total equals value. Aldric's die is spawned with owner set and modifier as the formula owner.attack_bonus, so total follows Aldric's bonus. The goblin-owned variant is left to the transcription bead.",
+  "setup": {
+    "boards": [{ "id": "table", "name": "Table" }, { "id": "gm_board", "name": "GM board" }],
+    "characters": ["aldric"],
+    "objects": [
+      {
+        "id": "aldric",
+        "tag": ["pc"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [0, 0] },
+        "cells": {
+          "name": { "type": "text", "value": "Aldric" },
+          "attack_bonus": { "type": "number", "value": 5 }
+        }
+      },
+      {
+        "id": "gm_binder",
+        "tag": ["binder"],
+        "placement": { "board": "gm_board", "position": [0, 0] },
+        "contents": ["d20"],
+        "cells": {
+          "name": { "type": "text", "value": "GM binder" },
+          "visible_to": { "type": "viewers", "viewers": ["gm"] }
+        }
+      },
+      {
+        "id": "d20",
+        "is_template": true,
+        "tag": ["die", "d20"],
+        "shape": { "type": "rect", "width": 1, "height": 1 },
+        "cells": {
+          "name": { "type": "text", "value": "d20" },
+          "sides": { "type": "number", "value": 20 },
+          "modifier": { "type": "empty" },
+          "value": { "type": "empty" },
+          "total": { "type": "formula", "source": "value + modifier" }
+        },
+        "actions": [{ "name": "Roll", "steps": ["roll(1d20) -> value"] }]
+      }
+    ]
+  },
+  "dice": [
+    { "type": "roll", "expr": "1d20", "dice": [14], "dropped": [], "total": 14 },
+    { "type": "roll", "expr": "1d20", "dice": [11], "dropped": [], "total": 11 }
+  ],
+  "steps": [
+    {
+      "actor": "gm",
+      "note": "The GM drags a loose die onto the table.",
+      "do": {
+        "type": "spawn",
+        "template": "d20",
+        "to": { "type": "board", "board": "table", "position": [4, 0] },
+        "as": "gm_die"
+      },
+      "expect": [
+        { "type": "placement", "object": "gm_die", "board": "table", "position": [4, 0] },
+        {
+          "type": "cell",
+          "object": "gm_die",
+          "cell": "template",
+          "value": { "type": "ref", "object": "d20" }
+        },
+        { "type": "cell", "object": "gm_die", "cell": "modifier", "value": { "type": "empty" } },
+        {
+          "type": "cell",
+          "object": "gm_die",
+          "cell": "total",
+          "value": { "type": "number", "value": 0 }
+        },
+        { "type": "contents", "object": "gm_binder", "contents": ["d20"] }
+      ]
+    },
+    {
+      "actor": "gm",
+      "do": { "type": "invoke", "object": "gm_die", "action": "Roll" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "gm_die",
+          "cell": "value",
+          "value": { "type": "roll", "expr": "1d20", "dice": [14], "dropped": [], "total": 14 }
+        },
+        {
+          "type": "cell",
+          "object": "gm_die",
+          "cell": "total",
+          "value": { "type": "number", "value": 14 }
+        },
+        {
+          "type": "log_includes",
+          "group": -1,
+          "effect": {
+            "type": "roll",
+            "object": "gm_die",
+            "cell": "value",
+            "value": { "type": "roll", "expr": "1d20", "dice": [14], "dropped": [], "total": 14 }
+          }
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Aldric's attack die: the same template, owner set at spawn, modifier a formula.",
+      "do": {
+        "type": "spawn",
+        "template": "d20",
+        "to": { "type": "board", "board": "table", "position": [1, 0] },
+        "cells": {
+          "owner": { "type": "ref", "object": "aldric" },
+          "modifier": { "type": "formula", "source": "owner.attack_bonus" }
+        },
+        "as": "aldric_die"
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric_die",
+          "cell": "modifier",
+          "value": { "type": "number", "value": 5 }
+        },
+        {
+          "type": "cell",
+          "object": "aldric_die",
+          "cell": "total",
+          "value": { "type": "number", "value": 5 }
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Aldric rolls his own die.",
+      "do": { "type": "invoke", "object": "aldric_die", "action": "Roll" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric_die",
+          "cell": "total",
+          "value": { "type": "number", "value": 16 }
+        },
+        {
+          "type": "cell",
+          "object": "gm_die",
+          "cell": "total",
+          "value": { "type": "number", "value": 14 }
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "The modifier is live: raising Aldric's bonus raises the die's total without a reroll.",
+      "do": {
+        "type": "set",
+        "object": "aldric",
+        "cell": "attack_bonus",
+        "value": { "type": "number", "value": 6 }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric_die",
+          "cell": "total",
+          "value": { "type": "number", "value": 17 }
+        },
+        { "type": "log_groups", "count": 5 },
+        {
+          "type": "log_includes",
+          "group": 3,
+          "effect": {
+            "type": "roll",
+            "object": "aldric_die",
+            "cell": "value",
+            "value": { "type": "roll", "expr": "1d20", "dice": [11], "dropped": [], "total": 11 }
+          }
+        }
+      ]
+    }
+  ]
+}
