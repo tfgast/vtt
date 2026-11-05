@@ -1,6 +1,7 @@
 export * from "./compare";
 export * from "./doc";
 export * from "./document-store";
+export * from "./edits";
 export * from "./effects";
 export * from "./history";
 export * from "./replay";
