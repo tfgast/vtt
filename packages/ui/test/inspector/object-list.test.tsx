@@ -96,7 +96,11 @@ const SEED: WireOp[] = [
   ).map(([object, z]): WireOp => ({ type: "set_value", object, cell: "z", value: num(z) })),
 ];
 
-async function setup(): Promise<{ session: TableSession; ui: UiStore }> {
+async function setup(): Promise<{
+  session: TableSession;
+  ui: UiStore;
+  seed: Awaited<ReturnType<Awaited<ReturnType<typeof startAuthority>>["client"]>>;
+}> {
   const authority = await startAuthority();
   const seed = await authority.client("seed");
   await seed.transact(SEED, { label: "Seed" });
@@ -106,7 +110,7 @@ async function setup(): Promise<{ session: TableSession; ui: UiStore }> {
   await until(() => session.boardView()?.objects.has("trap") === true, "the board view");
   const ui = createUiStore({ session });
   render(<ObjectList session={session} ui={ui} />);
-  return { session, ui };
+  return { session, ui, seed };
 }
 
 const rows = () =>
@@ -177,4 +181,95 @@ test("the inspector has an Objects tab holding the list", async () => {
       name: "Guard room",
     }),
   ).toBeDefined();
+});
+
+test("an object whose position is invalid, or hidden from the viewer, is still listed", async () => {
+  const { session, seed } = await setup();
+  await seed.transact(
+    [
+      {
+        type: "create_object",
+        id: "broken",
+        to: at(6, 6),
+        init: { cells: { name: text("Broken") } },
+      },
+      { type: "set_value", object: "broken", cell: "z", value: num(25) },
+      { type: "set_formula", object: "broken", cell: "position", source: "1 / 0" },
+      {
+        type: "create_object",
+        id: "sneak",
+        to: at(2, 2),
+        init: { cells: { name: text("Sneak") } },
+      },
+      { type: "set_value", object: "sneak", cell: "z", value: num(15) },
+      {
+        type: "set_cell_visibility",
+        object: "sneak",
+        cell: "position",
+        viewers: { type: "viewers", viewers: ["gm"] },
+      },
+    ],
+    { label: "Add broken and sneak" },
+  );
+  await session.whenRevision(2);
+  await until(() => ids().includes("broken"), "the broken token");
+  expect(ids()).toEqual(["trap", "broken", "aldric", "sneak", "map", "goblin", "room"]);
+  await act(() =>
+    session.setView(session.getSnapshot().activeBoard, { type: "character", id: "aldric" }),
+  );
+  await until(() => !ids().includes("trap"), "Aldric's list");
+  expect(session.objectView("sneak")?.cells.position).toBeUndefined();
+  expect(ids()).toEqual(["broken", "aldric", "sneak", "map", "goblin", "room"]);
+});
+
+test("a hovered zone row that disappears clears hoveredZone", async () => {
+  const user = userEvent.setup();
+  const { session, ui, seed } = await setup();
+  await user.hover(rowOf("room"));
+  expect(ui.getState().hoveredZone).toBe("room");
+  await seed.transact([{ type: "remove", object: "room" }], { label: "Remove room" });
+  await session.whenRevision(2);
+  await until(() => !ids().includes("room"), "the room row to go");
+  expect(ui.getState().hoveredZone).toBeNull();
+});
+
+test("a board change clears the list's zone hover, but not a hover it does not own", async () => {
+  const user = userEvent.setup();
+  const { session, ui } = await setup();
+  await user.hover(rowOf("room"));
+  expect(ui.getState().hoveredZone).toBe("room");
+  await act(() => session.setView("crypt", { type: "gm" }));
+  await until(() => ids().join() === "statue", "the crypt list");
+  expect(ui.getState().hoveredZone).toBeNull();
+  // A hover set by someone else (the canvas) is left alone.
+  act(() => ui.setHoveredZone("room"));
+  await act(() => session.setView("gm_board", { type: "gm" }));
+  await until(() => ids().includes("room"), "the gm board list");
+  await act(() => session.setView("crypt", { type: "gm" }));
+  await until(() => ids().join() === "statue", "the crypt list again");
+  expect(ui.getState().hoveredZone).toBe("room");
+});
+
+test("a viewer change that hides the hovered zone clears hoveredZone", async () => {
+  const user = userEvent.setup();
+  const { session, ui, seed } = await setup();
+  await seed.transact(
+    [
+      {
+        type: "set_value",
+        object: "room",
+        cell: "visible_to",
+        value: { type: "viewers", viewers: ["gm"] },
+      },
+    ],
+    { label: "Hide room" },
+  );
+  await session.whenRevision(2);
+  await user.hover(rowOf("room"));
+  expect(ui.getState().hoveredZone).toBe("room");
+  await act(() =>
+    session.setView(session.getSnapshot().activeBoard, { type: "character", id: "aldric" }),
+  );
+  await until(() => !ids().includes("room"), "Aldric's list");
+  expect(ui.getState().hoveredZone).toBeNull();
 });
