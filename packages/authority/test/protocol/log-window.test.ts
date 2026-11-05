@@ -8,6 +8,7 @@
  * with the same params at the same revision.
  */
 import {
+  compactLog,
   createSubscriptionHub,
   logScopeProvider,
   remove,
@@ -33,6 +34,7 @@ import {
 import {
   type Actor,
   bool,
+  list,
   num,
   ref,
   type TableObject,
@@ -100,6 +102,7 @@ class Harness {
   constructor(table: Table = world()) {
     this.table = table;
     this.hub = createSubscriptionHub(table);
+    this.hub.addConnection("c1");
     this.hub.onCommitEvent((conn, event) => {
       expect(conn).toBe("c1");
       CommitEventSchema.parse(event);
@@ -410,6 +413,23 @@ describe("commits", () => {
     h.check();
   });
 
+  test("groups compacted away between commits are reported removed by the next commit", () => {
+    const h = new Harness();
+    const gm = h.log();
+    const indices: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      indices.push(
+        h.commit(`n${i}`, (tx) => writeValue(tx, "note", "text", text(`t${i}`))).group.index,
+      );
+    }
+    compactLog(h.table.store, 1);
+    const e = h.commit("after", (tx) => writeValue(tx, "note", "text", text("after")));
+    const d = deltaOf(e, gm.id);
+    expect(upserted(d)).toEqual([e.group.index]);
+    expect(d?.groups_removed).toEqual(indices.slice(0, 3));
+    h.check();
+  });
+
   test("a commit that changes no group view in the window yields no log delta entry", () => {
     const h = new Harness();
     const gm = h.log();
@@ -426,7 +446,9 @@ describe("commits", () => {
     const al = h.log(ALDRIC);
     h.commit("write", (tx) => writeValue(tx, "note", "text", text("x")));
     // Moving the hidden goblin is visibility-relevant but changes no view Aldric has.
-    const e = h.commit("move goblin", (tx) => writeValue(tx, "goblin", "position", at(11, 11)));
+    const e = h.commit("move goblin", (tx) =>
+      writeValue(tx, "goblin", "position", list([num(11), num(11)])),
+    );
     expect(deltaOf(e, al.id)).toBeUndefined();
     h.check();
   });
