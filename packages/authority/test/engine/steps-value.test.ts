@@ -240,23 +240,18 @@ describe("set", () => {
     expect(value(table, "o", "a")).toEqual(num(0));
   });
 
-  test.each([
-    "id",
-    "contents",
-    "container",
-    "board",
-    "is_zone",
-    "template",
-    "shape",
-  ])("set(%s, …) is protected_cell with step 0", (cell) => {
-    const table = tableWith([`set(${cell}, empty)`]);
-    const { outcome } = go(table);
-    expect(outcome).toEqual({
-      ok: false,
-      step: 0,
-      rejection: { type: "protected_cell", object: "o", cell },
-    });
-  });
+  test.each(["id", "contents", "container", "board", "is_zone", "template", "shape"])(
+    "set(%s, …) is protected_cell with step 0",
+    (cell) => {
+      const table = tableWith([`set(${cell}, empty)`]);
+      const { outcome } = go(table);
+      expect(outcome).toEqual({
+        ok: false,
+        step: 0,
+        rejection: { type: "protected_cell", object: "o", cell },
+      });
+    },
+  );
 
   test("set(contents, []) is protected_cell with step 0", () => {
     const table = tableWith(["set(contents, [])"]);

@@ -40,7 +40,7 @@ const core = createExecutor({ handlers: coreHandlers });
 function doc(actions: ActionDef[], cells: Record<string, ReturnType<typeof c>> = {}): Snapshot {
   return snapshot([
     placed("o", 0, 0, { cells: { a: c(num(0)), b: c(num(0)), ...cells }, actions }),
-    obj("tpl", { is_template: true, cells: { kind: c(num(1)) } }),
+    placed("tpl", 9, 9, { is_template: true, cells: { kind: c(num(1)) } }),
     placed("box", 5, 5),
   ]);
 }
@@ -134,7 +134,9 @@ describe("evaluation order", () => {
 
   test("the guard reads the committed revision", () => {
     const table = tableOf([{ name: "Go", when: "a = 5", steps: ["set(b, 1)"] }]);
-    table.store.transact(gm, { kind: "edit", label: "e" }, (tx) => writeValue(tx, "o", "a", num(5)));
+    table.store.transact(gm, { kind: "edit", label: "e" }, (tx) =>
+      writeValue(tx, "o", "a", num(5)),
+    );
     const r = core.invokeAction(table, new ScriptedDiceSource([]), {
       object: "o",
       action: "Go",
