@@ -1,0 +1,518 @@
+{
+  "title": "An Attack card rolls, rolls damage, and applies once",
+  "source": "An Attack card",
+  "description": "The Attack card template sits in Aldric's binder. Aldric spawns it onto the table with attacker set to himself (the binder's owner), targets the goblin, rolls 12 to hit (12 + 5 = 17 against AC 13), rolls 1d8+3 damage for 8, and applies it. Every guard is checked before and after each step. A second Apply is disabled and its attempted invocation is refused with nothing changed. Undo of Apply restores the goblin's damage_taken and the card's applied. Scripted numbers: attack_bonus 5, damage_dice 1d8+3, goblin ac 13, attack roll 1d20 = [12], damage roll 1d8+3 = [5] + 3 = 8.",
+  "setup": {
+    "boards": [{ "id": "table", "name": "Table" }],
+    "characters": ["aldric"],
+    "objects": [
+      {
+        "id": "aldric",
+        "tag": ["pc"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [0, 0] },
+        "cells": {
+          "name": { "type": "text", "value": "Aldric" },
+          "attack_bonus": { "type": "number", "value": 5 },
+          "damage_dice": { "type": "dice", "expr": "1d8+3" }
+        }
+      },
+      {
+        "id": "aldric_binder",
+        "note": "DESIGN §4.4: a binder is a container visible to its owner.",
+        "tag": ["binder"],
+        "placement": { "board": "table", "position": [-6, 0] },
+        "contents": ["attack_card"],
+        "cells": {
+          "name": { "type": "text", "value": "Aldric's binder" },
+          "owner": { "type": "ref", "object": "aldric" },
+          "visible_to": { "type": "viewers", "viewers": [{ "type": "ref", "object": "aldric" }] }
+        }
+      },
+      {
+        "id": "attack_card",
+        "note": "FORMULAS §10 An Attack card, cell for cell. attacker is empty on the template; it is set at spawn.",
+        "is_template": true,
+        "tag": ["card", "attack"],
+        "shape": { "type": "rect", "width": 2, "height": 3 },
+        "cells": {
+          "name": { "type": "text", "value": "Attack" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] },
+          "face_up": { "type": "boolean", "value": true },
+          "attacker": { "type": "empty" },
+          "target": { "type": "empty" },
+          "roll": { "type": "empty" },
+          "dmg": { "type": "empty" },
+          "applied": { "type": "boolean", "value": false },
+          "bonus": { "type": "formula", "source": "attacker.attack_bonus" },
+          "total": { "type": "formula", "source": "roll + bonus" },
+          "hit": { "type": "formula", "source": "roll != empty and total >= target.ac" }
+        },
+        "actions": [
+          {
+            "name": "Roll",
+            "when": "target != empty and roll = empty",
+            "steps": ["roll(1d20) -> roll"]
+          },
+          {
+            "name": "Roll damage",
+            "when": "hit and dmg = empty",
+            "steps": ["roll(attacker.damage_dice) -> dmg"]
+          },
+          {
+            "name": "Apply",
+            "when": "hit and dmg != empty and not applied",
+            "steps": ["add(target.damage_taken, dmg)", "set(applied, true)"]
+          }
+        ]
+      },
+      {
+        "id": "goblin1",
+        "tag": ["creature", "goblin"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [5, 5] },
+        "cells": {
+          "name": { "type": "text", "value": "Goblin" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] },
+          "face_up": { "type": "boolean", "value": true },
+          "ac": { "type": "number", "value": 13 },
+          "damage_taken": { "type": "number", "value": 0 }
+        },
+        "cell_visibility": { "ac": { "type": "viewers", "viewers": ["gm"] } }
+      }
+    ]
+  },
+  "dice": [
+    { "type": "roll", "expr": "1d20", "dice": [12], "dropped": [], "total": 12 },
+    { "type": "roll", "expr": "1d8+3", "dice": [5], "dropped": [], "total": 8 }
+  ],
+  "expect": [
+    { "type": "log_groups", "count": 0, "note": "Nothing has happened yet." },
+    {
+      "type": "cell_visible",
+      "object": "goblin1",
+      "cell": "ac",
+      "viewer": "aldric",
+      "visible": false,
+      "note": "The goblin's ac is GM-only (FIXTURES §9: the goblin's ac is not visible to Aldric)."
+    }
+  ],
+  "steps": [
+    {
+      "actor": "aldric",
+      "note": "Aldric drags the Attack card out of his binder. \"attacker: (set at spawn to the binder's owner)\"; the format records the resulting literal, a reference to Aldric.",
+      "do": {
+        "type": "spawn",
+        "template": "attack_card",
+        "to": { "type": "board", "board": "table", "position": [2, 0] },
+        "cells": { "attacker": { "type": "ref", "object": "aldric" } },
+        "as": "attack1"
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "attacker",
+          "value": { "type": "ref", "object": "aldric" },
+          "note": "attacker: (set at spawn to the binder's owner)"
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "template",
+          "value": { "type": "ref", "object": "attack_card" },
+          "note": "FORMULAS §8.3 spawn: set template."
+        },
+        {
+          "type": "contents",
+          "object": "aldric_binder",
+          "contents": ["attack_card"],
+          "note": "Spawning copies; the template stays in the binder."
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "bonus",
+          "value": { "type": "number", "value": 5 },
+          "note": "bonus = attacker.attack_bonus"
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "total",
+          "value": { "type": "number", "value": 5 },
+          "note": "total = roll + bonus, with roll empty acting as 0 in arithmetic (§2.1)."
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "hit",
+          "value": { "type": "boolean", "value": false },
+          "note": "hit = roll != empty and total >= target.ac; roll is empty, so `and` short-circuits to false."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll",
+          "enabled": false,
+          "note": "[Roll] when: target != empty and roll = empty; target is empty."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll damage",
+          "enabled": false,
+          "note": "[Roll damage] when: hit and dmg = empty; hit is false."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Apply",
+          "enabled": false,
+          "note": "[Apply] when: hit and dmg != empty and not applied; hit is false."
+        },
+        { "type": "log_groups", "count": 1, "note": "A spawn is one group (FIXTURES §8)." }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "\"target is set with a set of a ref value\" (FIXTURES §9).",
+      "do": {
+        "type": "set",
+        "object": "attack1",
+        "cell": "target",
+        "value": { "type": "ref", "object": "goblin1" }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "target",
+          "value": { "type": "ref", "object": "goblin1" },
+          "note": "target: empty, now set to the goblin."
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "hit",
+          "value": { "type": "boolean", "value": false },
+          "note": "hit = roll != empty and ...; still no roll."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll",
+          "enabled": true,
+          "note": "[Roll] when: target != empty and roll = empty; both hold now."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll damage",
+          "enabled": false,
+          "note": "[Roll damage] when: hit and dmg = empty; hit is false."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Apply",
+          "enabled": false,
+          "note": "[Apply] when: hit and ...; hit is false."
+        },
+        { "type": "log_groups", "count": 2, "note": "A set is one group (FIXTURES §8)." }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Aldric rolls to hit: scripted 1d20 = 12.",
+      "do": { "type": "invoke", "object": "attack1", "action": "Roll" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "roll",
+          "value": { "type": "roll", "expr": "1d20", "dice": [12], "dropped": [], "total": 12 },
+          "note": "[Roll] roll(1d20) -> roll"
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "total",
+          "value": { "type": "number", "value": 17 },
+          "note": "total = roll + bonus = 12 + 5; a roll result acts as its total in arithmetic (§2.2)."
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "hit",
+          "value": { "type": "boolean", "value": true },
+          "note": "hit = roll != empty and total >= target.ac: 17 >= 13."
+        },
+        {
+          "type": "cell_visible",
+          "object": "attack1",
+          "cell": "hit",
+          "viewer": "aldric",
+          "visible": true,
+          "note": "hit is visible to Aldric while the goblin's ac is not (FIXTURES §9; FORMULAS §9: the formula still computes and the viewer sees the result)."
+        },
+        {
+          "type": "cell_visible",
+          "object": "goblin1",
+          "cell": "ac",
+          "viewer": "aldric",
+          "visible": false,
+          "note": "hit is visible to Aldric while the goblin's ac is not (FIXTURES §9)."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll",
+          "enabled": false,
+          "note": "[Roll] when: ... and roll = empty; roll is set."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll damage",
+          "enabled": true,
+          "note": "[Roll damage] when: hit and dmg = empty; both hold now."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Apply",
+          "enabled": false,
+          "note": "[Apply] when: hit and dmg != empty and ...; dmg is empty."
+        },
+        { "type": "log_groups", "count": 3, "note": "An invoke is one group (FIXTURES §8)." },
+        {
+          "type": "log_includes",
+          "group": -1,
+          "effect": {
+            "type": "roll",
+            "object": "attack1",
+            "cell": "roll",
+            "value": { "type": "roll", "expr": "1d20", "dice": [12], "dropped": [], "total": 12 }
+          },
+          "note": "Logged with the resolved values: the dice rolled (FORMULAS §8.1)."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Aldric rolls damage: attacker.damage_dice is 1d8+3; scripted [5] for a total of 8.",
+      "do": { "type": "invoke", "object": "attack1", "action": "Roll damage" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "dmg",
+          "value": { "type": "roll", "expr": "1d8+3", "dice": [5], "dropped": [], "total": 8 },
+          "note": "[Roll damage] roll(attacker.damage_dice) -> dmg"
+        },
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "damage_taken",
+          "value": { "type": "number", "value": 0 },
+          "note": "Rolling damage writes only dmg; nothing is applied until Apply."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll",
+          "enabled": false,
+          "note": "[Roll] when: ... and roll = empty; roll is set."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll damage",
+          "enabled": false,
+          "note": "[Roll damage] when: hit and dmg = empty; dmg is set."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Apply",
+          "enabled": true,
+          "note": "[Apply] when: hit and dmg != empty and not applied; all hold now."
+        },
+        { "type": "log_groups", "count": 4, "note": "An invoke is one group (FIXTURES §8)." },
+        {
+          "type": "log_includes",
+          "group": -1,
+          "effect": {
+            "type": "roll",
+            "object": "attack1",
+            "cell": "dmg",
+            "value": { "type": "roll", "expr": "1d8+3", "dice": [5], "dropped": [], "total": 8 }
+          },
+          "note": "Logged with the resolved values: the dice rolled (FORMULAS §8.1)."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Aldric applies the damage.",
+      "do": { "type": "invoke", "object": "attack1", "action": "Apply" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "damage_taken",
+          "value": { "type": "number", "value": 8 },
+          "note": "[Apply] add(target.damage_taken, dmg): 0 + 8."
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "applied",
+          "value": { "type": "boolean", "value": true },
+          "note": "[Apply] set(applied, true)"
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Apply",
+          "enabled": false,
+          "note": "After Apply, a second Apply is shown disabled: when: ... and not applied (FIXTURES §9)."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll",
+          "enabled": false,
+          "note": "[Roll] when: ... and roll = empty; roll is set."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll damage",
+          "enabled": false,
+          "note": "[Roll damage] when: hit and dmg = empty; dmg is set."
+        },
+        {
+          "type": "log_groups",
+          "count": 5,
+          "note": "An invoke is one group for the whole action (FIXTURES §8)."
+        },
+        {
+          "type": "log_includes",
+          "group": -1,
+          "effect": {
+            "type": "write",
+            "object": "goblin1",
+            "cell": "damage_taken",
+            "value": { "type": "number", "value": 8 }
+          },
+          "note": "For add, the log records the resulting sum, not the increment (FIXTURES §7)."
+        },
+        {
+          "type": "log_includes",
+          "group": -1,
+          "effect": {
+            "type": "write",
+            "object": "attack1",
+            "cell": "applied",
+            "value": { "type": "boolean", "value": true }
+          },
+          "note": "Both steps of Apply are in the one group (FORMULAS §8.1: logged as one entry)."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "An attempted second Apply. \"The when guards are what make a second Apply impossible.\"",
+      "do": { "type": "invoke", "object": "attack1", "action": "Apply" },
+      "expect": [
+        {
+          "type": "rejected",
+          "reason": { "type": "when_false" },
+          "note": "If false, the action does not run and the button reports why (FORMULAS §8.1)."
+        },
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "damage_taken",
+          "value": { "type": "number", "value": 8 },
+          "note": "No state change: damage is not applied twice."
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "applied",
+          "value": { "type": "boolean", "value": true },
+          "note": "No state change."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Apply",
+          "enabled": false,
+          "note": "Still disabled: not applied is false."
+        },
+        {
+          "type": "log_groups",
+          "count": 5,
+          "note": "A refused step appends no log group (FIXTURES §6)."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Undo reverses the whole Apply action (FORMULAS §8.1).",
+      "do": { "type": "undo" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "damage_taken",
+          "value": { "type": "number", "value": 0 },
+          "note": "undo of Apply restores target.damage_taken (FIXTURES §9)."
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "applied",
+          "value": { "type": "boolean", "value": false },
+          "note": "undo of Apply restores applied (FIXTURES §9)."
+        },
+        {
+          "type": "cell",
+          "object": "attack1",
+          "cell": "dmg",
+          "value": { "type": "roll", "expr": "1d8+3", "dice": [5], "dropped": [], "total": 8 },
+          "note": "One undo reverses one whole action: only Apply; the earlier Roll damage stands."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Apply",
+          "enabled": true,
+          "note": "[Apply] when: hit and dmg != empty and not applied; applied is false again."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll damage",
+          "enabled": false,
+          "note": "[Roll damage] when: hit and dmg = empty; dmg is still set."
+        },
+        {
+          "type": "action",
+          "object": "attack1",
+          "action": "Roll",
+          "enabled": false,
+          "note": "[Roll] when: ... and roll = empty; roll is still set."
+        },
+        {
+          "type": "log_groups",
+          "count": 6,
+          "note": "Undo is itself an operation and appends one group; it does not delete the Apply group (FIXTURES §8)."
+        }
+      ]
+    }
+  ]
+}
