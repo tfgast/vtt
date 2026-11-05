@@ -57,17 +57,30 @@ function roundHalfAway(x: number): number {
   return Math.sign(x) * Math.round(Math.abs(x));
 }
 
+/** Powers of ten are applied in steps of at most this, so no factor overflows. */
+const MAX_STEP = 300;
+
 /** `round(x, places)`: `places` decimal digits (negative rounds to tens, hundreds, …). */
 function round([x, places = 0]: readonly number[]): Result {
   const v = x as number;
   if (!Number.isInteger(places))
     return typeError(`round: places must be an integer, got ${places}`);
+  if (v === 0) return num(0);
   if (places >= 0) {
-    const m = 10 ** places;
-    const scaled = v * m;
-    // Too large to carry a fraction at this precision: already rounded.
-    if (!Number.isFinite(scaled) || Math.abs(scaled) >= 2 ** 52) return finite(v);
-    return finite(roundHalfAway(scaled) / m);
+    // Scale up in steps so a tiny (even subnormal) x meets a large places
+    // without an infinite multiplier. Once the scaled value cannot carry a
+    // fraction, x is already as precise as that many places: return it.
+    const steps: number[] = [];
+    let scaled = v;
+    for (let left = places; left > 0; left -= MAX_STEP) {
+      const step = 10 ** Math.min(left, MAX_STEP);
+      scaled *= step;
+      steps.push(step);
+      if (!Number.isFinite(scaled) || Math.abs(scaled) >= 2 ** 52) return finite(v);
+    }
+    let result = roundHalfAway(scaled);
+    for (const step of steps) result /= step;
+    return finite(result);
   }
   const m = 10 ** -places;
   if (!Number.isFinite(m)) return num(0);

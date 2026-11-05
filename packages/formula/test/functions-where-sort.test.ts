@@ -110,8 +110,8 @@ describe("where with aggregates (Done-when)", () => {
   const cup = new FakeEnv({
     self: { cup: ref("cup") },
     cup: { contents: refs("d1", "d2", "coin") },
-    d1: { tag: tags("die", "d6"), value: num(4) },
-    d2: { tag: tags("die", "d6"), value: num(6) },
+    d1: { tag: tags("die", "d6"), value: roll("1d6", 4) },
+    d2: { tag: tags("die", "d6"), value: roll("1d6", 6) },
     coin: { tag: tags("coin"), value: text("heads") },
   });
   const emptyCup = new FakeEnv({ self: { cup: ref("cup") }, cup: { contents: list([]) } });
