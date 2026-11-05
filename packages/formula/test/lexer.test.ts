@@ -59,6 +59,13 @@ describe("numbers", () => {
     expect(lexError("3_").offset).toBe(1);
   });
 
+  test("a literal that converts to a non-finite number is an error naming it", () => {
+    const big = "9".repeat(400);
+    expect(lexError(`1 + ${big}`)).toMatchObject({ offset: 4 });
+    expect(lexError(big).message).toContain(big);
+    expect(kinds(`${"9".repeat(300)}`)).toHaveLength(2);
+  });
+
   test("no trailing dot; no leading dot", () => {
     expect(lexError("1.").offset).toBe(1);
     expect(lexError("1.x").offset).toBe(1);

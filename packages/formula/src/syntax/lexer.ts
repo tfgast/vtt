@@ -6,7 +6,9 @@ import { isKeyword, PUNCTUATION, type Token } from "./tokens";
 //   otherwise ignored. There are no comments.
 // - Numbers: digits, or digits.digits. No exponent, no leading `.`, no
 //   trailing `.`. A number immediately followed by an identifier character
-//   ([A-Za-z0-9_]) is a syntax error: `2x`, `1e5`.
+//   ([A-Za-z0-9_]) is a syntax error: `2x`, `1e5`. A literal whose decimal
+//   text converts to a non-finite JavaScript number (a 400-digit integer) is
+//   a syntax error naming the literal.
 // - Text: double-quoted. The only escapes are `\"` and `\\`; any other
 //   backslash sequence is an error. Literal newlines are allowed. Unterminated
 //   text is an error reported at the opening quote.
@@ -116,7 +118,11 @@ function lexNumber(source: string, start: number): Token | LexError {
   if (isIdentChar(source[end])) {
     return error("a number cannot be followed directly by a letter or '_'", end);
   }
-  return { kind: "number", value: source.slice(start, end), start, end };
+  const text = source.slice(start, end);
+  if (!Number.isFinite(Number(text))) {
+    return error(`number literal ${text} is too large to represent`, start);
+  }
+  return { kind: "number", value: text, start, end };
 }
 
 function lexText(source: string, start: number): Token | LexError {

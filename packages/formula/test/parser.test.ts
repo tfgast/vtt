@@ -330,12 +330,21 @@ describe("syntax errors", () => {
     ["a and", 5],
     ["has", 0],
     ["1d6 ! 3", 4],
+    [`[1, ${"9".repeat(400)}]`, 4],
+    [`1.${"5".repeat(400)} + ${"7".repeat(400)}`, 405],
   ])("%s fails at offset %i", (source, offset) => {
     const result = failure(source);
     expect(result.offset).toBe(offset);
     expect(result.message).toBeTypeOf("string");
     expect(result.message.length).toBeGreaterThan(0);
   });
+});
+
+test("a non-finite numeric literal inside a list fails with a message naming it", () => {
+  const big = "1".repeat(400);
+  const result = failure(`[1, [2, ${big}]]`);
+  expect(result.offset).toBe(8);
+  expect(result.message).toContain(big);
 });
 
 describe("limits", () => {
