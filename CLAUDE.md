@@ -29,6 +29,9 @@ undo, persistence, spatial index, WebSocket protocol, MCP server), `ui`,
   `typecheck` script running `tsc --noEmit`. No composite, no project
   references. With zero packages, `pnpm -r --parallel typecheck` prints
   "No projects matched the filters" and exits 0; no extra flag is needed.
+- Root and package config files (`*.ts` at the root, `packages/*/vite.config.ts`,
+  `packages/*/vitest.config.ts`) are typechecked by the root `tsconfig.json`,
+  which `pnpm typecheck` runs before the package typechecks.
 - One `vitest.config.ts` per package. Biome is the only linter and formatter.
 - The root `vitest.config.ts` runs `projects: ["packages/*"]`; each package's
   config sets `test.name` to its package name. Tests import their own package
