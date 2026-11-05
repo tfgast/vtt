@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
     "@vtt/formula": "workspace:*",
     "@vtt/protocol": "workspace:*",
     "@vtt/schema": "workspace:*",
@@ -16,6 +17,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1",
     "@types/ws": "8.18.2",
     "@vtt/fixtures": "workspace:*"
   }
