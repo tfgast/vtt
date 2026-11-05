@@ -2,8 +2,10 @@
  * The first-visit fit (vtt-3l6.10; review r3 finding 11). vtt-3l6.21's
  * camera store marks a board `needsFit` when it becomes active with no
  * remembered camera; once that board's view has arrived, the camera is set
- * to `fitBounds` of the board's item bounds (vtt-3l6.5), or centered on 0,0
- * at zoom 1 for a board with no items, and the mark is cleared. Saving and
+ * and the canvas has been measured (a viewport with positive width and
+ * height), the camera is set to `fitBounds` of the board's item bounds
+ * (vtt-3l6.5), or centered on 0,0 at zoom 1 for a board with no items, and
+ * only then is the mark cleared. Saving and
  * restoring cameras is the camera store's.
  */
 import type { Viewer } from "@vtt/protocol";
@@ -53,14 +55,14 @@ export function firstVisitCamera(
 
 export interface FirstVisitFitOptions {
   session: Pick<TableSession, "getSnapshot" | "subscribe" | "boardView">;
-  ui: Pick<UiStore, "getState" | "setCamera">;
+  ui: Pick<UiStore, "getState" | "setCamera" | "subscribe">;
   cameraStore: Pick<CameraStore, "needsFit" | "clearNeedsFit" | "subscribe">;
 }
 
 /**
- * Follows the session and the camera store, fitting the active board when
- * it is marked `needsFit` and its board view has arrived. Returns the
- * stopper.
+ * Follows the session, the camera store and the UI state (for the
+ * viewport), fitting the active board when it is marked `needsFit`, its
+ * board view has arrived and the viewport is measured. Returns the stopper.
  */
 export function startFirstVisitFit({ session, ui, cameraStore }: FirstVisitFitOptions): () => void {
   const check = () => {
@@ -68,15 +70,19 @@ export function startFirstVisitFit({ session, ui, cameraStore }: FirstVisitFitOp
     if (activeBoard === null || !cameraStore.needsFit(activeBoard)) return;
     const view = session.boardView();
     if (view === null || view.board !== activeBoard) return;
-    ui.setCamera(firstVisitCamera(view, viewer, ui.getState().viewport));
+    const viewport = ui.getState().viewport;
+    if (!(viewport.width > 0 && viewport.height > 0)) return; // Not measured yet.
+    ui.setCamera(firstVisitCamera(view, viewer, viewport));
     cameraStore.clearNeedsFit(activeBoard);
   };
   const offSession = session.subscribe(check);
   const offStore = cameraStore.subscribe(check);
+  const offUi = ui.subscribe(check);
   check();
   return () => {
     offSession();
     offStore();
+    offUi();
   };
 }
 

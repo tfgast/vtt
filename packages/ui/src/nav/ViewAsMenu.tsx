@@ -80,8 +80,10 @@ export function ViewAsMenu({ banner = true }: ViewAsMenuProps) {
   useSession((s) => s.viewVersion);
   const characters = viewAsCharacters(session.directory());
   const current = keyOf(viewer);
-  // A viewed object that left the list (removed, or no longer a character) stays selectable.
-  const extra =
+  // A viewed object that left the list (removed, now a template, or no longer a
+  // character) is not offered again: it stays only as a disabled placeholder
+  // for the select's current value, and the banner's "Back to GM" leads out.
+  const unavailable =
     viewer.type === "character" && !characters.some((c) => c.id === viewer.id)
       ? { id: viewer.id, label: session.refLabel(GM, viewer.id) }
       : null;
@@ -100,7 +102,11 @@ export function ViewAsMenu({ banner = true }: ViewAsMenuProps) {
               {c.label}
             </option>
           ))}
-          {extra && <option value={`character:${extra.id}`}>{extra.label}</option>}
+          {unavailable && (
+            <option value={`character:${unavailable.id}`} disabled>
+              {unavailable.label} (unavailable)
+            </option>
+          )}
         </select>
       </span>
       {banner && <ViewAsBanner />}
