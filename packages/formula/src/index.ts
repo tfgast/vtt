@@ -5,6 +5,7 @@ export * from "./eval/errors";
 export * from "./eval/operators";
 export * from "./eval/refs";
 export * from "./eval/values";
+export * from "./host";
 export * from "./syntax/ast";
 export * from "./syntax/lexer";
 export * from "./syntax/parser";
