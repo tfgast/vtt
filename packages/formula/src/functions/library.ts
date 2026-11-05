@@ -4,5 +4,9 @@
  */
 import { AGGREGATE_FUNCTIONS } from "./aggregates";
 import type { FunctionDef } from "./registry";
+import { SCALAR_FUNCTIONS } from "./scalars";
 
-export const LIBRARY_FUNCTIONS: readonly FunctionDef[] = [...AGGREGATE_FUNCTIONS];
+export const LIBRARY_FUNCTIONS: readonly FunctionDef[] = [
+  ...AGGREGATE_FUNCTIONS,
+  ...SCALAR_FUNCTIONS,
+];
