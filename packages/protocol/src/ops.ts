@@ -49,7 +49,13 @@ const op = <T extends string, S extends z.core.$ZodLooseShape>(type: T, shape: S
   z.strictObject({ type: z.literal(type), ...shape });
 
 const opSchemas = [
-  op("set_value", { object: ObjRefSchema, cell: Cell, value: InputValueSchema }),
+  op("set_value", {
+    object: ObjRefSchema,
+    cell: Cell,
+    value: InputValueSchema,
+    /** Replace a stored formula (and any override) by the literal (M4-D17). */
+    replace: z.literal(true).optional(),
+  }),
   op("set_formula", { object: ObjRefSchema, cell: Cell, source: NonBlank }),
   op("clear_override", { object: ObjRefSchema, cell: Cell }),
   op("delete_cell", { object: ObjRefSchema, cell: Cell }),
@@ -70,6 +76,11 @@ const opSchemas = [
   op("remove_board", { id: ObjectIdSchema }),
   op("create_object", {
     id: ObjectIdSchema.optional(),
+    /**
+     * The base of the allocated id (M4-D12). Id syntax and exclusivity with
+     * `id` are checked by the authority (`invalid`), not here.
+     */
+    id_base: z.string().optional(),
     as: BindingNameSchema.optional(),
     to: DestinationSchema,
     init: ObjectInitSchema.optional(),

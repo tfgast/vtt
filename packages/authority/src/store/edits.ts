@@ -118,12 +118,18 @@ function isPermutation(p: unknown, n: number): p is number[] {
   return seen.size === n;
 }
 
+/**
+ * Writes a literal: a literal or absent cell becomes `value`; a formula cell
+ * gets `value` as its override, or, with `replace`, loses its formula (and
+ * any override) to `value`.
+ */
 function writeLiteral(
   tx: Transaction,
   id: ObjectId,
   cell: string,
   value: Value,
   cause: CellEffect["cause"],
+  replace = false,
 ): void {
   const o = requireObject(tx, id);
   const spec = guardContentWrite(o, cell);
@@ -144,7 +150,7 @@ function writeLiteral(
   }
   const before = storedCell(o, cell);
   const after: Cell =
-    before !== null && before.content.type === "formula"
+    !replace && before !== null && before.content.type === "formula"
       ? { content: before.content, override: value }
       : { content: value };
   tx.record(cellEffect(id, cell, before, after, cause));
@@ -156,6 +162,19 @@ function writeLiteral(
  */
 export function writeValue(tx: Transaction, obj: ObjectId, cell: string, value: Value): void {
   writeLiteral(tx, obj, cell, value, "edit");
+}
+
+/**
+ * Replaces a formula by a literal (PROTOCOL.md §5 M4-D17; DESIGN.md §4.2):
+ * on a cell whose stored content is a formula, with or without an override,
+ * one cell effect from that formula state to the literal `value`, the
+ * override gone with the formula. On a literal or absent cell, exactly
+ * `writeValue`. The guards and type checks are `writeValue`'s: protected
+ * cells are refused, structural cells such as `visible_to`, `position` or
+ * `rotation` are allowed.
+ */
+export function replaceFormula(tx: Transaction, obj: ObjectId, cell: string, value: Value): void {
+  writeLiteral(tx, obj, cell, value, "edit", true);
 }
 
 /** As `writeValue`, recording a roll result with cause `roll`. */

@@ -70,6 +70,8 @@ export const ObjectViewSchema = looseObject({
   is_character: z.boolean(),
   cells: looseRecord(z.string(), CellViewSchema),
   actions: z.array(ActionViewSchema),
+  /** GM views only (M4-D12): per-cell visibility entries for names not in `cells`. */
+  absent_cell_visibility: looseRecord(z.string(), WireViewersSchema).optional(),
 });
 export type ObjectView = z.infer<typeof ObjectViewSchema>;
 
