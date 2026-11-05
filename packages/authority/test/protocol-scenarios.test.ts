@@ -6,7 +6,7 @@
  * after every executed step.
  */
 import { ScenarioError, storedStateEqual } from "@vtt/authority";
-import type { Scenario } from "@vtt/fixtures";
+import type { Expectation, Scenario, Step } from "@vtt/fixtures";
 import type { ProtocolClient } from "@vtt/protocol";
 import type { Snapshot } from "@vtt/schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -277,3 +277,78 @@ function refused(url: string): Promise<boolean> {
     ws.addEventListener("error", () => resolve(true));
   });
 }
+
+/** `e` changed so that it no longer holds, or undefined for a type left alone. */
+function falsify(e: Expectation): Expectation | undefined {
+  switch (e.type) {
+    case "cell":
+      return {
+        ...e,
+        value:
+          e.value.type === "number"
+            ? n(e.value.value + 1)
+            : e.value.type === "boolean"
+              ? { type: "boolean", value: !e.value.value }
+              : n(12345),
+      };
+    case "cell_error":
+      return { ...e, code: e.code === "#REF" ? "#TYPE" : "#REF" };
+    case "override":
+      return { ...e, overridden: !e.overridden };
+    case "exists":
+      return { ...e, exists: !e.exists };
+    case "container":
+      return { ...e, index: e.index + 1 };
+    case "placement":
+      return { ...e, position: [e.position[0] + 1, e.position[1]] };
+    case "contents":
+      return {
+        ...e,
+        contents: e.contents.length < 2 ? [...e.contents, e.object] : [...e.contents].reverse(),
+      };
+    case "cell_visible":
+    case "object_visible":
+      return { ...e, visible: !e.visible };
+    case "log_groups":
+      return { ...e, count: e.count + 1 };
+    case "log_includes":
+      return { ...e, effect: { ...e.effect, cell: "no_such_cell" } };
+    default:
+      return undefined;
+  }
+}
+
+/** How a run ended: "ok", or the error's class and message (a log_includes message without its effect dump, whose encoding differs). */
+async function ending(run: () => unknown): Promise<string> {
+  try {
+    await run();
+    return "ok";
+  } catch (err) {
+    if (!(err instanceof Error)) throw err;
+    return `${err.name}: ${err.message.replace(/; its cell effects: .*$/, "")}`;
+  }
+}
+
+test("every falsified expectation fails the same way in both runners", async () => {
+  let count = 0;
+  for (const file of Object.keys(EXPECTED)) {
+    const s = await loadScenarioFile(file);
+    const lists = [s.expect ?? [], ...s.steps.map((step) => step.expect ?? [])];
+    for (const [li, list] of lists.entries()) {
+      for (const [ei, e] of list.entries()) {
+        const wrong = falsify(e);
+        if (wrong === undefined) continue;
+        const m = structuredClone(s);
+        const owner: { expect?: Expectation[] } = li === 0 ? m : (m.steps[li - 1] as Step);
+        const target = [...(owner.expect ?? [])];
+        target[ei] = wrong;
+        owner.expect = target;
+        const direct = await ending(() => runScenario(m));
+        const wire = await ending(() => runScenarioOverProtocol(m));
+        expect(wire, `${file}, list ${li}, expect #${ei}`).toBe(direct);
+        count++;
+      }
+    }
+  }
+  expect(count).toBeGreaterThan(200);
+}, 60_000);

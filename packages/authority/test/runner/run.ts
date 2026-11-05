@@ -84,7 +84,7 @@ function hop(state: RunState): void {
   state.table = Table.fromStore(loaded.store);
 }
 
-const reasonMatches = (want: RejectionReason, got: Rejection): boolean => {
+export const reasonMatches = (want: RejectionReason, got: Rejection): boolean => {
   const mapped = toFixtureReason(got);
   if (mapped === null || mapped.type !== want.type) return false;
   if (want.type === "step_error" && want.code !== undefined) {
@@ -93,7 +93,7 @@ const reasonMatches = (want: RejectionReason, got: Rejection): boolean => {
   return true;
 };
 
-const describeRejection = (r: Rejection): string =>
+export const describeRejection = (r: Rejection): string =>
   "message" in r ? `${r.type} (${r.message})` : r.type;
 
 /**

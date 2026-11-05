@@ -25,6 +25,7 @@ import {
 } from "@vtt/protocol";
 import {
   bool,
+  type Cell,
   list,
   num,
   ref,
@@ -118,7 +119,7 @@ function world(): Snapshot {
   }
   for (let k = 1; k <= 4; k++) {
     const items = [1, 2, 3].map((j) => `item${(k - 1) * 3 + j}`);
-    const vis =
+    const vis: Record<string, Cell> =
       k === 2
         ? { visible_to: c(viewers("gm")) }
         : k === 3
