@@ -9,8 +9,8 @@
  *   inside it refuses `containment_cycle`).
  * - `spawn(t, dest, {cell: v, ...})`: M2 `spawn` with the evaluated record
  *   values as initial cells; each value must be storable (an error refuses
- *   with its code). The root copy's id joins `ctx.created`, in creation
- *   order.
+ *   with its code). Every copy's id joins `ctx.created` in creation order:
+ *   the root, then its descendants in the primitive's preorder.
  * - `remove(r)`: M2 `remove`, recursive; later reads of the removed objects
  *   are `#REF` (ActionContext).
  *
@@ -28,7 +28,10 @@
  *   anchor (its `position` as the action reads it) + `[wr/2 + wm/2 + 0.25,
  *   0]`, `wr` and `wm` the widths of the literal footprint bounds of that
  *   object and of the object being placed (shape field and literal or
- *   overridden `rotation`, else 0; 0 when shapeless).
+ *   overridden `rotation`, else 0; 0 when shapeless). A spawned copy's
+ *   rotation is its initial one: the record's `rotation` when it gives a
+ *   number, else the template's; so `beside`'s position is completed after
+ *   the record values are evaluated.
  * - `table`: the request's `tableDestination`, else `step_error` without
  *   code.
  *
@@ -57,6 +60,30 @@ const TABLE_MESSAGE = "the table destination needs the invoker's board and viewp
 
 type Resolved<T> = { ok: true; value: T } | { ok: false; outcome: StepOutcome };
 
+/**
+ * A resolved destination, or a `beside` one still waiting for the placed
+ * object's width: on `board`, `dx` (the anchor object's half width plus
+ * the gap) plus half that width right of `anchor`.
+ */
+type Placement =
+  | { type: "ready"; dest: Destination }
+  | { type: "beside"; board: string; anchor: [number, number]; dx: number };
+
+const ready = (dest: Destination): Resolved<Placement> => ({
+  ok: true,
+  value: { type: "ready", dest },
+});
+
+/** The M2 destination, given the width of the placed object's literal footprint bounds. */
+function complete(p: Placement, placedWidth: () => number): Destination {
+  if (p.type === "ready") return p.dest;
+  return {
+    type: "board",
+    board: p.board,
+    position: [p.anchor[0] + p.dx + placedWidth() / 2, p.anchor[1]],
+  };
+}
+
 const errorOutcome = (ctx: StepContext, r: Result & { type: "error" }): StepOutcome =>
   ctx.refuse({ code: r.code, message: r.message ?? r.code });
 
@@ -80,11 +107,11 @@ function point(v: Result): [number, number] | undefined {
  * literal (or overridden) `rotation`, a formula or non-number reading 0.
  * 0 when shapeless.
  */
-function literalWidth(ctx: StepContext, id: ObjectId): number {
+function literalWidth(ctx: StepContext, id: ObjectId, rotation?: CellContent): number {
   const shape = ctx.tx.doc.getObject(id)?.shape ?? null;
   if (shape === null) return 0;
   const cell = ctx.tx.doc.getCell(id, "rotation");
-  const r = cell?.override ?? cell?.content;
+  const r = rotation ?? cell?.override ?? cell?.content;
   const deg = r?.type === "number" && Number.isFinite(r.value) ? r.value : 0;
   const b = shapeBounds(shape as Shape, [0, 0], deg);
   return b.maxX - b.minX;
@@ -93,7 +120,7 @@ function literalWidth(ctx: StepContext, id: ObjectId): number {
 function boardDestination(
   ctx: StepContext,
   node: DestinationNode & { type: "board" },
-): Resolved<Destination> {
+): Resolved<Placement> {
   const b = ctx.evaluate(node.board);
   if (b.type === "error") return { ok: false, outcome: errorOutcome(ctx, b) };
   if (b.type !== "ref" || ctx.tx.doc.getBoard(b.object) === undefined) {
@@ -115,14 +142,13 @@ function boardDestination(
       }),
     };
   }
-  return { ok: true, value: { type: "board", board: b.object, position } };
+  return ready({ type: "board", board: b.object, position });
 }
 
 function besideDestination(
   ctx: StepContext,
   node: DestinationNode & { type: "beside" },
-  placing: ObjectId,
-): Resolved<Destination> {
+): Resolved<Placement> {
   const r = reference(ctx, node.object);
   if (!r.ok) return r;
   const doc = ctx.tx.doc;
@@ -144,32 +170,25 @@ function besideDestination(
       }),
     };
   }
-  const dx = literalWidth(ctx, top) / 2 + literalWidth(ctx, placing) / 2 + BESIDE_GAP;
-  return { ok: true, value: { type: "board", board, position: [anchor[0] + dx, anchor[1]] } };
+  const dx = literalWidth(ctx, top) / 2 + BESIDE_GAP;
+  return { ok: true, value: { type: "beside", board, anchor, dx } };
 }
 
-/** The M2 destination `node` names, for placing `placing`. */
-function destination(
-  ctx: StepContext,
-  node: DestinationNode,
-  placing: ObjectId,
-): Resolved<Destination> {
+/** The placement `node` names, its arguments evaluated. */
+function destination(ctx: StepContext, node: DestinationNode): Resolved<Placement> {
   switch (node.type) {
     case "container": {
       const r = reference(ctx, node.container);
-      return r.ok ? { ok: true, value: { type: "container", container: r.value } } : r;
+      return r.ok ? ready({ type: "container", container: r.value }) : r;
     }
     case "board":
       return boardDestination(ctx, node);
     case "beside":
-      return besideDestination(ctx, node, placing);
+      return besideDestination(ctx, node);
     case "table": {
       const t = ctx.tableDestination;
       if (t === undefined) return { ok: false, outcome: ctx.refuse({ message: TABLE_MESSAGE }) };
-      return {
-        ok: true,
-        value: { type: "board", board: t.board, position: [t.position[0], t.position[1]] },
-      };
+      return ready({ type: "board", board: t.board, position: [t.position[0], t.position[1]] });
     }
   }
 }
@@ -178,9 +197,12 @@ function move(ctx: StepContext, step: Step): StepOutcome {
   if (step.kind !== "move") throw new Error(`move handler got ${step.kind}`);
   const r = reference(ctx, step.object);
   if (!r.ok) return r.outcome;
-  const dest = destination(ctx, step.to, r.value);
+  const dest = destination(ctx, step.to);
   if (!dest.ok) return dest.outcome;
-  ctx.primitives.move(r.value, dest.value);
+  ctx.primitives.move(
+    r.value,
+    complete(dest.value, () => literalWidth(ctx, r.value)),
+  );
   return OK;
 }
 
@@ -188,7 +210,7 @@ function spawn(ctx: StepContext, step: Step): StepOutcome {
   if (step.kind !== "spawn") throw new Error(`spawn handler got ${step.kind}`);
   const t = reference(ctx, step.template);
   if (!t.ok) return t.outcome;
-  const dest = destination(ctx, step.to, t.value);
+  const dest = destination(ctx, step.to);
   if (!dest.ok) return dest.outcome;
   const entries: [string, CellContent][] = [];
   for (const { name, value } of step.cells) {
@@ -200,8 +222,13 @@ function spawn(ctx: StepContext, step: Step): StepOutcome {
     entries.push([name, v]);
   }
   // fromEntries defines own properties, so no name reaches the prototype.
-  const { root } = ctx.primitives.spawn(t.value, dest.value, Object.fromEntries(entries));
-  ctx.created.push(root);
+  const initial: Record<string, CellContent> = Object.fromEntries(entries);
+  // The copy's rotation is the record's when it gives one, else the template's.
+  const rotation = Object.hasOwn(initial, "rotation") ? initial.rotation : undefined;
+  const placed = complete(dest.value, () => literalWidth(ctx, t.value, rotation));
+  const { copies } = ctx.primitives.spawn(t.value, placed, initial);
+  // The copies map is in the primitive's creation order: the root, then its subtree in preorder.
+  ctx.created.push(...copies.values());
   return OK;
 }
 
