@@ -29,8 +29,8 @@ import {
   invokeExtension,
   type NoticeStore,
   requestInvoke,
-  TEMPLATE_REFUSAL,
   type TableSession,
+  TEMPLATE_REFUSAL,
 } from "@vtt/ui";
 import { describe, expect, test, vi } from "vitest";
 
@@ -107,9 +107,15 @@ describe("requestInvoke", () => {
   });
 
   test("a disabled action shows its reason and sends nothing; the GM also sees the guard", () => {
-    expect(requestInvoke(defaultFacePolicy, card(), "Apply", stampOf(), { camera: CAMERA })).toEqual(
-      [{ type: "notice", level: "info", text: `Apply: its condition is false (when: ${APPLY_WHEN}).` }],
-    );
+    expect(
+      requestInvoke(defaultFacePolicy, card(), "Apply", stampOf(), { camera: CAMERA }),
+    ).toEqual([
+      {
+        type: "notice",
+        level: "info",
+        text: `Apply: its condition is false (when: ${APPLY_WHEN}).`,
+      },
+    ]);
     expect(
       requestInvoke(defaultFacePolicy, card({ gm: false }), "Apply", stampOf(ALDRIC), {
         camera: CAMERA,
@@ -237,7 +243,11 @@ describe("invokeExtension", () => {
     expect(gm.notices.list()).toMatchObject([
       { level: "error", text: `Apply: its condition is false (when: ${APPLY_WHEN}).` },
     ]);
-    const aldric = await run([rejected], { ...PAYLOAD, actor: { type: "character", id: "aldric" } }, ALDRIC);
+    const aldric = await run(
+      [rejected],
+      { ...PAYLOAD, actor: { type: "character", id: "aldric" } },
+      ALDRIC,
+    );
     expect(aldric.notices.list()).toMatchObject([
       { level: "error", text: "Apply: its condition is false." },
     ]);
@@ -283,7 +293,10 @@ describe("invokeExtension", () => {
     const { outcome, notices } = await run([failure]);
     expect(outcome).toMatchObject({ status: "failed", error: { code: "disconnected" } });
     expect(notices.list()).toMatchObject([
-      { level: "error", text: '"Apply" was not applied. Not connected to the table (not connected).' },
+      {
+        level: "error",
+        text: '"Apply" was not applied. Not connected to the table (not connected).',
+      },
     ]);
   });
 });

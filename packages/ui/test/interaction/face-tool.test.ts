@@ -36,8 +36,8 @@ import {
   initMachine,
   type Modifiers,
   pathContents,
-  reduce,
   type ReducerInput,
+  reduce,
   TEMPLATE_REFUSAL,
   type Tool,
   type ToolInput,
@@ -90,7 +90,10 @@ function mk(id: string, s: Spec = {}): ObjectView {
   }
   if (s.at) {
     cells.board = { value: ref(BOARD), kind: "literal" };
-    cells.position = { value: { type: "list", items: [num(s.at[0]), num(s.at[1])] }, kind: "literal" };
+    cells.position = {
+      value: { type: "list", items: [num(s.at[0]), num(s.at[1])] },
+      kind: "literal",
+    };
     cells.container = { value: EMPTY, kind: "structural" };
   }
   if (s.container) cells.container = { value: ref(s.container), kind: "structural" };
@@ -248,7 +251,8 @@ function input(over: Partial<ToolInput> = {}): ToolInput {
 // ---------------------------------------------------------------------------
 // Events
 
-const screenOf = (board: Point, camera: Camera = CAMERA): Point => toScreen(camera, board, VIEWPORT);
+const screenOf = (board: Point, camera: Camera = CAMERA): Point =>
+  toScreen(camera, board, VIEWPORT);
 
 function ptr(
   type: "pointer_down" | "pointer_move" | "pointer_up" | "pointer_cancel",
@@ -502,8 +506,16 @@ describe("editing in place", () => {
     const effects = click(r, TARGET);
     expect(effects).toHaveLength(1);
     const [e] = effects;
-    expect(e).toMatchObject({ type: "open_editor", stamp: STAMP_GM, object: "card", cell: "target" });
-    closeBounds(e?.type === "open_editor" ? e.rect : undefined, boundsOf([-1.2, -1.2, 2.4, 0.4], [0, 0]));
+    expect(e).toMatchObject({
+      type: "open_editor",
+      stamp: STAMP_GM,
+      object: "card",
+      cell: "target",
+    });
+    closeBounds(
+      e?.type === "open_editor" ? e.rect : undefined,
+      boundsOf([-1.2, -1.2, 2.4, 0.4], [0, 0]),
+    );
     expect(r.inner.events).toEqual([]);
   });
 
