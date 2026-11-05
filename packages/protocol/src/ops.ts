@@ -1,9 +1,9 @@
 /**
- * Ops (PROTOCOL.md §5): the 19 kinds of `transact`, one per M2 primitive.
+ * Ops (PROTOCOL.md §5): the 20 kinds of `transact`, one per M2 primitive.
  * Client-to-server, so every schema is strict (§12). Every `object`,
  * `container` and `template` field is an `ObjRef`.
  */
-import { ActionDefSchema, CellNameSchema, ShapeSchema } from "@vtt/schema";
+import { ActionDefSchema, CellNameSchema, FaceLayoutSchema, ShapeSchema } from "@vtt/schema";
 import { z } from "zod";
 import {
   BindingNameSchema,
@@ -42,6 +42,8 @@ export const ObjectInitSchema = z.strictObject({
   cells: cellRecord(InputCellContentSchema).optional(),
   cell_visibility: cellRecord(InputViewersSchema).optional(),
   actions: z.array(ActionDefSchema).optional(),
+  /** The face layout (M5-D7); limits are checked by the authority (`invalid`). */
+  face: FaceLayoutSchema.optional(),
 });
 export type ObjectInit = z.infer<typeof ObjectInitSchema>;
 
@@ -70,6 +72,11 @@ const opSchemas = [
   op("set_template_flag", { object: ObjRefSchema, value: z.boolean() }),
   op("set_character_flag", { object: ObjRefSchema, value: z.boolean() }),
   op("set_actions", { object: ObjRefSchema, actions: z.array(ActionDefSchema) }),
+  /**
+   * Replaces the whole layout; `null` removes it (M5-D7). Structure here;
+   * `faceProblem` limits are the authority's (`invalid`).
+   */
+  op("set_face", { object: ObjRefSchema, face: FaceLayoutSchema.nullable() }),
   op("reorder", { container: ObjRefSchema, permutation: z.array(Index) }),
   op("add_board", { id: ObjectIdSchema, name: z.string().optional() }),
   op("rename_board", { id: ObjectIdSchema, name: z.string() }),
@@ -103,7 +110,7 @@ export type WireOpType = WireOp["type"];
 /** The op of one kind. */
 export type WireOpOf<T extends WireOpType> = Extract<WireOp, { type: T }>;
 
-/** The 19 op kinds, in PROTOCOL.md §5 table order. */
+/** The 20 op kinds, in PROTOCOL.md §5 table order. */
 export const WIRE_OP_TYPES: readonly WireOpType[] = Object.freeze(
   opSchemas.map((s) => s.shape.type.value),
 );

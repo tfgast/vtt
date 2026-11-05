@@ -45,6 +45,8 @@ export interface ChangeSummary {
   changedCells: CellKey[];
   /** Every object with a `field: "actions"` effect, each once, in first-seen order. */
   actionsChanged: ObjectId[];
+  /** Every object with a `field: "face"` effect, each once, in first-seen order. */
+  faceChanged: ObjectId[];
 }
 
 /** Builds a ChangeSummary one effect at a time, each against the state before it. */
@@ -59,6 +61,7 @@ export class SummaryBuilder {
     moved: [],
     changedCells: [],
     actionsChanged: [],
+    faceChanged: [],
   };
   readonly #changed = new Set<CellKey>();
 
@@ -105,6 +108,9 @@ export class SummaryBuilder {
       case "field":
         if (effect.field === "actions" && !s.actionsChanged.includes(effect.object)) {
           s.actionsChanged.push(effect.object);
+        }
+        if (effect.field === "face" && !s.faceChanged.includes(effect.object)) {
+          s.faceChanged.push(effect.object);
         }
         return;
       case "reorder":

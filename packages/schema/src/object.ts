@@ -1,6 +1,7 @@
 /** Objects (DESIGN.md §4.1, §4.3, §4.4; FORMULAS.md §3.1). */
 import { z } from "zod";
 import { type Cell, CellSchema, strictRecord } from "./cell";
+import { type FaceLayout, ValidFaceLayoutSchema } from "./face";
 import { isValue } from "./guard";
 import type { BoardId, ObjectId } from "./ids";
 import { type Shape, ShapeSchema } from "./shape";
@@ -41,6 +42,11 @@ export interface TableObject {
    */
   cell_visibility: Record<string, ViewersValue>;
   actions: ActionDef[];
+  /**
+   * The face layout (DESIGN.md §4.6, M5-D7); absent means no layout. Copied
+   * verbatim on spawn: a face names cells and actions, never objects.
+   */
+  face?: FaceLayout;
 }
 
 /** Source text: non-blank, kept verbatim. */
@@ -74,4 +80,5 @@ export const TableObjectSchema: z.ZodType<TableObject> = z.strictObject({
   cells: strictRecord(CellSchema),
   cell_visibility: strictRecord(ViewersValueSchema),
   actions: z.array(ActionDefSchema),
+  face: ValidFaceLayoutSchema.optional(),
 });

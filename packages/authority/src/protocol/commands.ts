@@ -53,6 +53,7 @@ import {
   writeValue,
 } from "../store/edits";
 import { touchedKeys } from "../store/effects";
+import { setFace } from "../store/face";
 import {
   createObject,
   type Destination,
@@ -211,6 +212,7 @@ function opRefs(op: WireOp): string[] {
     case "set_template_flag":
     case "set_character_flag":
     case "set_actions":
+    case "set_face":
     case "remove":
       out.push(op.object);
       break;
@@ -278,6 +280,8 @@ export function declaredKeys(op: WireOp): string[] {
       return cellKeyOf(op.object, "is_character");
     case "set_actions":
       return isBinding(op.object) ? [] : [`actions:${op.object}`];
+    case "set_face":
+      return isBinding(op.object) ? [] : [`face:${op.object}`];
     case "reorder":
       return cellKeyOf(op.container, "contents");
     case "add_board":
@@ -315,6 +319,7 @@ function opTarget(op: WireOp): string | undefined {
     case "set_template_flag":
     case "set_character_flag":
     case "set_actions":
+    case "set_face":
     case "move":
     case "remove":
       return op.object;
@@ -495,6 +500,7 @@ function objectInit(init: WireObjectInit | undefined, b: Bindings): ObjectInit {
   if (init.tag !== undefined) out.tag = [...init.tag];
   if (init.shape !== undefined) out.shape = structuredClone(init.shape);
   if (init.actions !== undefined) out.actions = structuredClone(init.actions);
+  if (init.face !== undefined) out.face = structuredClone(init.face);
   if (init.cells !== undefined) {
     out.cells = Object.fromEntries(
       Object.entries(init.cells).map(([k, c]) => [k, { content: content(c, b) }]),
@@ -559,6 +565,9 @@ function runOp(tx: Transaction, op: WireOp, i: number, s: RunState): void {
       return;
     case "set_actions":
       setActions(tx, b.id(op.object), structuredClone(op.actions));
+      return;
+    case "set_face":
+      setFace(tx, b.id(op.object), op.face === null ? null : structuredClone(op.face));
       return;
     case "reorder":
       reorder(tx, b.id(op.container), [...op.permutation]);

@@ -2,6 +2,7 @@ export const PACKAGE = "@vtt/schema";
 export * from "./action-limits";
 export * from "./cell";
 export * from "./document";
+export * from "./face";
 export * from "./file";
 export * from "./geometry/index";
 export * from "./guard";

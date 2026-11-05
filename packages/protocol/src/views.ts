@@ -136,6 +136,65 @@ export const LocationViewSchema = looseNoProto(
 );
 export type LocationView = z.infer<typeof LocationViewSchema>;
 
+const RectSchema = z.tuple([z.number(), z.number(), z.number(), z.number()]);
+
+const faceElementCommon = {
+  rect: RectSchema,
+  show_when: z.string().optional(),
+  min_size: z.number().optional(),
+  /** Its position in the stored list, kept when a character's view omits others (M5-D23). */
+  index: Count,
+};
+
+const faceCellElement = <T extends "value" | "editor">(type: T) =>
+  z.object({
+    type: z.literal(type),
+    cell: z.string(),
+    ...faceElementCommon,
+    style: looseObject({
+      size: z.enum(["small", "normal", "large", "huge"]).optional(),
+      align: z.enum(["left", "center", "right"]).optional(),
+      caption: z.boolean().optional(),
+    }).optional(),
+  });
+
+/**
+ * A stored face element with its `index` (PROTOCOL.md §7.6): the element of
+ * a historical face. It carries no live `shown`.
+ */
+export const FaceLayoutElementViewSchema = looseNoProto(
+  z.discriminatedUnion("type", [
+    faceCellElement("value"),
+    faceCellElement("editor"),
+    z.object({
+      type: z.literal("button"),
+      action: z.string(),
+      ...faceElementCommon,
+      label: z.string().optional(),
+    }),
+    z.object({
+      type: z.literal("contents"),
+      ...faceElementCommon,
+      entries: z.enum(["collapsed", "full"]).optional(),
+    }),
+  ]),
+);
+export type FaceLayoutElementView = z.infer<typeof FaceLayoutElementViewSchema>;
+
+/**
+ * The wire type of historical faces (PROTOCOL.md §7.6, M5-D7): the stored
+ * `FaceLayout` with each element's `index`, in `field: "face"` effects and
+ * snapshots. Lossless for the GM; for a character, without `show_when` and
+ * without elements naming a cell it cannot read. `FaceLayout` stays the
+ * storage and op type.
+ */
+export const FaceLayoutViewSchema = looseObject({
+  elements: z.array(FaceLayoutElementViewSchema),
+  collapsed: z.array(FaceLayoutElementViewSchema).optional(),
+  default_action: z.string().optional(),
+});
+export type FaceLayoutView = z.infer<typeof FaceLayoutViewSchema>;
+
 export const ObjectSnapshotViewSchema = looseObject({
   id: Id,
   is_template: z.boolean(),
@@ -147,6 +206,8 @@ export const ObjectSnapshotViewSchema = looseObject({
   cells: looseRecord(z.string(), CellStateViewSchema),
   cell_visibility: looseRecord(z.string(), WireViewersSchema).optional(),
   actions: z.array(ActionDefinitionViewSchema),
+  /** The object's face layout (M5-D7); absent when it has none. */
+  face: FaceLayoutViewSchema.nullable().optional(),
 });
 export type ObjectSnapshotView = z.infer<typeof ObjectSnapshotViewSchema>;
 
@@ -189,6 +250,7 @@ export const EffectViewSchema = looseNoProto(
       fieldEffect("is_template", z.boolean()),
       fieldEffect("is_character", z.boolean()),
       fieldEffect("actions", z.array(ActionDefinitionViewSchema)),
+      fieldEffect("face", FaceLayoutViewSchema.nullable()),
     ]),
     z.object({
       type: z.literal("place"),
@@ -255,6 +317,7 @@ export const FIELD_EFFECT_FIELDS = [
   "is_template",
   "is_character",
   "actions",
+  "face",
 ] as const;
 
 const isRecord = (x: unknown): x is Record<string, unknown> =>

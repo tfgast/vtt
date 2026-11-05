@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { type Cell, CellNameSchema, CellSchema, strictRecord } from "./cell";
 import { type Board, BoardSchema } from "./document";
+import { type FaceLayout, ValidFaceLayoutSchema } from "./face";
 import type { BoardId, ObjectId } from "./ids";
 import {
   type ActionDef,
@@ -64,6 +65,14 @@ export type FieldEffect =
       field: "actions";
       before: ActionDef[];
       after: ActionDef[];
+    }
+  /** The whole face layout replaced (M5-D7); `null` means no layout. */
+  | {
+      type: "field";
+      object: ObjectId;
+      field: "face";
+      before: FaceLayout | null;
+      after: FaceLayout | null;
     };
 
 /**
@@ -210,6 +219,7 @@ const FieldEffectSchema = z.discriminatedUnion("field", [
   field("is_template", z.boolean()),
   field("is_character", z.boolean()),
   field("actions", z.array(ActionDefSchema)),
+  field("face", ValidFaceLayoutSchema.nullable()),
 ]);
 
 const subtree = <T extends string>(type: T) =>
