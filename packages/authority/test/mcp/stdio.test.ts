@@ -67,6 +67,8 @@ interface Agent {
   /** The child's pid once the transport has spawned it (also if initialization fails), else 0. */
   readonly pid: number;
   readonly stderr: string;
+  /** The child's exit status once it has exited, else null. */
+  readonly exit: { code: number | null; signal: NodeJS.Signals | null } | null;
 }
 
 type ToolResult = {
@@ -91,7 +93,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const a of agents.splice(0)) {
     const pid = a.pid;
-    if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL");
+    if (pid > 0 && a.exit === null && alive(pid)) process.kill(pid, "SIGKILL");
     await a.client.close().catch(() => undefined);
   }
   await Promise.all(
@@ -221,6 +223,10 @@ async function freePort(): Promise<number> {
 
 const sessionPath = () => join(config, "vtt", "session.json");
 
+// A generated token is base64url and starts with "-" one time in 64, which
+// `--token <t>` reads as a missing value (exit 1 before MCP starts: vtt-qf5.32).
+// Pass generated tokens as `--token=<t>`.
+
 /** Starts `vtt-mcp [args]` through the SDK's stdio client transport and initializes MCP. */
 async function agent(args: string[] = [], env: Record<string, string> = {}): Promise<Agent> {
   const transport = new StdioClientTransport({
@@ -231,35 +237,63 @@ async function agent(args: string[] = [], env: Record<string, string> = {}): Pro
     stderr: "pipe",
   });
   let stderr = "";
-  let spawned = 0;
+  let child: ChildProcess | undefined;
+  let exit: Agent["exit"] = null;
   transport.stderr?.on("data", (chunk: Buffer | string) => {
     stderr += chunk.toString();
   });
+  // The transport keeps its child private and forgets it on close. Its
+  // `start()` spawns synchronously, so wrapping `start` on this instance
+  // captures the child and attaches the exit listener before control returns
+  // to the event loop: even a child that dies at once reports its status.
+  // (An instance property, not a subclass: the SDK only runs its disposable
+  // version-negotiation probe for the base class's own prototype.)
+  const start = transport.start.bind(transport);
+  transport.start = () => {
+    const started = start();
+    child = (transport as unknown as { _process?: ChildProcess })._process;
+    child?.once("exit", (code, signal) => {
+      exit = { code, signal };
+    });
+    return started;
+  };
   const client = new Client({ name: AGENT_NAME, version: "1.0.0" });
   const entry: Agent = {
     client,
     transport,
     get pid() {
-      const pid = transport.pid ?? 0;
-      if (pid > 0) spawned = pid;
-      return spawned;
+      return child?.pid ?? 0;
     },
     get stderr() {
       return stderr;
     },
+    get exit() {
+      return exit;
+    },
   };
   agents.push(entry);
-  // Record the child's pid as soon as the transport spawns it, so cleanup can
-  // reach the child even when initialization fails (the transport forgets it on close).
-  const watch = setInterval(() => void entry.pid, 1);
-  try {
-    await client.connect(transport);
-  } finally {
-    void entry.pid;
-    clearInterval(watch);
-  }
+  await diagnosed(entry, "connect", client.connect(transport));
   expect(entry.pid).toBeGreaterThan(0);
   return entry;
+}
+
+/** The child's pid, exit status and stderr, for a failure message. */
+function diagnosis(a: Agent): string {
+  const exit = a.exit === null ? "still running" : JSON.stringify(a.exit);
+  return `vtt-mcp pid ${a.pid}, exit ${exit}, stderr:\n${a.stderr}`;
+}
+
+/** Awaits `p`; a failure (such as an early "Connection closed") carries the child's diagnosis. */
+async function diagnosed<T>(a: Agent, what: string, p: Promise<T>): Promise<T> {
+  try {
+    return await p;
+  } catch (err) {
+    // The transport reports a close on the child's `close` event, after
+    // `exit`; let the piped stderr drain before reporting.
+    await sleep(50);
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`${what} failed: ${message}\n${diagnosis(a)}`, { cause: err });
+  }
 }
 
 async function call(
@@ -267,7 +301,11 @@ async function call(
   name: string,
   args: Record<string, unknown> = {},
 ): Promise<ToolResult> {
-  return (await a.client.callTool({ name, arguments: args })) as ToolResult;
+  return (await diagnosed(
+    a,
+    `tools/call ${name}`,
+    a.client.callTool({ name, arguments: args }),
+  )) as ToolResult;
 }
 
 const codeOf = (r: ToolResult): unknown => (r.isError ? r.structuredContent?.code : undefined);
@@ -286,7 +324,7 @@ async function untilTool(
     if (pred(result)) return result;
     if (Date.now() > end) {
       throw new Error(
-        `timed out waiting for ${what}; last ${name}: ${JSON.stringify(result.structuredContent)}\n${a.stderr}`,
+        `timed out waiting for ${what}; last ${name}: ${JSON.stringify(result.structuredContent)}\n${diagnosis(a)}`,
       );
     }
     await sleep(100);
@@ -321,8 +359,8 @@ async function expectGated(a: Agent, handle: string, code: string): Promise<void
 
 /** The process is still running and still serving MCP. */
 async function expectServing(a: Agent): Promise<void> {
-  expect(alive(a.pid)).toBe(true);
-  const { tools } = await a.client.listTools();
+  expect(alive(a.pid), diagnosis(a)).toBe(true);
+  const { tools } = await diagnosed(a, "tools/list", a.client.listTools());
   expect(tools.map((t) => t.name)).toEqual(TOOL_NAMES);
 }
 
@@ -331,8 +369,8 @@ describe("vtt-mcp with explicit credentials", () => {
     "--url/--token lists the 17 tools and answers table_info with the agent actor",
     async () => {
       const s = await printed(serve(file));
-      const a = await agent(["--url", s.url, "--token", s.token]);
-      const { tools } = await a.client.listTools();
+      const a = await agent(["--url", s.url, `--token=${s.token}`]);
+      const { tools } = await diagnosed(a, "tools/list", a.client.listTools());
       expect(tools.map((t) => t.name)).toEqual(TOOL_NAMES);
       const info = await connected(a);
       expect(info.structuredContent).toMatchObject({
@@ -362,7 +400,7 @@ describe("vtt-mcp with explicit credentials", () => {
       const port = await freePort();
       const first = serve(file, ["--port", String(port), "--token", "first-token"]);
       const s = await printed(first);
-      const a = await agent(["--url", s.url, "--token", s.token]);
+      const a = await agent(["--url", s.url, `--token=${s.token}`]);
       await connected(a);
       const handle = await subscribeGm(a);
       await stop(first);
@@ -372,6 +410,19 @@ describe("vtt-mcp with explicit credentials", () => {
       await sleep(500);
       await expectGated(a, handle, "unauthorized");
       await expectServing(a);
+    },
+    TEST_MS,
+  );
+
+  test(
+    "a token starting with a dash is accepted as --token=<t>",
+    async () => {
+      const token = "-dash-token";
+      const s = await printed(serve(file, [`--token=${token}`]));
+      expect(s.token).toBe(token);
+      const a = await agent(["--url", s.url, `--token=${token}`]);
+      const info = await connected(a);
+      expect(info.structuredContent.session).toBe(s.session);
     },
     TEST_MS,
   );
@@ -601,7 +652,7 @@ describe("vtt-mcp process", () => {
 
       // Initialized and connected to an authority.
       const s = await printed(serve(file));
-      const p = mcp(["--url", s.url, "--token", s.token]);
+      const p = mcp(["--url", s.url, `--token=${s.token}`]);
       const send = (message: unknown) => p.child.stdin?.write(`${JSON.stringify(message)}\n`);
       send({
         jsonrpc: "2.0",
@@ -635,6 +686,21 @@ describe("vtt-mcp process", () => {
       for (const line of p.stdout.split("\n").filter((l) => l !== "")) {
         expect(JSON.parse(line).jsonrpc).toBe("2.0");
       }
+    },
+    TEST_MS,
+  );
+
+  test(
+    "a child that fails at once: the connect failure reports its exit status and stderr",
+    async () => {
+      const failure = agent(["--bogus"]);
+      await expect(failure).rejects.toThrow(/^connect failed: /);
+      const message = await failure.then(
+        () => "",
+        (err: Error) => err.message,
+      );
+      expect(message).toMatch(/vtt-mcp pid [1-9]\d*, exit \{"code":1,"signal":null\}, stderr:\n/);
+      expect(message).toMatch(/\nvtt-mcp: .*'--bogus'.*; usage: vtt-mcp /);
     },
     TEST_MS,
   );

@@ -416,7 +416,8 @@ describe("vtt-serve restarts", () => {
     const port = new URL(a.url).port;
     expect(await stop(first)).toEqual({ code: 0, signal: null });
 
-    const second = serve([file, "--port", port, "--token", a.token, "--print-session"]);
+    // `--token=<t>`: a generated token may start with "-" (vtt-qf5.32).
+    const second = serve([file, "--port", port, `--token=${a.token}`, "--print-session"]);
     const b = await printed(second);
     expect(b.url).toBe(a.url);
     expect(b.token).toBe(a.token);

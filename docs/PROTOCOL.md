@@ -129,7 +129,10 @@ only the serving authority (or the development server, from
 
 - The server binds 127.0.0.1 only.
 - The token is 32 random bytes, base64url encoded, new at every server start
-  unless fixed with `--token`.
+  unless fixed with `--token`. Tokens never start with `-`, so they are safe
+  as a separate CLI argument (a generated token whose first character is not
+  alphanumeric is drawn again); `--token=<t>` is the robust spelling for any
+  token.
 - An upgrade whose `Origin` header is present and is neither
   `http://127.0.0.1:<port>`, `http://localhost:<port>`, nor an
   `--allow-origin` entry is refused with HTTP 403.
@@ -1070,7 +1073,7 @@ type ObjectFacts = { is_template: boolean; is_character: boolean; actions: Actio
 writes need the latest `revision`; one `transact` is one undoable group;
 formulas and actions follow docs/FORMULAS.md.
 
-**`vtt-mcp [--url u] [--token t] [--name n]`.**
+**`vtt-mcp [--url u] [--token=t] [--name n]`.**
 
 - Credentials: `--url`/`--token`, else `VTT_URL`/`VTT_TOKEN`, else the
   session file. Discovery mode is selected whenever no explicit credentials

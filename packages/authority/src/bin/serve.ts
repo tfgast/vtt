@@ -6,7 +6,7 @@
  * writes the discovery file, and on SIGINT or SIGTERM closes the server,
  * saves, releases the lock and removes the discovery file.
  *
- *   vtt-serve <file> [--port n] [--token t] [--allow-origin o]…
+ *   vtt-serve <file> [--port n] [--token=t] [--allow-origin o]…
  *             [--ui-dir dir | --no-ui] [--no-autosave] [--print-session]
  *             [--force-unlock]
  *
@@ -50,7 +50,7 @@ import {
 } from "../index";
 
 const USAGE =
-  "usage: vtt-serve <file> [--port n] [--token t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock]";
+  "usage: vtt-serve <file> [--port n] [--token=t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock]";
 
 /** The default UI build directory: `packages/ui/dist`, resolved from this module's location. */
 const DEFAULT_UI_DIR = fileURLToPath(new URL("../../../ui/dist", import.meta.url));
