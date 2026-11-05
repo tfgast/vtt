@@ -93,5 +93,5 @@ export function fileOf(
   return canonicalJson(file);
 }
 
-/** `x`, or a test failure when it is null or undefined. */
+/** Re-exported store test helpers. */
 export { at, lit, must, named, obj } from "../store/helpers";

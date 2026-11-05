@@ -79,8 +79,12 @@ describe("canonicalJson", () => {
     expect(pos('"bag": {')).toBeLessThan(pos('"coin": {'));
     expect(pos('"coin": {')).toBeLessThan(pos('"goblin": {'));
     // Code-unit order, not JavaScript's integer-key-first property order.
-    expect(pos('"10": {')).toBeLessThan(pos('"9": {'));
-    expect(pos('"9": {')).toBeLessThan(pos('"name": {'));
+    const coin = text.slice(pos('"coin": {'), pos('"goblin": {'));
+    const inCoin = (s: string) => coin.indexOf(s);
+    expect(inCoin('"10": {')).toBeGreaterThan(0);
+    expect(inCoin('"10": {')).toBeLessThan(inCoin('"9": {'));
+    expect(inCoin('"9": {')).toBeLessThan(inCoin('"name": {'));
+    expect(inCoin('"name": {')).toBeLessThan(inCoin('"value": {'));
     expect(pos('"contents": {')).toBeLessThan(pos('"tag": {'));
   });
 
@@ -107,8 +111,11 @@ describe("sha256Hex", () => {
       "The quick brown fox jumps over the lazy dog",
       "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592",
     ],
-    ["a".repeat(1000), "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"],
-  ])("hashes %j", (input, hex) => {
+    [
+      "a".repeat(1000) as string,
+      "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3",
+    ],
+  ])("hashes %#", (input, hex) => {
     expect(sha256Hex(input)).toBe(hex);
   });
 
