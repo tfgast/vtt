@@ -29,7 +29,7 @@ import {
   type WireOp,
 } from "@vtt/protocol";
 import { MAX_EACH_ITEMS, type Snapshot } from "@vtt/schema";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { loadScenarioFile } from "../runner/load";
 import { documentFromSetup } from "../runner/setup";
 import { cleanup, connect, serve, until } from "../server/helpers";
@@ -468,6 +468,75 @@ describe("invoke: the Attack card", () => {
       ),
     );
     committed(await w2.gm.invoke({ object: "aldric", action: "Strike", base_revision: b2 }));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A conflict only the touched-keys check catches
+
+describe("invoke: stale on its effects", () => {
+  test("a roll into another object conflicting after base_revision: rolled, then aborted with the dice restored", async () => {
+    // Declared keys are obj:aldric and actions:aldric, which a write to the
+    // goblin does not touch; only the roll's effect key cell:goblin1/x
+    // conflicts, so the action runs (and draws) before it is refused.
+    const doc = documentFromSetup(ATTACK.setup);
+    const aldric = doc.objects.aldric;
+    if (aldric === undefined) throw new Error("fixture");
+    aldric.actions = [{ name: "Hit", steps: ['roll(1d6) -> obj("goblin1").x'] }];
+    const d6: ScriptedDiceEntry = { type: "roll", expr: "1d6", dice: [4], dropped: [], total: 4 };
+    const w = await world(doc, [d6]);
+    const base = w.host.revision;
+    const write = committed(
+      await w.other.transact(
+        [{ type: "set_value", object: "goblin1", cell: "x", value: { type: "number", value: 1 } }],
+        { base_revision: base },
+      ),
+    );
+    await until(() => w.otherCommits.includes(write.revision));
+
+    const remainingAtRoll: number[] = [];
+    const roll = vi.spyOn(w.dice, "roll");
+    const reset = vi.spyOn(w.dice, "reset");
+    roll.mockImplementation((dice) => {
+      roll.mockRestore();
+      const r = w.dice.roll(dice);
+      remainingAtRoll.push(w.dice.remaining());
+      return r;
+    });
+    const before = state(w);
+    expect(before.dice).toBe(1);
+    const r = refused(await w.gm.invoke({ object: "aldric", action: "Hit", base_revision: base }));
+    expect(r.step).toBeUndefined();
+    expect(r.rejection).toEqual({
+      type: "stale_write",
+      base_revision: base,
+      revision: base + 1,
+      floor: 0,
+      truncated: false,
+      conflicts: [
+        {
+          index: write.index,
+          revision: base + 1,
+          actor: { type: "gm" },
+          label: "set_value goblin1.x",
+          keys: ["cell:goblin1/x"],
+        },
+      ],
+    });
+    // The roll ran and drew the script's entry during execution...
+    expect(remainingAtRoll).toEqual([0]);
+    expect(reset).toHaveBeenCalledTimes(1);
+    // ...and the abort restored everything.
+    await unchanged(w, before);
+    expect(w.dice.remaining()).toBe(1);
+    expect(cellOf(w, "goblin1", "x")).toEqual({ type: "number", value: 1 });
+
+    // The restored entry is the one the next invocation draws.
+    committed(
+      await w.gm.invoke({ object: "aldric", action: "Hit", base_revision: w.host.revision }),
+    );
+    expect(cellOf(w, "goblin1", "x")).toEqual(d6);
+    expect(w.dice.remaining()).toBe(0);
   });
 });
 
