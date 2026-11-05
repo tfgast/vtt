@@ -67,6 +67,23 @@ describe("cycles", () => {
     expect(engine.value("o", "a")).toEqual(num(1));
   });
 
+  test("a conditional cycle broken by replaceContent recovers", () => {
+    const host = doc({
+      o: { cells: { flag: bool(false), a: "=if(flag, b, 1)", b: "=a + 1", c: "=b * 10" } },
+    });
+    const engine = createEngine(host);
+    expect(engine.value("o", "c")).toEqual(num(20));
+    engine.invalidate(host.set("o", "flag", bool(true)));
+    expect(engine.value("o", "a")).toMatchObject(cycle("o", "a"));
+    expect(engine.value("o", "b")).toMatchObject(cycle("o", "b"));
+    expect(engine.value("o", "c")).toMatchObject({ type: "error", code: "#CYCLE" });
+    const dirty = engine.invalidate(host.replaceContent("o", "b", formula("7 + 1")));
+    expect([...dirty].sort()).toEqual(["o:a", "o:b", "o:c"]);
+    expect(engine.value("o", "c")).toEqual(num(80));
+    expect(engine.value("o", "a")).toEqual(num(8));
+    expect(engine.value("o", "b")).toEqual(num(8));
+  });
+
   test("a three-cell cycle across objects, broken with replaceContent", () => {
     const host = doc({
       p: { cells: { x: "=q.y" } },
