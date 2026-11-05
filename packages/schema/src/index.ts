@@ -4,6 +4,7 @@ export * from "./document";
 export * from "./guard";
 export * from "./ids";
 export * from "./object";
+export * from "./ops";
 export * from "./shape";
 export * from "./structural";
 export * from "./validate";
