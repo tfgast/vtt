@@ -2,7 +2,7 @@
  * FakeEnv: a stateless EvalEnv over a plain map of results, for evaluator
  * tests that need no document. It holds no formulas and evaluates nothing.
  */
-import type { EvalEnv } from "@vtt/formula";
+import { type EvalEnv, validateRefs } from "@vtt/formula";
 import type { Bounds, ObjectId, Result } from "@vtt/schema";
 
 /** Object id to cell name to the result a read returns. */
@@ -22,9 +22,11 @@ const own = <T>(record: Record<string, T> | undefined, key: string): T | undefin
   record !== undefined && Object.hasOwn(record, key) ? record[key] : undefined;
 
 /**
- * - `read` returns the mapped result exactly as given (same object), or
- *   `undefined` when the object or cell is not in the map. Dangling-ref
- *   validation is not done here (vtt-o9i.14 adds it).
+ * - `read` returns the mapped result passed through `validateRefs` with this
+ *   env's `exists` (so a reference to an id not in the map, directly or
+ *   inside a list or viewers value, reads as `#REF`); a valid result is the
+ *   mapped object itself. `undefined` when the object or cell is not in the
+ *   map.
  * - `exists` is true for ids that are keys of the map.
  * - Without a stub: `allObjects` is the map's keys in insertion order,
  *   `objectsNamed` is the ids whose `name` result is text equal to the name,
@@ -38,7 +40,8 @@ export class FakeEnv implements EvalEnv {
   ) {}
 
   read(id: ObjectId, cell: string): Result | undefined {
-    return own(own(this.cells, id), cell);
+    const value = own(own(this.cells, id), cell);
+    return value === undefined ? undefined : validateRefs(value, (ref) => this.exists(ref));
   }
 
   exists(id: ObjectId): boolean {
