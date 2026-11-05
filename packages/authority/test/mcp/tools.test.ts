@@ -44,6 +44,16 @@ const OP_EXAMPLES: Record<string, Record<string, unknown>> = {
   set_template_flag: { object: "goblin", value: true },
   set_character_flag: { object: "goblin", value: true },
   set_actions: { object: "goblin", actions: [{ name: "Heal", steps: ["7 -> hp"] }] },
+  set_face: {
+    object: "goblin",
+    face: {
+      elements: [
+        { type: "value", cell: "hp", rect: [0, 0, 1, 1], show_when: "hp > 0" },
+        { type: "button", action: "Heal", rect: [0, 1, 1, 1] },
+      ],
+      default_action: "Heal",
+    },
+  },
   reorder: { container: "bag", permutation: [1, 0] },
   add_board: { id: "cellar", name: "Cellar" },
   rename_board: { id: "map", name: "Big map" },
@@ -154,7 +164,7 @@ describe("tool list", () => {
     expect([...names].sort()).toEqual([...methods, "table_info"].sort());
   });
 
-  test("every one of the 19 WireOp kinds validates in the transact input JSON Schema", async () => {
+  test("every one of the 20 WireOp kinds validates in the transact input JSON Schema", async () => {
     const h = await startHarness();
     const transact = (await listed(h)).find((t) => t.name === "transact");
     expect(transact).toBeDefined();
