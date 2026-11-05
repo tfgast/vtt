@@ -23,6 +23,7 @@ import {
   type Effect,
   fileStem,
   IMAGE_ACCEPT,
+  importLabel,
   type InteractionEvent,
   type InteractionStamp,
   initMachine,
@@ -477,6 +478,7 @@ describe("zone-circle", () => {
     ]);
     const w = onlyWrite(effects);
     expect(w.stamp).toEqual(stampAt(1));
+    expect(w.continuations).toEqual(SELECT_THEN_TOOL);
     expect(w.ops).toEqual([
       {
         type: "create_object",
@@ -706,6 +708,42 @@ describe("zone-polygon", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Cancels, per tool
+
+describe("a cancel ends an unfinished press or drag, per tool", () => {
+  const tools: [name: string, make: () => Tool<unknown, ToolId>][] = [
+    ["token", createTokenTool as () => Tool<unknown, ToolId>],
+    ["card", createCardTool as () => Tool<unknown, ToolId>],
+    ["note", createNoteTool as () => Tool<unknown, ToolId>],
+    ["zone-rect", createZoneRectTool as () => Tool<unknown, ToolId>],
+    ["zone-circle", createZoneCircleTool as () => Tool<unknown, ToolId>],
+    ["image", createImageTool as () => Tool<unknown, ToolId>],
+  ];
+  const reasons = ["escape", "tool_switch", "board_change", "viewer_change"] as const;
+  const cases = tools.flatMap(([name, make]) =>
+    reasons.map((reason) => [name, reason, make] as const),
+  );
+
+  test.each(cases)("%s, %s: no write, no picker, preview cleared", (name, reason, make) => {
+    const out = drive(make(), [down([0, 0]), move([2, 2]), { cancel: reason }, up([2, 2])]);
+    expect(writes(out.effects)).toEqual([]);
+    expect(out.effects.filter((e) => e.type === "pick_file")).toEqual([]);
+    if (name !== "image") expect(overlaysOf(out.perEvent[2] ?? [])).toEqual([]);
+  });
+
+  test.each(tools)("%s: a cancelled pointer creates nothing", (_name, make) => {
+    const out = drive(make(), [down([0, 0]), pointer("pointer_cancel", [0, 0]), up([0, 0])]);
+    expect(writes(out.effects)).toEqual([]);
+    expect(out.effects.filter((e) => e.type === "pick_file")).toEqual([]);
+  });
+
+  test.each(tools)("%s: with no active board a click creates nothing", (_name, make) => {
+    const out = drive(make(), click([0, 0]), { input: () => ({ activeBoard: null }) });
+    expect(out.effects.filter((e) => e.type === "write" || e.type === "pick_file")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // image
 
 function png(name: string): File {
@@ -897,6 +935,28 @@ describe("image", () => {
     expect(w1.stamp).toEqual(stampAt(1));
     expect((w2.ops[0] as CreateOp).init?.cells?.name).toEqual({ type: "text", value: "two" });
     expect((w1.ops[0] as CreateOp).to).toEqual({ type: "board", board: "main", position: [1, 1] });
+  });
+
+  test("a long file stem keeps the full name but the label fits the 200-character limit", () => {
+    const tool = createImageTool();
+    const stem = `${"a".repeat(193)}😀`; // 195 UTF-16 code units
+    const a = drive(tool, [
+      { type: "file_drop", files: [png(`${stem}.png`)], screen: [0, 0], board: [0, 0] },
+    ]);
+    const b = drive(
+      tool,
+      [settled("i1", { type: "uploaded", path: "a.png", width: 100, height: 100 })],
+      { state: a.state, first: 2 },
+    );
+    const w = onlyWrite(b.effects);
+    expect(w.label.length).toBeLessThanOrEqual(200);
+    expect(w.label.startsWith("Import aaa")).toBe(true);
+    // No lone surrogate from cutting the emoji in half.
+    expect(w.label).toBe(w.label.normalize());
+    expect(/[\uD800-\uDFFF]/.test(w.label.replace(/\p{Extended_Pictographic}/gu, ""))).toBe(false);
+    expect(createOp(b.effects).init?.cells?.name).toEqual({ type: "text", value: stem });
+    // A short stem is labelled in full.
+    expect(importLabel("Crypt")).toBe("Import Crypt");
   });
 
   test("an unmeasurable image is a notice and no write", () => {
