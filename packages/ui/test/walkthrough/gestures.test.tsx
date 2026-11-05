@@ -4,7 +4,9 @@
  * `startWalkthrough` and drives the real composed `<App>` through
  * `createGestures`, checking outcomes through the GM assertion client.
  */
+import { readFile } from "node:fs/promises";
 import { fireEvent, within } from "@testing-library/react";
+import { CRYPT_MAP, exampleAssetPath } from "@vtt/fixtures";
 import { LIMITS, type ObjectView, type WireOp } from "@vtt/protocol";
 import type { ObjectId, Point, Rect } from "@vtt/schema";
 import {
@@ -174,6 +176,29 @@ function expectEditorInView(c: DriverContext, path: readonly ObjectId[], cell: s
     object: path.at(-1),
     target: { type: "editor", cell },
   });
+}
+
+/** The entry `entry` in `container`'s contents list on the board, or undefined. */
+function entryIn(c: DriverContext, container: ObjectId, entry: ObjectId) {
+  const drawing = faces(c).faces.get(container);
+  const list = drawing?.primitives.find((p): p is ContentsPrimitive => p.kind === "contents");
+  return list?.entries.find((e) => e.id === entry);
+}
+
+/** Imports the crypt map with the image tool (key I, a click at `at`); resolves with its id. */
+async function importMap(c: DriverContext, g: Gestures, at: Point): Promise<ObjectId> {
+  await g.key("i");
+  await until(() => c.ui.getState().tool.id === "image", "the image tool");
+  const bytes = await readFile(exampleAssetPath(CRYPT_MAP.file));
+  const before = ids(c);
+  c.pickFile(new File([bytes], CRYPT_MAP.file, { type: "image/png" }));
+  await g.drag(at, at);
+  let made: ObjectId | undefined;
+  await until(() => {
+    made = [...ids(c)].find((id) => !before.has(id));
+    return made !== undefined;
+  }, "the imported map");
+  return made as ObjectId;
 }
 
 // ---------------------------------------------------------------------------
@@ -570,5 +595,43 @@ describe("createGestures (vtt-nb8.18)", () => {
     expect(log.groups.find((x) => x.index === named)?.undone).toBe(true);
     // The spawn is not undone.
     expect(c.session.directory().has(token)).toBe(true);
+  }, 60_000);
+
+  test("click and inspectorSet reach a fog zone under the crypt map with Alt+click cycling (vtt-nb8.19)", async () => {
+    const { c, g } = await start();
+    const map = await importMap(c, g, [60, 0]);
+    const [mx, my] = (
+      (await cellValue(c, map, "position")) as { items: { value: number }[] }
+    ).items.map((i) => i.value) as [number, number];
+    const zone = await g.drawZone([mx - 2, my - 2], [mx + 2, my + 2], { fog: true });
+    await g.key("Escape");
+    expect(c.ui.getState().selection).toEqual([]);
+
+    await g.inspectorSet(zone, "name", "Room 1");
+    expect(await cellValue(c, zone, "name")).toEqual({ type: "text", value: "Room 1" });
+    expect(c.ui.getState().selection).toEqual([zone]);
+
+    // A plain click there selects the map; click(zone) cycles on to the zone.
+    await g.click(map);
+    expect(c.ui.getState().selection).toEqual([map]);
+    await g.click(zone);
+    expect(c.ui.getState().selection).toEqual([zone]);
+    await g.key("Escape");
+    await g.click(zone);
+    expect(c.ui.getState().selection).toEqual([zone]);
+  }, 60_000);
+
+  test("collapseEntry collapses an expanded sheet and does nothing to a collapsed one (vtt-nb8.19)", async () => {
+    const { c, g } = await start();
+    const token = await spawnFromBinder(c, g, "tpl_character", [10, 0]);
+    const [sheet] = refsOf(await cellValue(c, token, "contents"));
+    if (sheet === undefined) throw new Error("no sheet");
+    await g.expandEntry(token, sheet);
+    expect(entryIn(c, token, sheet)?.expanded).toBe(true);
+    await g.collapseEntry(token, sheet);
+    expect(entryIn(c, token, sheet)?.expanded).toBe(false);
+    expect(g.elementShown(sheet, { cell: "ac" })).toBe(false);
+    await g.collapseEntry(token, sheet);
+    expect(entryIn(c, token, sheet)?.expanded).toBe(false);
   }, 60_000);
 });
