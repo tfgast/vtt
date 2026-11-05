@@ -10,8 +10,10 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  nodeSessionFs,
   readSessionFile,
   removeSessionFile,
+  type SessionFs,
   type SessionInfo,
   sessionFilePath,
   writeSessionFile,
@@ -134,5 +136,64 @@ describe("removeSessionFile", () => {
     writeFileSync(sessionFilePath(), "{corrupt");
     expect(removeSessionFile(42)).toBe(false);
     expect(readFileSync(sessionFilePath(), "utf8")).toBe("{corrupt");
+  });
+
+  test("a missing file: the rename gets ENOENT and nothing else is attempted", () => {
+    const calls: string[] = [];
+    const fs: SessionFs = {
+      renameSync: (a, b) => {
+        calls.push("rename");
+        nodeSessionFs.renameSync(a, b);
+      },
+      readFileSync: (p, e) => {
+        calls.push("read");
+        return nodeSessionFs.readFileSync(p, e);
+      },
+      linkSync: (a, b) => {
+        calls.push("link");
+        nodeSessionFs.linkSync(a, b);
+      },
+      unlinkSync: (p) => {
+        calls.push("unlink");
+        nodeSessionFs.unlinkSync(p);
+      },
+    };
+    expect(removeSessionFile(42, sessionFilePath(), fs)).toBe(false);
+    expect(calls).toEqual(["rename"]);
+  });
+
+  /** A seam that lets a newer authority replace the file right after the rename aside. */
+  function racingFs(newer: SessionInfo): SessionFs {
+    return {
+      ...nodeSessionFs,
+      renameSync: (from, to) => {
+        nodeSessionFs.renameSync(from, to);
+        if (from === sessionFilePath()) writeSessionFile(newer);
+      },
+    };
+  }
+
+  test("our file, replaced by a newer authority between the rename and the read: the newer file survives", () => {
+    writeSessionFile(info({ pid: 42, token: "old" }));
+    const newer = info({ pid: 77, token: "newer" });
+    expect(removeSessionFile(42, sessionFilePath(), racingFs(newer))).toBe(true);
+    expect(readSessionFile()).toEqual(newer);
+    expect(readdirSync(join(config, "vtt"))).toEqual(["session.json"]);
+  });
+
+  test("a foreign file, replaced by a yet newer one meanwhile: the newer file survives, the moved copy is dropped", () => {
+    writeSessionFile(info({ pid: 50, token: "foreign" }));
+    const newer = info({ pid: 77, token: "newer" });
+    expect(removeSessionFile(42, sessionFilePath(), racingFs(newer))).toBe(false);
+    expect(readSessionFile()).toEqual(newer);
+    expect(readdirSync(join(config, "vtt"))).toEqual(["session.json"]);
+  });
+
+  test("a foreign file with no race is restored unchanged, mode 0600, without leftovers", () => {
+    writeSessionFile(info({ pid: 50 }));
+    expect(removeSessionFile(42)).toBe(false);
+    expect(readSessionFile()).toEqual(info({ pid: 50 }));
+    expect(statSync(sessionFilePath()).mode & 0o777).toBe(0o600);
+    expect(readdirSync(join(config, "vtt"))).toEqual(["session.json"]);
   });
 });

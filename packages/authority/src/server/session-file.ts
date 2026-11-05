@@ -12,6 +12,7 @@ import {
   chmodSync,
   closeSync,
   fsyncSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -87,9 +88,20 @@ export function writeSessionFile(info: SessionInfo, path: string = sessionFilePa
 
 /** Reads the session file; null when it is missing, unreadable or invalid. Unknown keys are ignored. */
 export function readSessionFile(path: string = sessionFilePath()): SessionInfo | null {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+  return parseSessionInfo(text);
+}
+
+/** Parses session file content; null when it is not a valid `SessionInfo`. */
+function parseSessionInfo(text: string): SessionInfo | null {
   let value: unknown;
   try {
-    value = JSON.parse(readFileSync(path, "utf8"));
+    value = JSON.parse(text);
   } catch {
     return null;
   }
@@ -101,16 +113,87 @@ export function readSessionFile(path: string = sessionFilePath()): SessionInfo |
   return { url, token, pid, table_path, table_id };
 }
 
+/** The filesystem calls `removeSessionFile` makes; injectable for race tests. */
+export interface SessionFs {
+  renameSync(from: string, to: string): void;
+  readFileSync(path: string, encoding: "utf8"): string;
+  /** Creates `to` as a hard link to `from`; fails with EEXIST when `to` exists. */
+  linkSync(from: string, to: string): void;
+  unlinkSync(path: string): void;
+}
+
+/** The real filesystem. */
+export const nodeSessionFs: SessionFs = {
+  renameSync: (from, to) => renameSync(from, to),
+  readFileSync: (path, encoding) => readFileSync(path, encoding),
+  linkSync: (from, to) => linkSync(from, to),
+  unlinkSync: (path) => unlinkSync(path),
+};
+
+const codeOf = (err: unknown): unknown =>
+  typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
+
 /**
  * Removes the session file only when it names `pid`; returns whether it was
- * removed. A missing, invalid or foreign file is left alone.
+ * removed. A missing, invalid or foreign file is left in place.
+ *
+ * Without a cross-process lock, and never deleting a newer authority's file:
+ * the file is first renamed aside (`<path>.removing-<pid>-<nonce>`, atomic),
+ * so this call owns exactly the file that was at `path` (or gets ENOENT and
+ * stops). The moved file is then read: if it names `pid` it is unlinked;
+ * otherwise it is restored with `link` (which, unlike `rename`, never
+ * replaces a file a yet newer authority wrote meanwhile) and the moved name
+ * unlinked; when `path` already exists again, the moved copy is older and is
+ * simply unlinked. Readers may therefore observe a brief absence of the file
+ * while another process's file is being restored, and should retry (a
+ * discovery-based client already keeps retrying on a missing file).
  */
-export function removeSessionFile(pid: number, path: string = sessionFilePath()): boolean {
-  if (readSessionFile(path)?.pid !== pid) return false;
+export function removeSessionFile(
+  pid: number,
+  path: string = sessionFilePath(),
+  fs: SessionFs = nodeSessionFs,
+): boolean {
+  const moved = `${path}.removing-${process.pid}-${randomBytes(6).toString("hex")}`;
   try {
-    unlinkSync(path);
-    return true;
+    fs.renameSync(path, moved);
   } catch {
+    // ENOENT: there is no file. Any other failure: leave whatever is there.
     return false;
   }
+  let text: string | null;
+  try {
+    text = fs.readFileSync(moved, "utf8");
+  } catch {
+    text = null;
+  }
+  if (text !== null && parseSessionInfo(text)?.pid === pid) {
+    try {
+      fs.unlinkSync(moved);
+    } catch {
+      // Best effort: the session file is gone from `path` either way.
+    }
+    return true;
+  }
+  // Not ours (or unreadable): put it back unless a newer file now exists.
+  try {
+    fs.linkSync(moved, path);
+  } catch (err) {
+    if (codeOf(err) !== "EEXIST") {
+      // No hard links here: fall back to a rename back. It would replace a
+      // file that appeared since the failed link, the one window this path
+      // cannot close; the moved file is kept when the rename fails.
+      try {
+        fs.renameSync(moved, path);
+      } catch {
+        // Leave the moved file for a human; nothing at `path` is touched.
+      }
+      return false;
+    }
+  }
+  try {
+    fs.unlinkSync(moved);
+  } catch {
+    // Best effort.
+  }
+  return false;
 }
