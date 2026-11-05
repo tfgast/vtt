@@ -84,7 +84,9 @@ async function failure(promise: Promise<unknown>): Promise<ProtocolError> {
 
 /** Records a promise's settlement without awaiting it. */
 function track<T>(promise: Promise<T>) {
-  const out: { value?: T; error?: ProtocolError; settled: boolean } = { settled: false };
+  const out: { value?: T; error?: ProtocolError; local?: boolean; settled: boolean } = {
+    settled: false,
+  };
   promise.then(
     (value) => {
       out.value = value;
@@ -92,6 +94,7 @@ function track<T>(promise: Promise<T>) {
     },
     (e: unknown) => {
       out.error = e instanceof ProtocolFailure ? e.error : { code: "internal", message: String(e) };
+      if (e instanceof ProtocolFailure) out.local = e.local;
       out.settled = true;
     },
   );
@@ -704,6 +707,7 @@ describe("transactWithRetry", () => {
       code: "uncertain",
       details: { txn_id: "t1", reason: "timeout" },
     });
+    expect(write.local).toBe(true);
     server.peer.drop();
     await advance(10000);
     expect(transacts(server)).toHaveLength(1);
@@ -803,6 +807,7 @@ describe("transactWithRetry", () => {
     await advance(250);
     await advance(1000);
     expect(write.error).toMatchObject({ code: "uncertain", details: { reason: "resend_lost" } });
+    expect(write.local).toBe(true);
     expect(transacts(server)).toHaveLength(2);
   });
 

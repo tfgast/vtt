@@ -408,7 +408,7 @@ function uncertain(
   message: string,
   extra: Record<string, unknown> = {},
 ): ProtocolFailure {
-  return new ProtocolFailure("uncertain", message, { txn_id, reason, ...extra });
+  return new ProtocolFailure("uncertain", message, { txn_id, reason, ...extra }, { local: true });
 }
 
 type ReadyOutcome = "ready" | "not_ready" | "unauthorized" | "wrong_table";
