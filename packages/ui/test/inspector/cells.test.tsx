@@ -97,6 +97,7 @@ const SEED: WireOp[] = [
         name: text("Guard room"),
         opaque: { type: "boolean", value: true },
         visible_to: formula(REHIDE),
+        ac: num(10),
       },
     },
   },
@@ -712,5 +713,74 @@ describe("add, rename, delete", () => {
     const notices = sessionNotices(session);
     await until(() => notices.list().length > 0, "the refusal notice");
     expect(notices.list()[0]?.level).toBe("error");
+  });
+});
+
+describe("drafts belong to their object", () => {
+  test("switching objects with a value draft open discards it and writes nothing", async () => {
+    const user = userEvent.setup();
+    const { session, rerender, transacts } = await setup();
+    const editor = await openEditor(user, "name");
+    await user.clear(editor);
+    await user.type(editor, "Draft name");
+    rerender("room");
+    await until(() => shown("name").textContent === "Guard room", "the room's rows");
+    expect(editorOf("name")).toBeNull();
+    rerender("goblin");
+    await until(() => shown("name").textContent === "Goblin", "the goblin's rows");
+    expect(editorOf("name")).toBeNull();
+    expect(transacts()).toEqual([]);
+    expect(cellOf(session, "room", "name")?.value).toEqual(text("Guard room"));
+  });
+
+  test("switching objects with a rename draft open discards it and writes nothing", async () => {
+    const user = userEvent.setup();
+    const { session, rerender, transacts } = await setup();
+    await user.click(within(row("ac")).getByRole("button", { name: "Rename" }));
+    const rename = within(row("ac")).getByRole("textbox", { name: "Rename ac" });
+    await user.clear(rename);
+    await user.type(rename, "armor");
+    rerender("room");
+    await until(() => shown("ac").textContent === "10", "the room's ac");
+    expect(within(row("ac")).queryByRole("textbox", { name: "Rename ac" })).toBeNull();
+    await user.keyboard("{Enter}");
+    expect(transacts()).toEqual([]);
+    expect(cellOf(session, "room", "ac")?.value).toEqual(num(10));
+    expect(cellOf(session, "room", "armor")).toBeUndefined();
+  });
+});
+
+describe("replacing with empty", () => {
+  test("a roll replaced with empty writes empty", async () => {
+    const user = userEvent.setup();
+    const { session, transacts } = await setup();
+    const editor = await openEditor(user, "lastroll");
+    expect(editor.value).toBe("");
+    await user.type(editor, "empty{Enter}");
+    await until(() => cellOf(session, "goblin", "lastroll")?.value.type === "empty", "empty");
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_value", object: "goblin", cell: "lastroll", value: { type: "empty" } },
+    ]);
+  });
+
+  test("an error replaced with empty writes empty", async () => {
+    const user = userEvent.setup();
+    const { session, transacts } = await setup();
+    const editor = await openEditor(user, "target");
+    expect(editor.value).toBe("");
+    await user.type(editor, "empty{Enter}");
+    await until(() => cellOf(session, "goblin", "target")?.value.type === "empty", "empty");
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_value", object: "goblin", cell: "target", value: { type: "empty" } },
+    ]);
+  });
+
+  test("an untouched replace-value editor writes nothing", async () => {
+    const user = userEvent.setup();
+    const { transacts } = await setup();
+    const editor = await openEditor(user, "lastroll");
+    await user.type(editor, "{Enter}");
+    expect(editorOf("lastroll")).toBeNull();
+    expect(transacts()).toEqual([]);
   });
 });

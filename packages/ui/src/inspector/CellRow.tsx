@@ -205,6 +205,12 @@ export function CellRow({
       setRename(null);
     }
   }, [readOnly]);
+  // Drafts belong to their object: a new target discards them uncommitted.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on target change
+  useEffect(() => {
+    setEditor(null);
+    setRename(null);
+  }, [object, name]);
   const refLabel = inspectorRefLabel(session);
   const revision = () => session.getSnapshot().revision;
   const where = () => `${refLabel(object) ?? object}.${name}`;
@@ -235,7 +241,13 @@ export function CellRow({
   };
 
   const commitEditor = (current: ValueEditor) => {
-    if (isUnchangedInput(current.initial, current.text, name)) {
+    // A replace-value editor's "" is a placeholder, not the value: anything
+    // typed there writes (also `empty`); only an untouched editor writes nothing.
+    const unchanged =
+      current.reason === undefined
+        ? isUnchangedInput(current.initial, current.text, name)
+        : current.text === "";
+    if (unchanged) {
       setEditor(null);
       return;
     }

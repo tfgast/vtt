@@ -128,7 +128,7 @@ export function CellList({
     names.map((name) => {
       const cell = cellOf(name);
       return cell === undefined ? null : (
-        <CellRow key={name} name={name} cell={cell} {...rowProps} />
+        <CellRow key={`${object}\u0000${name}`} name={name} cell={cell} {...rowProps} />
       );
     });
 
