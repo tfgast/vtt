@@ -30,6 +30,14 @@ undo, persistence, spatial index, WebSocket protocol, MCP server), `ui`,
   references. With zero packages, `pnpm -r --parallel typecheck` prints
   "No projects matched the filters" and exits 0; no extra flag is needed.
 - One `vitest.config.ts` per package. Biome is the only linter and formatter.
+- The root `vitest.config.ts` runs `projects: ["packages/*"]`; each package's
+  config sets `test.name` to its package name. Tests import their own package
+  by name (`"@vtt/<pkg>"`), which resolves through the `exports` self-reference
+  with no alias or tsconfig `paths`.
+- Every package must have at least one test file. Vitest only fails an
+  entirely empty run, so an inline reporter in the root config fails
+  `pnpm test` when any selected project globs zero test files (path filters
+  keep all projects selected; `--project` narrows the set).
 
 ## Tracking: beads
 

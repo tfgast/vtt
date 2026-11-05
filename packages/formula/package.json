@@ -1,0 +1,14 @@
+{
+  "name": "@vtt/formula",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vtt/schema": "workspace:*"
+  }
+}

@@ -7,7 +7,7 @@
     "node": "^26"
   },
   "scripts": {
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "typecheck": "pnpm -r --parallel typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
