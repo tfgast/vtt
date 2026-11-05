@@ -1076,9 +1076,11 @@ plus an ordered stream of committed operations** from the start:
   for an undo, `undoes`, the index of the group it reverses;
 - `base_revision`, the revision it was made against, and `revision`, the
   revision it produced;
-- the names of the objects it touched, captured at commit time; for a removed
-  object, its name just before removal. This is how the log keeps the name an
-  object had at the time (4.8).
+- the names of the objects it touched and, when the actor is a character, of
+  that character, captured at commit time; for a removed object, its name just
+  before removal. This is how the log keeps the name an object had at the time
+  (4.8) and names the character the GM drove even when the group touched only
+  other objects (M5-D1).
 
 A logged write records the resulting value: `add` logs the sum, not the
 increment.
@@ -1653,3 +1655,4 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M6-D5. `pnpm start <file>` builds the UI only when its build is missing or older than its sources (`--no-build` skips) and runs `vtt-serve --open`; `--open` uses `$BROWSER` or the platform opener and never fails the server; `pnpm mcp` runs `vtt-mcp`; local tables live in the gitignored `tables/`. DESIGN §7; PROTOCOL §2. | One command from clone to table without a needless rebuild; stdio MCP launched through `pnpm --silent`. |
 | 2026-11-05 | M6-D6. The MCP server sends `instructions` at `initialize`. DESIGN §5.2; PROTOCOL §11. | A bring-your-own agent should find the templates and the write rules without being told by the GM. |
 | 2026-11-05 | M6-D7. Example images (`crypt-map.png`, `goblin.png`) ship in `@vtt/fixtures/assets`, generated in-repo. | §8.4 step 3 needs a map; generated art has no licence question. |
+| 2026-11-05 | M6-D8. A group's `names` are the touched objects' plus, when the actor is a character, that character's, captured at commit (before removal if the group removes it). Gm and agent actors add nothing. Character group views filter `names` as before. Amends the operation group entry above. DESIGN §7; PROTOCOL §7.6. | The log must name the character the GM drove (M5-D1) and keep names as they were (4.8); a view-as Apply touches only the card and its target, so the header showed the character's id. |

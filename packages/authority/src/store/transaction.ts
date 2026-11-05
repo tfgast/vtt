@@ -288,7 +288,11 @@ export class Transaction {
 
   #group(): Omit<OpGroup, "index"> {
     const names: Record<ObjectId, string> = {};
-    for (const id of [...this.#touched].sort(byString)) {
+    // The touched objects plus a character actor, so the log can name the
+    // character the GM drove even when the group did not touch it (M5-D1).
+    const named = new Set(this.#touched);
+    if (this.actor.type === "character") named.add(this.actor.id);
+    for (const id of [...named].sort(byString)) {
       const name = this.#working.hasObject(id)
         ? nameIn(this.#working, id)
         : this.#removedNames.get(id);
