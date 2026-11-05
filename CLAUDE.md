@@ -33,6 +33,9 @@ undo, persistence, spatial index, WebSocket protocol, MCP server), `ui`,
   `packages/*/vitest.config.ts`) are typechecked by the root `tsconfig.json`,
   which `pnpm typecheck` runs before the package typechecks.
 - One `vitest.config.ts` per package. Biome is the only linter and formatter.
+- Package `src/index.ts` files hold one `export * from "./<module>"` line per
+  module, extensionless, kept sorted (Biome enforces the order). A bead adds
+  its own lines in sorted position and never edits another bead's lines.
 - The root `vitest.config.ts` runs `projects: ["packages/*"]`; each package's
   config sets `test.name` to its package name. Tests import their own package
   by name (`"@vtt/<pkg>"`), which resolves through the `exports` self-reference
