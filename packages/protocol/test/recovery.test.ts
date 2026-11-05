@@ -323,7 +323,7 @@ describe("reconnection and resubscription", () => {
       },
     ],
   ] as const)(
-    "a server error response coded %s fails the subscription terminally",
+    "a server error response coded %s (client-only) fails the subscription terminally",
     async (_n, error) => {
       const { server, client } = await connected();
       const sub = await subscribe(client, "a");
@@ -334,13 +334,77 @@ describe("reconnection and resubscription", () => {
       await advance(250);
       const peer = server.peer;
       expect(sub.state).toBe("failed");
-      expect(errors).toEqual([error]);
+      // A client-only code from the server is a protocol violation (PROTOCOL.md §10).
+      expect(errors).toEqual([
+        {
+          code: "internal",
+          message: expect.stringContaining(error.code),
+          details: { type: "protocol", method: "subscribe" },
+        },
+      ]);
       expect(sub.mirror.objects.size).toBe(0);
       expect(peer.closedByClient).toBeNull();
       expect(client.ready).toBe(true);
       expect(client.connectionError()).toBeNull();
       await advance(10000);
       expect(server.peers).toHaveLength(2);
+    },
+  );
+
+  test.each([
+    [
+      "disconnected (sent: false) with the client's wording",
+      () =>
+        new ProtocolFailure("disconnected", "cannot send subscribe: not connected", {
+          sent: false,
+        }),
+    ],
+    [
+      "timeout with the client's wording",
+      () => new ProtocolFailure("timeout", "subscribe: no response within 1000 ms", { sent: true }),
+    ],
+  ] as const)(
+    "a resubscribe failure not marked local, %s, fails the subscription terminally",
+    async (_n, make) => {
+      const { server, client } = await connected();
+      const sub = await subscribe(client, "a");
+      const errors: ProtocolError[] = [];
+      sub.on("error", (_s, e) => errors.push(e));
+      const remote = make();
+      vi.spyOn(client, "requestDuringRecovery").mockImplementation(() => Promise.reject(remote));
+      server.peer.drop();
+      await advance(1000);
+      expect(sub.state).toBe("failed");
+      expect(errors).toEqual([remote.error]);
+      expect(server.peer.closedByClient).toBeNull();
+      expect(client.ready).toBe(true);
+      expect(server.peers).toHaveLength(2);
+    },
+  );
+
+  test.each([
+    ["disconnected (sent: false)", "send_failed", { sent: false }, "resubscribe_send_failed"],
+    ["timeout", "timeout", { sent: true }, "resubscribe_timeout"],
+  ] as const)(
+    "a local %s resubscribe failure aborts the socket whatever its message",
+    async (_n, kind, details, reason) => {
+      const { server, client } = await connected();
+      const sub = await subscribe(client, "a");
+      const code = kind === "timeout" ? "timeout" : "disconnected";
+      const during = vi
+        .spyOn(client, "requestDuringRecovery")
+        .mockImplementationOnce(() =>
+          Promise.reject(new ProtocolFailure(code, "unusual wording", details, { local: true })),
+        );
+      server.peer.drop();
+      await advance(250);
+      const first = server.peers[1];
+      expect(first?.closedByClient).toEqual({ code: 4000, reason });
+      expect(sub.state).toBe("recovering");
+      during.mockRestore();
+      await advance(5000);
+      expect(sub.state).toBe("live");
+      expect(client.ready).toBe(true);
     },
   );
 
