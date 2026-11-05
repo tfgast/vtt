@@ -683,7 +683,9 @@ that revision counts as invisible. Per effect variant:
 - Visibility is current (D15): a removed object is invisible, so its remove
   snapshot (and its face) is omitted from a character's group view until an
   undo restores the object, after which it appears filtered.
-- `names[id]` is present only when the viewer can see object `id` and read its
+- `names` holds the names captured at commit: the objects the group touched
+  and, when the actor is a character, that character (DESIGN §7, M6-D8).
+  `names[id]` is present only when the viewer can see object `id` and read its
   `name` cell.
 - `label` is kept only when every effect of the group other than
   `allocate`/`retire` is kept unreduced for the viewer: no effect dropped, and
