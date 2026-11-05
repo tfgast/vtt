@@ -1,14 +1,17 @@
 /**
  * The in-process MCP server (DESIGN.md §5.2; PROTOCOL.md §11; M3-D17):
  * `createMcpServer` builds an SDK `McpServer` over a `ProtocolClient` with
- * the 14 request tools and the static resources, then runs each extension
- * (vtt-5su.15 adds the subscription tools and resource this way; M4 adds
- * `import_asset`). It does not connect the client or a transport: the
- * caller connects a transport (stdio in `vtt-mcp`, vtt-5su.17; an
- * in-memory pair in tests) and drives the client's connection.
+ * the 15 request tools, the static resources and the `instructions`
+ * (`MCP_INSTRUCTIONS`, M6-D6), then runs each extension (vtt-5su.15 adds the
+ * subscription tools and resource this way; M4 adds `import_asset`; the
+ * composed `vtt-mcp` process has 19 tools). It does not connect the client
+ * or a transport: the caller connects a transport (stdio in `vtt-mcp`,
+ * vtt-5su.17; an in-memory pair in tests) and drives the client's
+ * connection.
  */
 import { McpServer } from "@modelcontextprotocol/server";
 import type { ProtocolClient } from "@vtt/protocol";
+import { MCP_INSTRUCTIONS } from "./instructions";
 import { registerResources } from "./resources";
 import { registerTools } from "./tools";
 
@@ -53,12 +56,15 @@ export interface CreateMcpServerOptions {
 /** The MCP server's version, reported in `serverInfo`. */
 export const MCP_SERVER_VERSION = "1.0.0";
 
-/** Builds the MCP server: the 14 request tools, the static resources, then `extensions` in order. */
+/**
+ * Builds the MCP server: the 15 request tools, the static resources and
+ * `MCP_INSTRUCTIONS`, then `extensions` in order.
+ */
 export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   const { client, name = "vtt", extensions = [] } = options;
   const server = new McpServer(
     { name, version: MCP_SERVER_VERSION },
-    { capabilities: { tools: {}, resources: {} } },
+    { capabilities: { tools: {}, resources: {} }, instructions: MCP_INSTRUCTIONS },
   );
   registerTools(server, client);
   registerResources(server);
