@@ -4,9 +4,11 @@ import { join } from "node:path";
 import {
   CLOSE_CODES,
   DEFAULT_PORT,
+  GroupViewSchema,
   LIMITS,
   METHODS,
   type MethodName,
+  ObjectViewSchema,
   type Params,
   PROTOCOL_VERSION,
   type Result,
@@ -102,6 +104,12 @@ describe("JSON Schema export", () => {
     for (const [name, entry] of Object.entries(METHODS)) {
       expect(() => z.toJSONSchema(entry.params), name).not.toThrow();
       expect(() => z.toJSONSchema(entry.params, { io: "input" }), name).not.toThrow();
+    }
+  });
+
+  test("loose views export in output mode", () => {
+    for (const schema of [ObjectViewSchema, GroupViewSchema]) {
+      expect(() => z.toJSONSchema(schema)).not.toThrow();
     }
   });
 

@@ -6,6 +6,8 @@
 import type { Actor } from "@vtt/schema";
 import { z } from "zod";
 import {
+  looseNoProto,
+  looseObject,
   ObjectIdSchema,
   WireResultSchema,
   WireShapeSchema,
@@ -13,9 +15,13 @@ import {
   WireViewersSchema,
 } from "./values";
 
-const Id = z.string();
+/** Every object and board id in a view is a real id, never a `$binding` (§5). */
+const Id = ObjectIdSchema;
 const Count = z.int().nonnegative();
 const Point = z.tuple([z.number(), z.number()]);
+/** A loose record (values stripped of unknown keys) that rejects `__proto__`. */
+const looseRecord = <K extends z.core.$ZodRecordKey, V extends z.ZodType>(key: K, value: V) =>
+  looseNoProto(z.record(key, value));
 
 // ---------------------------------------------------------------------------
 // Viewers and actors
@@ -31,23 +37,25 @@ export type Viewer = z.infer<typeof ViewerSchema>;
  * An actor in server-to-client data (loose). Client-to-server params use
  * `@vtt/schema`'s strict `ActorSchema`.
  */
-export const WireActorSchema: z.ZodType<Actor> = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("gm") }),
-  z.object({ type: z.literal("character"), id: Id }),
-  z.object({ type: z.literal("agent"), name: z.string().optional() }),
-]);
+export const WireActorSchema: z.ZodType<Actor> = looseNoProto(
+  z.discriminatedUnion("type", [
+    z.object({ type: z.literal("gm") }),
+    z.object({ type: z.literal("character"), id: Id }),
+    z.object({ type: z.literal("agent"), name: z.string().optional() }),
+  ]),
+);
 
 // ---------------------------------------------------------------------------
 // Object views (§7.2)
 
-export const ActionViewSchema = z.object({
+export const ActionViewSchema = looseObject({
   name: z.string(),
   when: z.string().optional(),
   steps: z.array(z.string()).optional(),
 });
 export type ActionView = z.infer<typeof ActionViewSchema>;
 
-export const CellViewSchema = z.object({
+export const CellViewSchema = looseObject({
   value: WireResultSchema,
   kind: z.enum(["literal", "formula", "structural"]),
   source: z.string().optional(),
@@ -56,28 +64,29 @@ export const CellViewSchema = z.object({
 });
 export type CellView = z.infer<typeof CellViewSchema>;
 
-export const ObjectViewSchema = z.object({
+export const ObjectViewSchema = looseObject({
   id: Id,
   is_template: z.boolean(),
   is_character: z.boolean(),
-  cells: z.record(z.string(), CellViewSchema),
+  cells: looseRecord(z.string(), CellViewSchema),
   actions: z.array(ActionViewSchema),
 });
 export type ObjectView = z.infer<typeof ObjectViewSchema>;
 
 /** A board as sent on the wire; also the `Board` of `board` effects. */
-export const BoardViewSchema = z.object({ id: Id, name: z.string().optional() });
+export const BoardViewSchema = looseObject({ id: Id, name: z.string().optional() });
 export type BoardView = z.infer<typeof BoardViewSchema>;
 
 // ---------------------------------------------------------------------------
 // Covers (§7.5)
 
-export const CoverSchema = z.object({
+export const CoverSchema = looseObject({
+  /** Opaque; never contains the zone id. */
   key: z.string(),
   board: Id,
   region: z.union([
-    z.object({ position: Point, rotation: z.number(), shape: WireShapeSchema }),
-    z.object({ whole_board: z.literal(true) }),
+    looseObject({ position: Point, rotation: z.number(), shape: WireShapeSchema }),
+    looseObject({ whole_board: z.literal(true) }),
   ]),
 });
 export type Cover = z.infer<typeof CoverSchema>;
@@ -85,33 +94,40 @@ export type Cover = z.infer<typeof CoverSchema>;
 // ---------------------------------------------------------------------------
 // Group views (§7.6)
 
-export const GroupHeaderSchema = z.object({
+/** The fields of `GroupHeader`, for schemas that extend it. */
+export const GROUP_HEADER_SHAPE = {
   index: Count,
   revision: Count,
   actor: WireActorSchema,
   kind: z.enum(["edit", "action", "undo"]),
   /** `null` only in character group views. */
   label: z.string().nullable(),
-});
+};
+
+export const GroupHeaderSchema = looseObject(GROUP_HEADER_SHAPE);
 export type GroupHeader = z.infer<typeof GroupHeaderSchema>;
 
-export const CellStateViewSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("literal"), value: WireValueSchema }),
-  z.object({
-    kind: z.literal("formula"),
-    source: z.string().optional(),
-    override: WireValueSchema.optional(),
-  }),
-]);
+export const CellStateViewSchema = looseNoProto(
+  z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("literal"), value: WireValueSchema }),
+    z.object({
+      kind: z.literal("formula"),
+      source: z.string().optional(),
+      override: WireValueSchema.optional(),
+    }),
+  ]),
+);
 export type CellStateView = z.infer<typeof CellStateViewSchema>;
 
-export const LocationViewSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("board"), board: Id }),
-  z.object({ type: z.literal("container"), container: Id.nullable(), index: Count }),
-]);
+export const LocationViewSchema = looseNoProto(
+  z.discriminatedUnion("type", [
+    z.object({ type: z.literal("board"), board: Id }),
+    z.object({ type: z.literal("container"), container: Id.nullable(), index: Count }),
+  ]),
+);
 export type LocationView = z.infer<typeof LocationViewSchema>;
 
-export const ObjectSnapshotViewSchema = z.object({
+export const ObjectSnapshotViewSchema = looseObject({
   id: Id,
   is_template: z.boolean(),
   is_zone: z.boolean(),
@@ -119,8 +135,8 @@ export const ObjectSnapshotViewSchema = z.object({
   tag: z.array(z.string()).optional(),
   shape: WireShapeSchema.nullable().optional(),
   contents: z.array(Id.nullable()).optional(),
-  cells: z.record(z.string(), CellStateViewSchema),
-  cell_visibility: z.record(z.string(), WireViewersSchema).optional(),
+  cells: looseRecord(z.string(), CellStateViewSchema),
+  cell_visibility: looseRecord(z.string(), WireViewersSchema).optional(),
   actions: z.array(ActionViewSchema),
 });
 export type ObjectSnapshotView = z.infer<typeof ObjectSnapshotViewSchema>;
@@ -141,59 +157,67 @@ const subtreeEffect = <T extends string>(type: T) =>
     objects: z.array(ObjectSnapshotViewSchema),
   });
 
-export const EffectViewSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("cell"),
-    object: Id,
-    cell: z.string(),
-    before: CellStateViewSchema.nullable(),
-    after: CellStateViewSchema.nullable(),
-    cause: z.enum(["edit", "roll"]),
-  }),
-  z.object({
-    type: z.literal("cell_visibility"),
-    object: Id,
-    cell: z.string(),
-    before: WireViewersSchema.nullable(),
-    after: WireViewersSchema.nullable(),
-  }),
-  z.discriminatedUnion("field", [
-    fieldEffect("tag", z.array(z.string())),
-    fieldEffect("shape", WireShapeSchema.nullable()),
-    fieldEffect("is_template", z.boolean()),
-    fieldEffect("is_character", z.boolean()),
-    fieldEffect("actions", z.array(ActionViewSchema)),
+export const EffectViewSchema = looseNoProto(
+  z.discriminatedUnion("type", [
+    z.object({
+      type: z.literal("cell"),
+      object: Id,
+      cell: z.string(),
+      before: CellStateViewSchema.nullable(),
+      after: CellStateViewSchema.nullable(),
+      cause: z.enum(["edit", "roll"]),
+    }),
+    z.object({
+      type: z.literal("cell_visibility"),
+      object: Id,
+      cell: z.string(),
+      before: WireViewersSchema.nullable(),
+      after: WireViewersSchema.nullable(),
+    }),
+    z.discriminatedUnion("field", [
+      fieldEffect("tag", z.array(z.string())),
+      fieldEffect("shape", WireShapeSchema.nullable()),
+      fieldEffect("is_template", z.boolean()),
+      fieldEffect("is_character", z.boolean()),
+      fieldEffect("actions", z.array(ActionViewSchema)),
+    ]),
+    z.object({
+      type: z.literal("place"),
+      object: Id,
+      before: LocationViewSchema,
+      after: LocationViewSchema,
+    }),
+    subtreeEffect("create"),
+    subtreeEffect("remove"),
+    z.object({
+      type: z.literal("reorder"),
+      container: Id,
+      before: z.array(Id.nullable()),
+      after: z.array(Id.nullable()),
+    }),
+    z.object({
+      type: z.literal("board"),
+      before: BoardViewSchema.nullable(),
+      after: BoardViewSchema.nullable(),
+    }),
+    z.object({
+      type: z.literal("allocate"),
+      ids: z.array(Id),
+      seq_before: Count,
+      seq_after: Count,
+    }),
+    z.object({ type: z.literal("retire"), ids: z.array(Id) }),
   ]),
-  z.object({
-    type: z.literal("place"),
-    object: Id,
-    before: LocationViewSchema,
-    after: LocationViewSchema,
-  }),
-  subtreeEffect("create"),
-  subtreeEffect("remove"),
-  z.object({
-    type: z.literal("reorder"),
-    container: Id,
-    before: z.array(Id.nullable()),
-    after: z.array(Id.nullable()),
-  }),
-  z.object({
-    type: z.literal("board"),
-    before: BoardViewSchema.nullable(),
-    after: BoardViewSchema.nullable(),
-  }),
-  z.object({ type: z.literal("allocate"), ids: z.array(Id), seq_before: Count, seq_after: Count }),
-  z.object({ type: z.literal("retire"), ids: z.array(Id) }),
-]);
+);
 export type EffectView = z.infer<typeof EffectViewSchema>;
 
-export const GroupViewSchema = GroupHeaderSchema.extend({
+export const GroupViewSchema = looseObject({
+  ...GROUP_HEADER_SHAPE,
   base_revision: Count,
-  origin: z.object({ object: Id, action: z.string() }).optional(),
+  origin: looseObject({ object: Id, action: z.string() }).optional(),
   undoes: Count.optional(),
   undone: z.boolean(),
-  names: z.record(z.string(), z.string()),
+  names: looseRecord(Id, z.string()),
   effects: z.array(EffectViewSchema).optional(),
 });
 export type GroupView = z.infer<typeof GroupViewSchema>;

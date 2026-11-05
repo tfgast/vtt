@@ -51,6 +51,43 @@ export const ObjRefSchema = z.string().regex(OBJ_REF_PATTERN);
 // ---------------------------------------------------------------------------
 // Shared pieces
 
+export const PROTO_KEY_MESSAGE = '"__proto__" is not allowed as a key';
+
+/**
+ * Accepts anything without an own `__proto__` key. It sees the raw input:
+ * zod's records drop such a key and its loose objects strip it, so a check on
+ * their output could never see it (FIXTURES.md §1).
+ */
+const NoOwnProtoKey = z
+  .unknown()
+  .refine((v) => !(typeof v === "object" && v !== null && Object.hasOwn(v, "__proto__")), {
+    message: PROTO_KEY_MESSAGE,
+    path: ["__proto__"],
+  });
+
+/**
+ * A strict schema that also rejects an own `__proto__` key, as an
+ * intersection (exported to JSON Schema as `allOf` with `{}`). Only for
+ * schemas whose output equals their input (strict, no stripping), since an
+ * intersection merges both sides' outputs.
+ */
+export function strictNoProto<T extends z.ZodType>(schema: T) {
+  return z.intersection(NoOwnProtoKey, schema);
+}
+
+/**
+ * A loose schema that also rejects an own `__proto__` key, as a pipe from the
+ * raw check into the schema, so the stripped output is kept (exported to JSON
+ * Schema in output mode as the schema itself).
+ */
+export function looseNoProto<T extends z.ZodType>(schema: T) {
+  return NoOwnProtoKey.pipe(schema);
+}
+
+/** A loose object (unknown keys stripped) that rejects an own `__proto__` key. */
+export const looseObject = <S extends z.core.$ZodLooseShape>(shape: S) =>
+  looseNoProto(z.object(shape));
+
 const NonBlank = z.string().regex(/\S/);
 const Point = z.tuple([z.number(), z.number()]);
 const Stroke = z.array(Point).min(1);
@@ -58,11 +95,13 @@ const Strokes = z.array(Stroke).min(1);
 const ViewerWord = z.enum(["all", "gm", "owner"]);
 
 /** A shape in server-to-client data: unknown keys stripped. */
-export const WireShapeSchema: z.ZodType<Shape> = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("rect"), width: z.number(), height: z.number() }),
-  z.object({ type: z.literal("circle"), radius: z.number() }),
-  z.object({ type: z.literal("polygon"), points: z.array(Point) }),
-]);
+export const WireShapeSchema: z.ZodType<Shape> = looseNoProto(
+  z.discriminatedUnion("type", [
+    z.object({ type: z.literal("rect"), width: z.number(), height: z.number() }),
+    z.object({ type: z.literal("circle"), radius: z.number() }),
+    z.object({ type: z.literal("polygon"), points: z.array(Point) }),
+  ]),
+);
 
 // ---------------------------------------------------------------------------
 // Input values (strict)
@@ -192,22 +231,27 @@ export type WireError = {
 
 export type WireResult = WireValue | WireError;
 
-export const RedactedValueSchema = z.object({ type: z.literal("redacted") });
-
+// The raw objects are discriminated-union options; the exported schemas and
+// the unions are guarded against `__proto__`.
+const RedactedObject = z.object({ type: z.literal("redacted") });
 /** A ref in a view: always a real id, never a `$binding` (§5). */
-const WireRefSchema = z.object({ type: z.literal("ref"), object: ObjectIdSchema });
-
-export const WireViewersSchema = z.object({
+const WireRefObject = z.object({ type: z.literal("ref"), object: ObjectIdSchema });
+const WireViewersObject = z.object({
   type: z.literal("viewers"),
-  viewers: z.array(z.union([ViewerWord, WireRefSchema, RedactedValueSchema])).min(1),
+  viewers: z
+    .array(z.union([ViewerWord, looseNoProto(WireRefObject), looseNoProto(RedactedObject)]))
+    .min(1),
 });
-
-export const WireErrorSchema = z.object({
+const WireErrorObject = z.object({
   type: z.literal("error"),
   code: z.enum(ERROR_CODES),
   message: z.string().optional(),
-  origin: z.object({ object: z.string(), cell: z.string() }).optional(),
+  origin: looseObject({ object: ObjectIdSchema, cell: z.string() }).optional(),
 });
+
+export const RedactedValueSchema = looseNoProto(RedactedObject);
+export const WireViewersSchema = looseNoProto(WireViewersObject);
+export const WireErrorSchema = looseNoProto(WireErrorObject);
 
 const wireVariants = [
   z.object({ type: z.literal("number"), value: z.number() }),
@@ -230,16 +274,15 @@ const wireVariants = [
       return z.array(WireValueSchema);
     },
   }),
-  WireRefSchema,
-  WireViewersSchema,
-  RedactedValueSchema,
+  WireRefObject,
+  WireViewersObject,
+  RedactedObject,
 ] as const;
 
-export const WireValueSchema: z.ZodType<WireValue> = z.discriminatedUnion("type", [
-  ...wireVariants,
-]);
+export const WireValueSchema: z.ZodType<WireValue> = looseNoProto(
+  z.discriminatedUnion("type", [...wireVariants]),
+);
 
-export const WireResultSchema: z.ZodType<WireResult> = z.discriminatedUnion("type", [
-  ...wireVariants,
-  WireErrorSchema,
-]);
+export const WireResultSchema: z.ZodType<WireResult> = looseNoProto(
+  z.discriminatedUnion("type", [...wireVariants, WireErrorObject]),
+);

@@ -3,19 +3,24 @@ import {
   type Cover,
   type EffectView,
   type GroupView,
+  GroupViewSchema,
   type Hello,
   LIMITS,
   type MethodName,
   type ObjectSnapshotView,
   type ObjectView,
+  ObjectViewSchema,
   PROTOCOL_ERROR_CODES,
   ProtocolFailure,
   type ProtocolRejection,
   parseClientMessage,
   parseResult,
   parseServerMessage,
+  TransactParamsSchema,
   type Welcome,
   type WireOp,
+  WireOpSchema,
+  WireValueSchema,
 } from "@vtt/protocol";
 import { describe, expect, test } from "vitest";
 
@@ -1224,5 +1229,93 @@ describe("ProtocolFailure", () => {
     expect(f.message).toBe("not found");
     const g = new ProtocolFailure("bad_request", "bad", { at: "ops" });
     expect(g.error).toEqual({ code: "bad_request", message: "bad", details: { at: "ops" } });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review regressions: the schemas themselves reject `__proto__`; ids are real ids
+
+describe("exported schemas reject __proto__ directly", () => {
+  const protoCellsOp = JSON.parse(
+    `{"type":"create_object","to":{"type":"board","board":"map","position":[0,0]},"init":{"cells":{"__proto__":{"type":"number","value":1}}}}`,
+  );
+  const protoOwnedOp = JSON.parse(
+    `{"type":"spawn","template":"t","to":{"type":"board","board":"map","position":[0,0]},"owned":{"__proto__":"$x"}}`,
+  );
+
+  test("an op", () => {
+    expect(WireOpSchema.safeParse(protoCellsOp).success).toBe(false);
+    expect(WireOpSchema.safeParse(protoOwnedOp).success).toBe(false);
+    const good = allOps.find((op) => op.type === "create_object" && op.init?.cells);
+    expect(WireOpSchema.parse(good)).toEqual(good);
+  });
+
+  test("transact params", () => {
+    for (const op of [protoCellsOp, protoOwnedOp]) {
+      expect(TransactParamsSchema.safeParse({ base_revision: 0, ops: [op] }).success).toBe(false);
+    }
+    expect(TransactParamsSchema.parse({ base_revision: 1, ops: allOps })).toEqual({
+      base_revision: 1,
+      ops: allOps,
+    });
+  });
+
+  test("a loose view, value and group view", () => {
+    const protoCells = JSON.parse(
+      `{"id":"a","is_template":false,"is_character":false,"cells":{"__proto__":{"value":{"type":"empty"},"kind":"literal"}},"actions":[]}`,
+    );
+    expect(ObjectViewSchema.safeParse(protoCells).success).toBe(false);
+    const protoTop = JSON.parse(
+      `{"id":"a","is_template":false,"is_character":false,"cells":{},"actions":[],"__proto__":{"x":1}}`,
+    );
+    expect(ObjectViewSchema.safeParse(protoTop).success).toBe(false);
+    const protoValue = JSON.parse(`{"type":"list","items":[{"type":"empty","__proto__":{}}]}`);
+    expect(WireValueSchema.safeParse(protoValue).success).toBe(false);
+    const protoNames = JSON.parse(
+      `{"index":1,"revision":2,"actor":{"type":"gm"},"kind":"edit","label":"x","base_revision":1,"undone":false,"names":{"__proto__":"x"}}`,
+    );
+    expect(GroupViewSchema.safeParse(protoNames).success).toBe(false);
+    // Loose schemas still strip ordinary unknown keys.
+    expect(ObjectViewSchema.parse({ ...goblinView, future: 1 })).toEqual(goblinView);
+  });
+});
+
+describe("ids in views and results are real ids, never bindings", () => {
+  test("through parseResult", () => {
+    expectProtocolResultError("get_objects", {
+      revision: 1,
+      objects: [{ ...goblinView, id: "$card" }],
+      missing: [],
+    });
+    expectProtocolResultError("get_objects", { revision: 1, objects: [], missing: ["$card"] });
+    expectProtocolResultError("at_position", { revision: 1, objects: ["$a"], zones: [] });
+    expectProtocolResultError("changes_since", {
+      revision: 17,
+      floor: 0,
+      groups: [{ ...undoGroup, effects: [{ ...allEffects[0], object: "$card" }] }],
+      truncated: false,
+      more: false,
+      next_revision: 15,
+    });
+    const committed = resultExamples.transact[0] as Record<string, unknown>;
+    expectProtocolResultError("transact", { ...committed, bindings: { $card: "$card" } });
+    expectProtocolResultError("transact", { ...committed, bindings: { card: "fb_aldric" } });
+    expectProtocolResultError("transact", {
+      ...committed,
+      created: [{ op_index: 0, id: "$card" }],
+    });
+  });
+
+  test("through a commit event", () => {
+    const delta = { subscription: "s", objects: [], removed: [] };
+    for (const bad of [
+      { ...delta, removed: ["$card"] },
+      { ...delta, objects: [{ ...handView, id: "$hand" }] },
+      { ...delta, groups_upserted: [{ ...undoGroup, names: { $card: "Card" } }] },
+      { ...delta, covers: { upsert: [{ ...covers[1], board: "$map" }], removed: [] } },
+    ]) {
+      const parsed = parseServerMessage(JSON.stringify({ ...commitEvent, deltas: [bad] }));
+      expect(parsed.ok, JSON.stringify(bad)).toBe(false);
+    }
   });
 });

@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { isMethodName, METHODS, type MethodName, type Params, type Result } from "./methods";
+import { looseNoProto, looseObject, ObjectIdSchema } from "./values";
 import { LIMITS, PROTOCOL_VERSION } from "./version";
 import {
   BoardViewSchema,
@@ -43,7 +44,7 @@ export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 
 export type ProtocolError = { code: ProtocolErrorCode; message: string; details?: unknown };
 
-export const ProtocolErrorSchema = z.object({
+export const ProtocolErrorSchema = looseObject({
   code: z.enum(PROTOCOL_ERROR_CODES),
   message: z.string(),
   details: z.unknown().optional(),
@@ -112,7 +113,7 @@ export type ClientMessage = Hello | RequestMessage;
 // ---------------------------------------------------------------------------
 // Server to client (loose)
 
-const LimitsSchema = z.object({
+const LimitsSchema = looseObject({
   max_message_bytes: z.literal(LIMITS.max_message_bytes),
   max_ops: z.literal(LIMITS.max_ops),
   max_page: z.literal(LIMITS.max_page),
@@ -128,7 +129,7 @@ const LimitsSchema = z.object({
   max_buffered_bytes: z.literal(LIMITS.max_buffered_bytes),
 });
 
-export const WelcomeSchema = z.object({
+export const WelcomeSchema = looseObject({
   type: z.literal("welcome"),
   protocol: z.literal(PROTOCOL_VERSION),
   /** The authority process run; different after every restart. */
@@ -137,12 +138,12 @@ export const WelcomeSchema = z.object({
   revision: Count,
   boards: z.array(BoardViewSchema),
   /** `path` and `id` are null for an in-memory table. */
-  table: z.object({ name: z.string(), path: z.string().nullable(), id: z.string().nullable() }),
+  table: looseObject({ name: z.string(), path: z.string().nullable(), id: z.string().nullable() }),
   limits: LimitsSchema,
 });
 export type Welcome = z.infer<typeof WelcomeSchema>;
 
-export const GoodbyeSchema = z.object({ type: z.literal("goodbye"), reason: z.string() });
+export const GoodbyeSchema = looseObject({ type: z.literal("goodbye"), reason: z.string() });
 export type Goodbye = z.infer<typeof GoodbyeSchema>;
 
 /** A success response's envelope; its `result` is validated by `parseResult`. */
@@ -156,32 +157,34 @@ export type ErrorResponse = {
 };
 export type ResponseMessage = SuccessResponse | ErrorResponse;
 
-export const ResponseSchema = z.discriminatedUnion("ok", [
-  z.object({
-    type: z.literal("response"),
-    id: z.string(),
-    ok: z.literal(true),
-    result: z.unknown(),
-  }),
-  z.object({
-    type: z.literal("response"),
-    id: z.string().nullable(),
-    ok: z.literal(false),
-    error: ProtocolErrorSchema,
-  }),
-]);
+export const ResponseSchema = looseNoProto(
+  z.discriminatedUnion("ok", [
+    z.object({
+      type: z.literal("response"),
+      id: z.string(),
+      ok: z.literal(true),
+      result: z.unknown(),
+    }),
+    z.object({
+      type: z.literal("response"),
+      id: z.string().nullable(),
+      ok: z.literal(false),
+      error: ProtocolErrorSchema,
+    }),
+  ]),
+);
 
-export const SubscriptionDeltaSchema = z.object({
+export const SubscriptionDeltaSchema = looseObject({
   subscription: z.string(),
   objects: z.array(ObjectViewSchema),
-  removed: z.array(z.string()),
-  covers: z.object({ upsert: z.array(CoverSchema), removed: z.array(z.string()) }).optional(),
+  removed: z.array(ObjectIdSchema),
+  covers: looseObject({ upsert: z.array(CoverSchema), removed: z.array(z.string()) }).optional(),
   groups_upserted: z.array(GroupViewSchema).optional(),
   groups_removed: z.array(Count).optional(),
 });
 export type SubscriptionDelta = z.infer<typeof SubscriptionDeltaSchema>;
 
-export const CommitEventSchema = z.object({
+const CommitEventObject = z.object({
   type: z.literal("event"),
   event: z.literal("commit"),
   revision: Count,
@@ -190,18 +193,22 @@ export const CommitEventSchema = z.object({
   boards: z.array(BoardViewSchema).optional(),
   deltas: z.array(SubscriptionDeltaSchema),
 });
+export const CommitEventSchema = looseNoProto(CommitEventObject);
 export type CommitEvent = z.infer<typeof CommitEventSchema>;
 
-export const SaveEventSchema = z.object({
+const SaveEventObject = z.object({
   type: z.literal("event"),
   event: z.literal("save"),
   status: z.enum(["saved", "saved_not_durable", "failed"]),
   revision: Count,
   message: z.string().optional(),
 });
+export const SaveEventSchema = looseNoProto(SaveEventObject);
 export type SaveEvent = z.infer<typeof SaveEventSchema>;
 
-export const EventSchema = z.discriminatedUnion("event", [CommitEventSchema, SaveEventSchema]);
+export const EventSchema = looseNoProto(
+  z.discriminatedUnion("event", [CommitEventObject, SaveEventObject]),
+);
 export type EventMessage = CommitEvent | SaveEvent;
 
 export type ServerMessage = Welcome | ResponseMessage | EventMessage | Goodbye;

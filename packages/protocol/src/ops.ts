@@ -12,6 +12,7 @@ import {
   InputViewersSchema,
   ObjectIdSchema,
   ObjRefSchema,
+  strictNoProto,
 } from "./values";
 
 const Cell = CellNameSchema;
@@ -20,7 +21,7 @@ const Point = z.tuple([z.number(), z.number()]);
 const NonBlank = z.string().regex(/\S/);
 
 /** A record keyed by cell names (never `__proto__`, never empty). */
-const cellRecord = <T extends z.ZodType>(value: T) => z.record(Cell, value);
+const cellRecord = <T extends z.ZodType>(value: T) => strictNoProto(z.record(Cell, value));
 
 export const DestinationSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("board"), board: ObjectIdSchema, position: Point }),
@@ -79,7 +80,7 @@ const opSchemas = [
     cells: cellRecord(InputCellContentSchema).optional(),
     as: BindingNameSchema.optional(),
     /** Template-subtree ids (plain ids) to bindings for their copies. */
-    owned: z.record(ObjectIdSchema, BindingNameSchema).optional(),
+    owned: strictNoProto(z.record(ObjectIdSchema, BindingNameSchema)).optional(),
   }),
   op("move", { object: ObjRefSchema, to: DestinationSchema }),
   op("remove", { object: ObjRefSchema }),
