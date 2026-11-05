@@ -13,7 +13,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "serve": "node --import tsx packages/authority/src/bin/serve.ts"
+    "serve": "node --import tsx packages/authority/src/bin/serve.ts",
+    "start": "node --import tsx packages/authority/src/bin/start.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.5",

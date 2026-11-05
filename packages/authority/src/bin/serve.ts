@@ -8,7 +8,7 @@
  *
  *   vtt-serve <file> [--port n] [--token=t] [--allow-origin o]…
  *             [--ui-dir dir | --no-ui] [--no-autosave] [--print-session]
- *             [--force-unlock] [--empty]
+ *             [--force-unlock] [--empty] [--open]
  *
  * A missing table file is created stocked with the example templates (the
  * GM binder on `gm_board`, DESIGN.md §4.7, §7 New tables and ownership;
@@ -21,6 +21,12 @@
  * the UI build directory (default: `packages/ui/dist` beside this package);
  * `--no-ui` serves no UI (`GET /` is 404) but still serves assets. Once
  * listening it logs `Open http://127.0.0.1:<port>/` (not with `--no-ui`).
+ *
+ * `--open` (PROTOCOL.md §2 "Opening a browser"; M6-D5) then opens that URL in
+ * a browser (`$BROWSER` if set, else `open` on macOS, `xdg-open` elsewhere);
+ * a failure to open logs one line and the server keeps serving. `--open`
+ * with `--no-ui` is a usage error. `pnpm start <file>` runs vtt-serve with
+ * `--open`.
  *
  * Development: run `pnpm dev` (the Vite dev server on
  * http://localhost:5173, which injects the session from the discovery file
@@ -45,6 +51,7 @@ import {
   createUiHttpHandler,
   type HttpHandler,
   newTableSnapshot,
+  openBrowser,
   type RunningServer,
   removeSessionFile,
   removeTableLock,
@@ -57,7 +64,7 @@ import {
 } from "../index";
 
 const USAGE =
-  "usage: vtt-serve <file> [--port n] [--token=t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock] [--empty]";
+  "usage: vtt-serve <file> [--port n] [--token=t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock] [--empty] [--open]";
 
 /** The default UI build directory: `packages/ui/dist`, resolved from this module's location. */
 const DEFAULT_UI_DIR = fileURLToPath(new URL("../../../ui/dist", import.meta.url));
@@ -76,6 +83,7 @@ const OPTIONS = {
   "print-session": { type: "boolean", default: false },
   "force-unlock": { type: "boolean", default: false },
   empty: { type: "boolean", default: false },
+  open: { type: "boolean", default: false },
 } as const;
 
 interface ServeArgs {
@@ -90,6 +98,8 @@ interface ServeArgs {
   forceUnlock: boolean;
   /** Create a missing file with no objects instead of the stocked GM binder. */
   empty: boolean;
+  /** Open the served page in a browser once listening. */
+  open: boolean;
 }
 
 class UsageError extends Error {}
@@ -127,6 +137,9 @@ function parse(argv: string[]): ServeArgs {
     throw new UsageError("--no-ui and --ui-dir cannot be combined");
   }
   if (values["ui-dir"] === "") throw new UsageError("--ui-dir must not be empty");
+  if (values.open && !values.ui) {
+    throw new UsageError("--open cannot be combined with --no-ui: there is no page to open");
+  }
   return {
     file: positionals[0] as string,
     port,
@@ -137,6 +150,7 @@ function parse(argv: string[]): ServeArgs {
     printSession: values["print-session"],
     forceUnlock: values["force-unlock"],
     empty: values.empty,
+    open: values.open,
   };
 }
 
@@ -310,6 +324,12 @@ async function main(argv: string[]): Promise<never> {
   const httpUrl = `http://127.0.0.1:${server.port}/`;
   log(`serving ${tablePath} (table id ${tableId}) at ${server.url}`);
   if (args.uiDir !== null) log(`Open ${httpUrl}`);
+  if (args.open) {
+    // Never awaited and never fatal: the server keeps serving whatever happens.
+    void openBrowser(httpUrl, { env: process.env, platform: process.platform }).then((result) => {
+      if (!result.ok) log(`could not open a browser (${result.message}); open ${httpUrl}`);
+    });
+  }
   if (args.printSession) {
     process.stdout.write(
       `${JSON.stringify({

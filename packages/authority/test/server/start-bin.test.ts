@@ -51,7 +51,10 @@ beforeEach(async () => {
   browser = join(dir, "browser.mjs");
   await mkdir(cwd);
   await mkdir(uiDir);
-  await writeFile(join(uiDir, "index.html"), "<!doctype html><title>quick start</title>\n");
+  await writeFile(
+    join(uiDir, "index.html"),
+    "<!doctype html><html><head><title>quick start</title></head><body></body></html>\n",
+  );
   await writeFile(
     browser,
     `#!${process.execPath}\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(opened)}, process.argv[2] + "\\n");\n`,

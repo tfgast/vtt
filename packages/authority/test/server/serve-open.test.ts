@@ -35,7 +35,10 @@ beforeEach(async () => {
   file = join(dir, "crypt.table.json");
   uiDir = join(dir, "dist");
   await mkdir(uiDir);
-  await writeFile(join(uiDir, "index.html"), "<!doctype html><title>open test</title>\n");
+  await writeFile(
+    join(uiDir, "index.html"),
+    "<!doctype html><html><head><title>open test</title></head><body></body></html>\n",
+  );
 });
 
 afterEach(async () => {
