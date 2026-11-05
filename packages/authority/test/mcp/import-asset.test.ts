@@ -52,7 +52,7 @@ interface Setup {
 }
 
 let dir: string;
-const closers: (() => Promise<void> | void)[] = [];
+const closers: (() => Promise<unknown> | unknown)[] = [];
 
 beforeEach(async () => {
   dir = await realpath(await mkdtemp(join(tmpdir(), "vtt-import-asset-")));
