@@ -2,7 +2,8 @@
  * Importing image assets into `<table basename>.assets/` (DESIGN.md §7,
  * Revisions and assets; PROTOCOL.md §1, `POST /assets`; M4-D2).
  */
-import { mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -38,10 +39,14 @@ const webp = (): Buffer =>
 const svg = (): Buffer =>
   Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 
+/** The bytes' SHA-256, in hex. */
+async function fullHash(bytes: Buffer): Promise<string> {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 /** The first 8 hex digits of the bytes' SHA-256. */
 async function hash8(bytes: Buffer): Promise<string> {
-  const { createHash } = await import("node:crypto");
-  return createHash("sha256").update(bytes).digest("hex").slice(0, 8);
+  return (await fullHash(bytes)).slice(0, 8);
 }
 
 let dir: string;
@@ -166,14 +171,63 @@ describe("importAsset", () => {
     expect(host.assetsGeneration).toBe(1);
   });
 
-  test("a damaged file at the hashed path is replaced with the bytes", async () => {
+  test("hash8 collisions never overwrite: the second asset gets a longer hash", async () => {
+    // Two PNG-signature payloads whose SHA-256 share the first 8 hex digits (074c1b7e).
+    const first = png("25663");
+    const second = png("45422");
+    const full1 = await fullHash(first);
+    const full2 = await fullHash(second);
+    expect(full1.slice(0, 8)).toBe("074c1b7e");
+    expect(full2.slice(0, 8)).toBe("074c1b7e");
+    expect(full1.slice(0, 16)).not.toBe(full2.slice(0, 16));
+
+    const host = await open();
+    const a = await importAsset(host, { bytes: first, filename: "map.png" });
+    const b = await importAsset(host, { bytes: second, filename: "map.png" });
+    expect(a.path).toBe("dungeon.json.assets/map-074c1b7e.png");
+    expect(b.path).toBe(`dungeon.json.assets/map-${full2.slice(0, 16)}.png`);
+    expect(await readFile(join(dir, a.path))).toEqual(first);
+    expect(await readFile(join(dir, b.path))).toEqual(second);
+    expect(host.assets).toEqual([a.path, b.path]);
+    // Reimports find their own files again, at either length.
+    expect((await importAsset(host, { bytes: second, filename: "map.png" })).path).toBe(b.path);
+    expect((await importAsset(host, { bytes: first, filename: "map.png" })).path).toBe(a.path);
+    expect(await readdir(join(dir, "dungeon.json.assets"))).toHaveLength(2);
+  });
+
+  test("concurrent imports of colliding bytes both survive under distinct paths", async () => {
+    const first = png("25663");
+    const second = png("45422");
+    for (let round = 0; round < 10; round++) {
+      const host = await open(join(dir, `t${round}.json`));
+      const results = await Promise.all(
+        [first, second, first, second, first, second].map((bytes) =>
+          importAsset(host, { bytes, filename: "map.png" }),
+        ),
+      );
+      const paths1 = new Set(results.filter((_, i) => i % 2 === 0).map((r) => r.path));
+      const paths2 = new Set(results.filter((_, i) => i % 2 === 1).map((r) => r.path));
+      expect(paths1.size).toBe(1);
+      expect(paths2.size).toBe(1);
+      const [p1] = paths1;
+      const [p2] = paths2;
+      expect(p1).not.toBe(p2);
+      expect(await readFile(join(dir, p1 ?? ""))).toEqual(first);
+      expect(await readFile(join(dir, p2 ?? ""))).toEqual(second);
+      expect(await readdir(join(dir, `t${round}.json.assets`))).toHaveLength(2);
+      expect([...host.assets].sort()).toEqual([p1, p2].sort());
+    }
+  });
+
+  test("a damaged file at the hashed path is kept, and the bytes go to a longer name", async () => {
     const host = await open();
     const bytes = png();
     const { path: rel } = await importAsset(host, { bytes, filename: "map.png" });
-    const { writeFile } = await import("node:fs/promises");
     await writeFile(join(dir, rel), "damaged");
-    expect((await importAsset(host, { bytes, filename: "map.png" })).path).toBe(rel);
-    expect(await readFile(join(dir, rel))).toEqual(bytes);
+    const again = await importAsset(host, { bytes, filename: "map.png" });
+    expect(again.path).toBe(`dungeon.json.assets/map-${(await fullHash(bytes)).slice(0, 16)}.png`);
+    expect(await readFile(join(dir, rel), "utf8")).toBe("damaged");
+    expect(await readFile(join(dir, again.path))).toEqual(bytes);
   });
 
   test("no temp files are left behind", async () => {

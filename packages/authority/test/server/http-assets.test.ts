@@ -161,6 +161,19 @@ describe("POST /assets", () => {
     expect(host.assets).toEqual([first.path]);
   });
 
+  test("colliding hash8 uploads keep both files under distinct paths, both served", async () => {
+    const { server, host } = await serveAssets();
+    const first = png("25663");
+    const second = png("45422");
+    const a = json(await post(server, first)) as { path: string };
+    const b = json(await post(server, second)) as { path: string };
+    expect(a.path).toBe("dungeon.json.assets/map-074c1b7e.png");
+    expect(b.path).toMatch(/^dungeon\.json\.assets\/map-074c1b7e[0-9a-f]{8}\.png$/);
+    expect(host.assets).toEqual([a.path, b.path]);
+    expect((await send(server, `/assets/${a.path}`)).body).toEqual(first);
+    expect((await send(server, `/assets/${b.path}`)).body).toEqual(second);
+  });
+
   test("a wrong, missing or malformed token is 401 and nothing is stored", async () => {
     const { server, host } = await serveAssets();
     expect((await post(server, png(), {}, "wrong")).status).toBe(401);

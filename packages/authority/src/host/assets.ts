@@ -3,12 +3,13 @@
  * `POST /assets`; M4-D2): the bytes are checked by their magic bytes (PNG,
  * JPEG, WebP, GIF; never SVG, which can carry script) and size, stored as
  * `<table basename>.assets/<slug>-<hash8>.<ext>` beside the table file
- * (temp file + rename), and added to the host's asset list so the next save
+ * (temp file + exclusive `link`; never overwriting, a longer hash on a
+ * collision), and added to the host's asset list so the next save
  * lists them. The path returned and listed is relative to the table's
  * directory, with `/` separators. Garbage collection is not done (v1).
  */
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { link, mkdir, open, readFile, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { TableHost } from "./table-host";
 
@@ -105,9 +106,11 @@ export function assertAssetSize(length: number): void {
  * Imports an image into the table's assets directory and lists it: refuses
  * an in-memory host (`in_memory`), more than MAX_ASSET_BYTES (`too_large`)
  * and bytes that are not PNG, JPEG, WebP or GIF (`unsupported_type`); then
- * writes `<dir>/<table basename>.assets/<slug>-<hash8>.<ext>` through a temp
- * file and a rename (creating the directory), unless that file already holds
- * exactly these bytes, and calls `host.addAsset` with the relative path.
+ * stores `<dir>/<table basename>.assets/<slug>-<hash8>.<ext>` (creating the
+ * directory), reusing that file when it already holds exactly these bytes;
+ * when it holds other bytes, the hash is lengthened (16, 24, … 64 hex
+ * digits) until a free or identical name is found, so no asset is ever
+ * overwritten. Then calls `host.addAsset` with the relative path.
  */
 export async function importAsset(
   host: TableHost,
@@ -130,37 +133,81 @@ export async function importAsset(
     );
   }
   const slug = assetSlug(input.slug ?? fileStem(input.filename));
-  const hash8 = createHash("sha256").update(bytes).digest("hex").slice(0, 8);
+  const hash = createHash("sha256").update(bytes).digest("hex");
   const dirName = `${basename(tablePath)}.assets`;
-  const fileName = `${slug}-${hash8}.${type.ext}`;
   const assetsDir = join(dirname(tablePath), dirName);
-  const target = join(assetsDir, fileName);
-
-  if (!(await holds(target, bytes))) {
-    await mkdir(assetsDir, { recursive: true });
-    await writeAtomically(assetsDir, target, bytes);
-  }
+  const fileName = await publish(assetsDir, bytes, (length) => {
+    return `${slug}-${hash.slice(0, length)}.${type.ext}`;
+  });
   const path = `${dirName}/${fileName}`;
   host.addAsset(path);
   return { path };
 }
 
-/** Whether `file` exists and holds exactly `bytes`. */
-async function holds(file: string, bytes: Uint8Array): Promise<boolean> {
+/** The hash lengths tried, in order: hash8 (PROTOCOL.md §1), then longer on a collision. */
+const HASH_LENGTHS = [8, 16, 24, 32, 40, 48, 56, 64];
+
+/**
+ * Stores `bytes` in `dir` under the first name `nameFor(length)` (for each of
+ * HASH_LENGTHS) that is free or already holds exactly these bytes, and
+ * returns that name. An existing file is never overwritten: a name holding
+ * other bytes (a hash-prefix collision, or a damaged file) moves on to the
+ * next length. A new file is written to a temp file, synced, and published
+ * with `link`, which fails if the name exists, so of two concurrent imports
+ * of different bytes only one takes a name; the other re-checks it and
+ * reuses it (identical bytes) or moves on.
+ */
+async function publish(
+  dir: string,
+  bytes: Uint8Array,
+  nameFor: (length: number) => string,
+): Promise<string> {
+  let temp: string | null = null;
   try {
-    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).equals(
-      await readFile(file),
+    for (const length of HASH_LENGTHS) {
+      const name = nameFor(length);
+      const target = join(dir, name);
+      let state = await holds(target, bytes);
+      if (state === "absent") {
+        if (temp === null) {
+          await mkdir(dir, { recursive: true });
+          temp = await writeTemp(dir, name, bytes);
+        }
+        try {
+          await link(temp, target);
+          return name;
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+          state = await holds(target, bytes);
+        }
+      }
+      if (state === "same") return name;
+    }
+    throw new Error(
+      `every asset name for these bytes in ${dir} is taken by other content (up to ${nameFor(64)})`,
     );
+  } finally {
+    if (temp !== null) await rm(temp, { force: true }).catch(() => undefined);
+  }
+}
+
+/** Whether `file` holds exactly `bytes`, other content (a directory included), or does not exist. */
+async function holds(file: string, bytes: Uint8Array): Promise<"same" | "different" | "absent"> {
+  try {
+    const existing = await readFile(file);
+    const given = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return given.equals(existing) ? "same" : "different";
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "EISDIR" || code === "ENOTDIR") return false;
+    if (code === "ENOENT") return "absent";
+    if (code === "EISDIR") return "different";
     throw err;
   }
 }
 
-/** Writes `bytes` to a temp file in `dir`, syncs it, and renames it over `target`. */
-async function writeAtomically(dir: string, target: string, bytes: Uint8Array): Promise<void> {
-  const temp = join(dir, `.${basename(target)}.${randomBytes(6).toString("hex")}.tmp`);
+/** Writes `bytes` to a new, synced temp file in `dir` and returns its path. */
+async function writeTemp(dir: string, name: string, bytes: Uint8Array): Promise<string> {
+  const temp = join(dir, `.${name}.${randomBytes(6).toString("hex")}.tmp`);
   try {
     const handle = await open(temp, "wx");
     try {
@@ -169,7 +216,7 @@ async function writeAtomically(dir: string, target: string, bytes: Uint8Array): 
     } finally {
       await handle.close();
     }
-    await rename(temp, target);
+    return temp;
   } catch (err) {
     await rm(temp, { force: true }).catch(() => undefined);
     throw err;
