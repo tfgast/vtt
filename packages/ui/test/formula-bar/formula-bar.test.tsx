@@ -241,7 +241,10 @@ describe("formula bar", () => {
   test("a #REF value opens the replace-value input; typing @goblin2 repairs it", async () => {
     const { session, ui } = await setup();
     focus(ui, "target");
-    expect(cellOf(session, "goblin", "target")?.value).toMatchObject({ type: "error", code: "#REF" });
+    expect(cellOf(session, "goblin", "target")?.value).toMatchObject({
+      type: "error",
+      code: "#REF",
+    });
     expect(bar().value).toBe("");
     expect(part("reason")?.textContent).toMatch(/#REF/);
     const user = userEvent.setup();
@@ -281,7 +284,10 @@ describe("formula bar", () => {
     await user.clear(bar());
     await user.type(bar(), "14{Enter}");
     await until(
-      () => sessionNotices(session).list().some((n) => n.kind === "stale"),
+      () =>
+        sessionNotices(session)
+          .list()
+          .some((n) => n.kind === "stale"),
       "the stale notice",
     );
     expect(transacts()[0]?.base_revision).toBe(base);

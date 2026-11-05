@@ -2,6 +2,9 @@ export { App } from "./App";
 
 export * from "./assets/upload";
 export * from "./canvas/BoardCanvas";
+export * from "./formula-bar/editor-port";
+export * from "./formula-bar/FormulaBar";
+export * from "./formula-bar/InPlaceEditor";
 export * from "./inspector/CellList";
 export * from "./inspector/CellRow";
 export * from "./inspector/ViewersPicker";

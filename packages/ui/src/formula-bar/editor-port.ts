@@ -14,8 +14,9 @@
  *   the formula bar to take keyboard focus (a formula target of the in-place
  *   editor, or the inspector's "Edit formula").
  */
-import type { CellAddress, UiStore } from "../state/ui-state";
+
 import type { EditorOpenRequest, EditorPort } from "../interaction/runtime";
+import type { CellAddress, UiStore } from "../state/ui-state";
 
 /** An `open` request as the in-place editor sees it; `seq` increases with every `open`. */
 export interface InPlaceEditRequest extends EditorOpenRequest {

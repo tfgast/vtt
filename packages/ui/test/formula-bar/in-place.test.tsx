@@ -177,8 +177,14 @@ function Board(props: {
 }) {
   const { session, ui, runtime, ctx, covers } = props;
   const { overlays, previews, handlers } = useInteraction({ runtime });
-  const snapshot = useStore((fn) => session.subscribe(fn), session.getSnapshot);
-  const state = useStore((fn) => ui.subscribe(fn), ui.getState);
+  const snapshot = useStore(
+    (fn) => session.subscribe(fn),
+    () => session.getSnapshot(),
+  );
+  const state = useStore(
+    (fn) => ui.subscribe(fn),
+    () => ui.getState(),
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: viewVersion keys the live board view
   const scene: Scene = useMemo(() => {
     const view = session.boardView();
@@ -267,7 +273,10 @@ async function setup() {
     }),
     dblClick(board: Point) {
       act(() => {
-        fireEvent.doubleClick(canvas, { clientX: 400 + board[0] * 64, clientY: 300 + board[1] * 64 });
+        fireEvent.doubleClick(canvas, {
+          clientX: 400 + board[0] * 64,
+          clientY: 300 + board[1] * 64,
+        });
       });
     },
   };
@@ -415,7 +424,10 @@ describe("in-place editor", () => {
     await user.clear(editor);
     await user.type(editor, "7");
     act(() => editor.blur());
-    await until(() => JSON.stringify(cellOf(session, "goblin", "temp")?.value) === JSON.stringify(num(7)), "the override");
+    await until(
+      () => JSON.stringify(cellOf(session, "goblin", "temp")?.value) === JSON.stringify(num(7)),
+      "the override",
+    );
     expect(transacts()).toHaveLength(1);
     expect(cellOf(session, "goblin", "temp")?.overridden).toBe(true);
   });
@@ -472,7 +484,10 @@ describe("in-place editor", () => {
     const user = userEvent.setup();
     await user.type(editor, " edited{Enter}");
     await until(
-      () => sessionNotices(session).list().some((n) => n.kind === "stale"),
+      () =>
+        sessionNotices(session)
+          .list()
+          .some((n) => n.kind === "stale"),
       "the stale notice",
     );
     expect(transacts()[0]?.base_revision).toBe(base);
