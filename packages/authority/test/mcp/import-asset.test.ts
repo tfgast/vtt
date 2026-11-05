@@ -92,6 +92,8 @@ async function start(
     connect?: boolean;
     /** The tool's credentials; default: the server's url and token. */
     credentials?: () => { url: string; token: string };
+    /** The tool's file read (given the client), to act during the read. */
+    readFile?: (client: ProtocolClient) => (file: string) => Promise<Uint8Array<ArrayBuffer>>;
     /** Discovery: recovery reads credentials from this source (given the server), tracked for the tool. */
     discovery?: (server: RunningServer) => () => Promise<{
       url: string;
@@ -121,7 +123,10 @@ async function start(
   const mcpServer: McpServer = createMcpServer({
     client,
     extensions: [
-      importAssetTool({ credentials: options.credentials ?? (() => tracked.current()) }),
+      importAssetTool({
+        credentials: options.credentials ?? (() => tracked.current()),
+        ...(options.readFile === undefined ? {} : { readFile: options.readFile(client) }),
+      }),
     ],
   });
   const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
@@ -344,6 +349,24 @@ describe("importing a file", () => {
 });
 
 describe("the connection gate", () => {
+  test("a disconnection during the file read answers the gate error and uploads nothing", async () => {
+    const file = join(dir, "map.png");
+    await writeFile(file, png());
+    let reads = 0;
+    const s = await start({
+      readFile: (client) => async (path) => {
+        reads++;
+        const bytes = new Uint8Array(await readFile(path));
+        client.abortSocket("dropped during the read");
+        return bytes;
+      },
+    });
+    expectError(await s.call({ path: file }), "disconnected");
+    expect(reads).toBe(1);
+    expect(s.uploads()).toBe(0);
+    expect(s.host.assets).toEqual([]);
+  });
+
   test("while the client reports `disconnected` the tool answers that and uploads nothing", async () => {
     const s = await start({ connect: false });
     const file = join(dir, "map.png");
