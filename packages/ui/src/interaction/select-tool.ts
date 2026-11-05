@@ -358,6 +358,11 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
     const g = state.phase.gesture;
     if (g.kind === "idle") return hoverMove(state, event, input);
     if (g.pointerId !== event.pointerId) return { state, effects: [] };
+    // The Alt+click hover lock ends when the pointer leaves its footprint, gesture or not.
+    const lock = state.phase.hoverLock;
+    if (lock !== null && !hitsAt(input.scene, event.board, input.camera).includes(lock)) {
+      return pointerMove(withPhase(state, { hoverLock: null }), event, input);
+    }
     if (g.kind === "press") {
       if (distance(g.screen, event.screen) <= SELECT_DRAG_THRESHOLD_PX) {
         return { state, effects: [] };
@@ -445,28 +450,27 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
   function pointerUp(state: State, event: PointerInteractionEvent, input: ToolInput): Result {
     const g = state.phase.gesture;
     if (g.kind === "idle" || g.pointerId !== event.pointerId) return { state, effects: [] };
-    const idle = withPhase(state, { gesture: IDLE });
     if (g.kind === "press") return click(state, g, input);
+    // A drop or marquee ends here: the hover is recomputed at the pointer.
+    const ended = hoverMove(withPhase(state, { gesture: IDLE, cycle: null }), event, input);
     if (g.kind === "marquee") {
       const inside = marqueeHit(input.scene, normalized(g.start, event.board));
       const ids = g.shift ? [...new Set([...input.selection, ...inside])] : inside;
       return {
-        state: withPhase(idle, { cycle: null }),
-        effects: [
-          { type: "overlays", overlays: [] },
-          { type: "select", ids },
-        ],
+        state: ended.state,
+        effects: [{ type: "overlays", overlays: [] }, { type: "select", ids }, ...ended.effects],
       };
     }
     const { plan } = g;
     const delta: Point = [event.board[0] - g.grab[0], event.board[1] - g.grab[1]];
     const { ops, label, continuations } = dropWrite(plan, delta, event, input);
     return {
-      state: withPhase(idle, { cycle: null }),
+      state: ended.state,
       effects: [
         { type: "write", stamp: plan.stamp, ops, label, continuations },
         { type: "previews", previews: dragPreviews(plan, delta), hold: { stamp: plan.stamp } },
         { type: "overlays", overlays: [] },
+        ...ended.effects,
       ],
     };
   }

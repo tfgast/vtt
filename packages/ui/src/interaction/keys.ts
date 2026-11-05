@@ -51,6 +51,24 @@ function placedSelection(input: ToolInput): DrawItem[] {
   return input.scene.items.filter((item) => selected.has(item.id));
 }
 
+/**
+ * Every object on the active board: the drawn items, plus the scene's skipped
+ * views whose `board` is the active board and that sit in no container (an
+ * object with an invalid position is still on its board, FORMULAS.md §3.1).
+ */
+function boardObjects(input: ToolInput): ObjectId[] {
+  const ids = input.scene.items.map((item) => item.id);
+  for (const id of input.scene.skipped) {
+    const cells = input.views(id)?.cells;
+    const board = cells?.board?.value;
+    const container = cells?.container?.value;
+    if (board?.type !== "ref" || board.object !== input.activeBoard) continue;
+    if (container !== undefined && container.type !== "empty") continue;
+    ids.push(id);
+  }
+  return ids;
+}
+
 /** Rounds away binary noise from repeated nudges (1e-9 units). */
 function tidy(n: number): number {
   return Math.round(n * 1e9) / 1e9;
@@ -140,8 +158,8 @@ export function selectKeyEffects(event: KeyDownEvent, input: ToolInput): Effect[
   if (key === "[") {
     const items = placedSelection(input);
     let lowest: number | null = null;
-    for (const item of input.scene.items) {
-      const z = literalZ(input.views(item.id)?.cells.z);
+    for (const id of boardObjects(input)) {
+      const z = literalZ(input.views(id)?.cells.z);
       if (z !== null && (lowest === null || z < lowest)) lowest = z;
     }
     const base = (lowest ?? 0) - items.length;
