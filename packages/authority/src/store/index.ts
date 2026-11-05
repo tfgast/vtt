@@ -5,5 +5,6 @@ export * from "./edits";
 export * from "./effects";
 export * from "./history";
 export * from "./replay";
+export * from "./structural";
 export * from "./summary";
 export * from "./transaction";

@@ -1,4 +1,4 @@
-import { DocumentStore, type Destination, spawn, touchedKeys } from "@vtt/authority";
+import { type Destination, DocumentStore, spawn, touchedKeys } from "@vtt/authority";
 import {
   type Cell,
   type Effect,
@@ -329,10 +329,14 @@ describe("initial cells", () => {
       type: "protected_cell",
       cell: "position",
     });
-    expectRefused(store, (tx) => spawn(tx, "fireball", binder, { opaque: { type: "boolean", value: true } }), {
-      type: "protected_cell",
-      cell: "opaque",
-    });
+    expectRefused(
+      store,
+      (tx) => spawn(tx, "fireball", binder, { opaque: { type: "boolean", value: true } }),
+      {
+        type: "protected_cell",
+        cell: "opaque",
+      },
+    );
     expectRefused(store, (tx) => spawn(tx, "fireball", binder, { name: num(1) }), {
       type: "type_error",
       cell: "name",

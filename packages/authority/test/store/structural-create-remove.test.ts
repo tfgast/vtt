@@ -1,10 +1,4 @@
-import {
-  createObject,
-  DocumentStore,
-  remove,
-  storedStateEqual,
-  touchedKeys,
-} from "@vtt/authority";
+import { createObject, DocumentStore, remove, storedStateEqual, touchedKeys } from "@vtt/authority";
 import { type Effect, ref, type Snapshot } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { at, lit, must, named, obj, table } from "./helpers";
@@ -74,9 +68,13 @@ describe("createObject", () => {
   test("ill-formed initial fields are refused", () => {
     const store = DocumentStore.fromSnapshot(table());
     const dest = { type: "container", container: "bag" } as const;
-    expectRefused(store, (tx) => createObject(tx, { cells: { board: { content: ref("map") } } }, dest), {
-      type: "invalid",
-    });
+    expectRefused(
+      store,
+      (tx) => createObject(tx, { cells: { board: { content: ref("map") } } }, dest),
+      {
+        type: "invalid",
+      },
+    );
     expectRefused(store, (tx) => createObject(tx, { cells: { position: at(1, 1) } }, dest), {
       type: "invalid",
     });

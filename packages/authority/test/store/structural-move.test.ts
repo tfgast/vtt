@@ -1,4 +1,4 @@
-import { DocumentStore, type Destination, move, storedStateEqual } from "@vtt/authority";
+import { type Destination, DocumentStore, move, storedStateEqual } from "@vtt/authority";
 import { type Cell, type Effect, list, num, ref, type Snapshot } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { at, lit, must, table } from "./helpers";
