@@ -77,7 +77,9 @@ A **dice value** is an expression in standard dice notation. V1 dialect:
   all of the term's dice, extras included: descending for `kh` and `dh`,
   ascending for `kl` and `dl`, ties broken by roll order. `kh` and `kl` keep
   the first N of that ranking; `dh` and `dl` drop the first N.
-- Terms combined with `+` and `-`, and with integers.
+- Terms combined with `+` and `-`, and with integers. Integer constants, in
+  notation and in dice arithmetic, must be safe integers (magnitude at most
+  2^53 - 1); anything else is rejected.
 
 **Normalized expression.** Dice equality (4) and fixture dice-script matching
 (FIXTURES.md §5) compare normalized expressions: counts explicit (`d20` is
