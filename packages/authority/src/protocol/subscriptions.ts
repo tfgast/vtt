@@ -12,8 +12,10 @@
  *
  * Selective recomputation. A commit's candidate objects are the objects of
  * its changed cells, field effects, creations, removals, moves (both
- * containers), per-cell visibility changes, action changes and newly dirty
- * formula cells, plus the holders of literal references to any id whose
+ * containers), per-cell visibility changes, action changes, face changes
+ * (by edit or undo) and newly dirty formula cells, every object with a
+ * `when` guard or a `show_when` (M5-D9: their results may read any object
+ * and are not dependency-tracked), plus the holders of literal references to any id whose
  * existence the commit touched (the reference reverse index below). A GM
  * subscription re-views the candidates in scope and the objects that
  * entered it. A character subscription does the same, except after a
@@ -471,6 +473,9 @@ export class SubscriptionHub {
     }
     for (const v of summary.visibility) out.add(v.object);
     for (const id of summary.actionsChanged) out.add(id);
+    for (const id of summary.faceChanged) out.add(id);
+    // M5-D9: guard and show-when results may read any object, untracked.
+    for (const id of this.table.store.objectIds()) if (this.#conditional(id)) out.add(id);
     const existence: string[] = [];
     for (const e of group.effects) {
       switch (e.type) {
@@ -503,6 +508,19 @@ export class SubscriptionHub {
     this.#updateReferences(summary);
     addHolders();
     return out;
+  }
+
+  /**
+   * Whether an object's view holds results the engine does not track (M5-D9):
+   * an action with a `when`, or a face element with a `show_when`.
+   */
+  #conditional(id: ObjectId): boolean {
+    const o = this.table.store.getObject(id);
+    if (o === undefined) return false;
+    if (o.actions.some((a) => a.when !== undefined)) return true;
+    const face = o.face;
+    if (face === undefined) return false;
+    return [...face.elements, ...(face.collapsed ?? [])].some((e) => e.show_when !== undefined);
   }
 
   #objectDelta(

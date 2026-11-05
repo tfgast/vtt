@@ -147,11 +147,11 @@ describe("ObjectView", () => {
   test("both round-trip through every live-view method's result schema", () => {
     const v = view({ face: characterFace, action_states: states.slice(0, 1) });
     const subscribe = { subscription: "s1", revision: 3, objects: [v], covers: [] };
-    expect(parseResult("subscribe", subscribe)).toEqual(subscribe);
+    expect(parseResult("subscribe", subscribe)).toMatchObject({ ok: true, value: subscribe });
     const got = { revision: 3, objects: [v], missing: [] };
-    expect(parseResult("get_objects", got)).toEqual(got);
+    expect(parseResult("get_objects", got)).toMatchObject({ ok: true, value: got });
     const listed = { revision: 3, objects: [v], next_cursor: null };
-    expect(parseResult("list_objects", listed)).toEqual(listed);
+    expect(parseResult("list_objects", listed)).toMatchObject({ ok: true, value: listed });
   });
 
   test("a view without face (no layout, or cells not all) parses", () => {

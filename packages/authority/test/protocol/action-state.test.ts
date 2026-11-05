@@ -159,8 +159,9 @@ describe("the Attack card's action_states", () => {
     const w = await attack();
     const got = await w.gm.request("get_objects", { ids: ["attack_card", w.card] });
     for (const view of got.objects) {
-      expect(view.action_states.map((s) => s.name)).toEqual(view.actions.map((a) => a.name));
-      for (const s of view.action_states) {
+      const states = view.action_states ?? [];
+      expect(states.map((s) => s.name)).toEqual(view.actions.map((a) => a.name));
+      for (const s of states) {
         const explained = await w.gm.request("explain_action", { object: view.id, action: s.name });
         expect({ enabled: explained.enabled, reason: explained.reason }).toEqual({
           enabled: s.enabled,
@@ -264,14 +265,17 @@ describe("effects and snapshots", () => {
         actions: [{ name: "Roll", steps: ["roll(1d20) -> roll"] }],
       },
     ]);
-    await write(w, [{ type: "remove", object: w.card }]);
-    for (const s of [log, aldricLog]) {
+    const noLiveState = (s: Watched, snapshot: "create" | "remove") => {
       const groups = s.sub.mirror.groupsNewestFirst();
-      expect(groups.length).toBeGreaterThan(0);
       const effects = groups.flatMap((g) => g.effects ?? []);
-      expect(effects.some((e) => e.type === "create" || e.type === "remove")).toBe(true);
+      expect(effects.some((e) => e.type === snapshot)).toBe(true);
       expect(JSON.stringify(groups)).not.toContain("action_states");
-    }
+    };
+    // Aldric sees the card's spawn snapshot while the card exists (D15: current visibility).
+    noLiveState(aldricLog, "create");
+    noLiveState(log, "create");
+    await write(w, [{ type: "remove", object: w.card }]);
+    noLiveState(log, "remove");
     // The GM log holds the spawn snapshot and the actions effect, still without live state.
     const gmEffects = log.sub.mirror.groupsNewestFirst().flatMap((g) => g.effects ?? []);
     expect(gmEffects.some((e) => e.type === "field" && e.field === "actions")).toBe(true);

@@ -11,13 +11,16 @@
  * and errors whose origin the viewer cannot see reduced to their code.
  */
 import type {
+  ActionStateView,
   ActionView,
   CellStateView,
   CellView,
   Cover,
   EffectView,
+  FaceElementView,
   FaceLayoutElementView,
   FaceLayoutView,
+  FaceView,
   GroupView,
   LocationView,
   ObjectSnapshotView,
@@ -207,7 +210,9 @@ export class ViewBuilder {
       is_character: o.is_character,
       cells: out,
       actions: o.actions.map((a) => this.#action(a)),
+      action_states: o.actions.map((a) => this.#actionState(id, a)),
     };
+    if (cells === "all" && o.face !== undefined) view.face = this.#liveFace(o, o.face);
     if (this.#gm) {
       const absent = this.#absentCellVisibility(o, out);
       if (absent !== undefined) view.absent_cell_visibility = absent;
@@ -279,6 +284,79 @@ export class ViewBuilder {
     if (a.when !== undefined) out.when = a.when;
     out.steps = [...a.steps];
     return out;
+  }
+
+  /**
+   * An action's live state (PROTOCOL.md §7.2, M5-D23), for every viewer:
+   * `enabled` as `explain_action` and the executor compute it (the `when`
+   * evaluated on the object; only boolean `true` enables), `reason` only
+   * when not enabled.
+   */
+  #actionState(id: ObjectId, a: DeepReadonly<ActionDef>): ActionStateView {
+    if (a.when === undefined) return { name: a.name, enabled: true };
+    const guard = this.table.engine.evaluate(a.when, { thisId: id });
+    if (guard.type === "boolean" && guard.value) return { name: a.name, enabled: true };
+    return {
+      name: a.name,
+      enabled: false,
+      reason: guard.type === "error" ? "when_error" : "when_false",
+    };
+  }
+
+  /**
+   * The live face (PROTOCOL.md §7.2, M5-D8, review r3 finding 6). An element
+   * is shown when its `show_when` is absent or evaluates (on the object) to
+   * boolean `true` and, for a button, its action exists; the `show_when` is
+   * checked first, so a hidden button reports why it is hidden. The GM gets
+   * every element, `show_when` kept, hidden ones with a `reason` (and the
+   * error's code). A character gets only shown elements whose cell (for a
+   * value or editor element) it can read, without `show_when`, and
+   * `default_action` only when it names an existing action. Every element
+   * keeps its stored `index`.
+   */
+  #liveFace(o: DeepReadonly<TableObject>, face: DeepReadonly<FaceLayout>): FaceView {
+    const gm = this.#gm;
+    const actions = new Set(o.actions.map((a) => a.name));
+    const list = (elements: readonly DeepReadonly<FaceElement>[]): FaceElementView[] => {
+      const out: FaceElementView[] = [];
+      elements.forEach((e, index) => {
+        const hidden = this.#hiddenReason(o.id, e, actions);
+        if (!gm) {
+          if (hidden !== null) return;
+          if ((e.type === "value" || e.type === "editor") && !this.canSeeCell(o.id, e.cell)) return;
+        }
+        const element = {
+          ...clone<FaceElement>(e),
+          index,
+          shown: hidden === null,
+        } as FaceElementView;
+        if (!gm) delete element.show_when;
+        if (hidden !== null) Object.assign(element, hidden);
+        out.push(element);
+      });
+      return out;
+    };
+    const out: FaceView = { elements: list(face.elements) };
+    if (face.collapsed !== undefined) out.collapsed = list(face.collapsed);
+    if (face.default_action !== undefined && (gm || actions.has(face.default_action))) {
+      out.default_action = face.default_action;
+    }
+    return out;
+  }
+
+  /** Why a face element is not shown, or null when it is. */
+  #hiddenReason(
+    id: ObjectId,
+    e: DeepReadonly<FaceElement>,
+    actions: ReadonlySet<string>,
+  ): Pick<FaceElementView, "reason" | "error"> | null {
+    if (e.show_when !== undefined) {
+      const r = this.table.engine.evaluate(e.show_when, { thisId: id });
+      if (r.type === "error") return { reason: "show_when_error", error: r.code };
+      if (r.type !== "boolean" || !r.value) return { reason: "show_when_false" };
+    }
+    if (e.type === "button" && !actions.has(e.action)) return { reason: "no_action" };
+    return null;
   }
 
   // Redaction (PROTOCOL.md §7.3).

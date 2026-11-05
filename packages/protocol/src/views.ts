@@ -3,7 +3,7 @@
  * covers and groups. Every schema here is loose (unknown keys stripped, §12)
  * except `ViewerSchema`, which only appears in client-to-server params.
  */
-import type { Actor } from "@vtt/schema";
+import { type Actor, ERROR_CODES } from "@vtt/schema";
 import { z } from "zod";
 import {
   looseNoProto,
@@ -71,16 +71,16 @@ export const CellViewSchema = looseObject({
 });
 export type CellView = z.infer<typeof CellViewSchema>;
 
-export const ObjectViewSchema = looseObject({
-  id: Id,
-  is_template: z.boolean(),
-  is_character: z.boolean(),
-  cells: looseRecord(z.string(), CellViewSchema),
-  actions: z.array(ActionDefinitionViewSchema),
-  /** GM views only (M4-D12): per-cell visibility entries for names not in `cells`. */
-  absent_cell_visibility: looseRecord(z.string(), WireViewersSchema).optional(),
+/**
+ * An action's live state (M5-D23): `enabled` as `explain_action` computes it
+ * (§9), `reason` only when not enabled. Only in live object views.
+ */
+export const ActionStateViewSchema = looseObject({
+  name: z.string(),
+  enabled: z.boolean(),
+  reason: z.enum(["when_false", "when_error"]).optional(),
 });
-export type ObjectView = z.infer<typeof ObjectViewSchema>;
+export type ActionStateView = z.infer<typeof ActionStateViewSchema>;
 
 /** A board as sent on the wire; also the `Board` of `board` effects. */
 export const BoardViewSchema = looseObject({ id: Id, name: z.string().optional() });
@@ -194,6 +194,74 @@ export const FaceLayoutViewSchema = looseObject({
   default_action: z.string().optional(),
 });
 export type FaceLayoutView = z.infer<typeof FaceLayoutViewSchema>;
+
+/** What a live face element adds to the stored element and its index (M5-D8). */
+const faceElementLive = {
+  shown: z.boolean(),
+  /** Only when not shown, in GM views (character views omit hidden elements). */
+  reason: z.enum(["show_when_false", "show_when_error", "no_action"]).optional(),
+  /** The `show_when` error's code, with `reason: "show_when_error"`. */
+  error: z.enum(ERROR_CODES).optional(),
+};
+
+/**
+ * A live face element (PROTOCOL.md §7.2, M5-D8, M5-D23): the stored element
+ * with its `index` and `shown`; when hidden (GM views only), `reason` and,
+ * for an error, its code.
+ */
+export const FaceElementViewSchema = looseNoProto(
+  z.discriminatedUnion("type", [
+    faceCellElement("value").extend(faceElementLive),
+    faceCellElement("editor").extend(faceElementLive),
+    z.object({
+      type: z.literal("button"),
+      action: z.string(),
+      ...faceElementCommon,
+      label: z.string().optional(),
+      ...faceElementLive,
+    }),
+    z.object({
+      type: z.literal("contents"),
+      ...faceElementCommon,
+      entries: z.enum(["collapsed", "full"]).optional(),
+      ...faceElementLive,
+    }),
+  ]),
+);
+export type FaceElementView = z.infer<typeof FaceElementViewSchema>;
+
+/**
+ * An object view's live face (PROTOCOL.md §7.2): present when the view's
+ * `cells` is `"all"` and the object has a layout. GM: every stored element,
+ * `show_when` kept. Character: only shown elements whose cell it can read,
+ * without `show_when`, each keeping its stored `index`; `default_action`
+ * only when it names an existing action.
+ */
+export const FaceViewSchema = looseObject({
+  elements: z.array(FaceElementViewSchema),
+  collapsed: z.array(FaceElementViewSchema).optional(),
+  default_action: z.string().optional(),
+});
+export type FaceView = z.infer<typeof FaceViewSchema>;
+
+export const ObjectViewSchema = looseObject({
+  id: Id,
+  is_template: z.boolean(),
+  is_character: z.boolean(),
+  cells: looseRecord(z.string(), CellViewSchema),
+  actions: z.array(ActionDefinitionViewSchema),
+  /**
+   * Live object views only (M5-D23): one per action, in the order of
+   * `actions`. The authority always sends it there; optional so views built
+   * elsewhere (and older authorities, §12) still parse.
+   */
+  action_states: z.array(ActionStateViewSchema).optional(),
+  /** M5-D8: when `cells` is `"all"` and the object has a layout. */
+  face: FaceViewSchema.optional(),
+  /** GM views only (M4-D12): per-cell visibility entries for names not in `cells`. */
+  absent_cell_visibility: looseRecord(z.string(), WireViewersSchema).optional(),
+});
+export type ObjectView = z.infer<typeof ObjectViewSchema>;
 
 export const ObjectSnapshotViewSchema = looseObject({
   id: Id,
