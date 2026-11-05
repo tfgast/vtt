@@ -10,9 +10,9 @@ import { ScenarioError } from "@vtt/authority";
 import * as testRunner from "@vtt/authority/test-runner";
 import type { Expectation, Scenario, Step } from "@vtt/fixtures";
 import { describe, expect, test } from "vitest";
+import { fixtureValueEquals } from "./expect";
 import { base, n, raw, valid } from "./helpers";
 import { runScenario, ScenarioFailure } from "./run";
-import { fixtureValueEquals } from "./expect";
 import { documentFromSetup } from "./setup";
 
 const roll14 = { type: "roll" as const, expr: "1d20", dice: [14], dropped: [], total: 14 };

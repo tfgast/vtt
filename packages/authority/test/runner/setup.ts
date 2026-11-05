@@ -6,7 +6,9 @@
  * `isCellContent`. `placement` becomes `board` plus a `position` cell (a
  * literal `[x, y]` list or the formula); `cell_visibility` is copied
  * verbatim onto the metadata of the same name, whatever cells it names;
- * `is_character` is set for the ids in `setup.characters`.
+ * `is_character` is set for the ids in `setup.characters`; `face` (M5) is
+ * copied verbatim onto the object field of the same name, and an object
+ * without one has no layout.
  */
 import type { Value as FixtureValue, Setup } from "@vtt/fixtures";
 import {
@@ -69,6 +71,7 @@ export function documentFromSetup(setup: Setup): Snapshot {
         ...(a.when === undefined ? {} : { when: a.when }),
         steps: [...a.steps],
       })),
+      ...(o.face === undefined ? {} : { face: structuredClone(o.face) }),
     };
   }
   return {

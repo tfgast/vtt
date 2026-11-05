@@ -1,14 +1,14 @@
 /**
- * The M2 scenario runner (FIXTURES.md §1–§8, §11; DESIGN.md §7;
- * vtt-75c.13). Builds the setup document, checks the top-level
- * expectations, then runs steps in order, checking each step's
- * expectations, until the first `invoke` step, where it stops and reports
- * the run as partial (M5 adds `invoke`). `action` expectations are skipped
- * and counted.
+ * The direct scenario runner (FIXTURES.md §1–§8, §11; DESIGN.md §7;
+ * vtt-75c.13, vtt-1xv.10). Builds the setup document, checks the top-level
+ * expectations, then runs every step in order, checking each step's
+ * expectations. Every step type and expectation is supported (M5 added
+ * `invoke`, `action` and `face_element`), so a run that returns is
+ * complete, with nothing skipped, and its dice script must be used up.
  *
- * Rejection protocol (FIXTURES §6): a refused step appends no group; a
- * `rejected` expectation predicts it with the reason `toFixtureReason`
- * maps; an unpredicted refusal, a predicted one that does not happen, or a
+ * Rejection protocol (FIXTURES §5, §6): a refused step appends no group
+ * and consumes no dice; a `rejected` expectation predicts it with the
+ * reason `toFixtureReason` maps; an unpredicted refusal, a predicted one that does not happen, or a
  * refusal the format has no reason for (`invalid`) fails.
  *
  * Failures throw: ScenarioFailure when an expectation does not hold,
@@ -29,11 +29,11 @@ export { ScenarioFailure } from "./expect";
 
 export interface RunReport {
   title: string;
-  /** Every step ran. */
+  /** Every step ran (always, since M5: no step type is skipped). */
   complete: boolean;
   stepsRun: number;
   stepsTotal: number;
-  /** Skipped expectations of the steps that ran (and the top level), by type. */
+  /** Skipped expectations by type (always empty since M5). */
   skipped: Record<string, number>;
 }
 
@@ -84,9 +84,17 @@ function hop(state: RunState): void {
   state.table = Table.fromStore(loaded.store);
 }
 
+/**
+ * Whether the table's refusal is the predicted reason: the same type, the
+ * same code for `when_error`, and for `step_error` the same code when the
+ * prediction names one (FIXTURES §7: the code is optional there).
+ */
 export const reasonMatches = (want: RejectionReason, got: Rejection): boolean => {
   const mapped = toFixtureReason(got);
   if (mapped === null || mapped.type !== want.type) return false;
+  if (want.type === "when_error") {
+    return mapped.type === "when_error" && mapped.code === want.code;
+  }
   if (want.type === "step_error" && want.code !== undefined) {
     return mapped.type === "step_error" && mapped.code === want.code;
   }
@@ -105,7 +113,7 @@ function checkRejection(
   where: string,
   list: readonly Expectation[],
   outcome: StepOutcome,
-  before: { snapshot: string; nextIndex: number },
+  before: { snapshot: string; nextIndex: number; dice: number },
 ): void {
   const index = list.findIndex((e) => e.type === "rejected");
   const predicted = list[index];
@@ -132,6 +140,9 @@ function checkRejection(
       store.history.nextIndex !== before.nextIndex
     ) {
       throw new ScenarioFailure(`${label}: the refused step changed the document or the log`);
+    }
+    if (state.dice.remaining() !== before.dice) {
+      throw new ScenarioFailure(`${label}: the refused step consumed dice script entries`);
     }
   } else if (predicted !== undefined) {
     throw new ScenarioFailure(
@@ -173,13 +184,13 @@ export function runScenario(scenario: Scenario, options: RunOptions = {}): RunRe
 
   let stepsRun = 0;
   for (const [i, step] of scenario.steps.entries()) {
-    if (step.do.type === "invoke") break;
     const where = `${title}: step ${i}`;
     const list = step.expect ?? [];
     const store = state.table.store;
     const before = {
       snapshot: canonicalJson(store.toSnapshot()),
       nextIndex: store.history.nextIndex,
+      dice: state.dice.remaining(),
     };
     const outcome = at(`${where} (${step.do.type})`, () => applyStep(state, step));
     checkRejection(state, where, list, outcome, before);

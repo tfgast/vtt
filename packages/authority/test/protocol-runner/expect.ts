@@ -81,6 +81,7 @@ export async function checkWireExpectation(
 ): Promise<boolean> {
   switch (e.type) {
     case "action":
+    case "face_element": // over the protocol in vtt-1xv.13; skipped and counted until then
       return false;
     case "rejected":
       throw new Error("checkWireExpectation: rejected belongs to the rejection protocol");

@@ -37,13 +37,18 @@ const partial = (run: number, total: number, skipped: Record<string, number> = {
   skipped,
 });
 
-/** The coverage table of scenarios.test.ts (vtt-75c.13), restated. */
+/**
+ * The protocol runner's coverage (vtt-75c.13's table): it stops at the first
+ * `invoke` and skips `action` and `face_element` until vtt-1xv.13, while the
+ * direct runner runs every scenario complete (vtt-1xv.10), so parity is
+ * checked over the steps the protocol runner executes.
+ */
 const EXPECTED: Record<string, Expected> = {
   "hit-points.json": complete(5),
   "difficult-terrain.json": complete(4),
   "re-hiding-room.json": complete(6),
   "goblin-hit.json": partial(4, 6),
-  "attack-card.json": partial(2, 7, { action: 6 }),
+  "attack-card.json": partial(2, 7, { action: 6, face_element: 5 }),
   "fireball.json": partial(2, 12, { action: 2 }),
   "die-with-modifier.json": partial(1, 7),
   "dice-tray.json": partial(0, 10),
@@ -65,10 +70,10 @@ describe("parity with the in-process runner", () => {
       const directReport = runScenario(scenario, { onStep: (s) => direct.push(s) });
       const wireReport = await runScenarioOverProtocol(scenario, { onStep: (s) => wire.push(s) });
       expect(wireReport).toEqual({ title: scenario.title, ...expected });
-      expect(wireReport).toEqual(directReport);
-      expect(wire.map((s) => s.step)).toEqual(direct.map((s) => s.step));
-      expect(wire).toHaveLength(directReport.stepsRun + 1);
-      direct.forEach((d, i) => {
+      expect(directReport.complete).toBe(true);
+      expect(wire.map((s) => s.step)).toEqual(direct.slice(0, wire.length).map((s) => s.step));
+      expect(wire).toHaveLength(wireReport.stepsRun + 1);
+      direct.slice(0, wire.length).forEach((d, i) => {
         const w = wire[i] as StepReport;
         const equal = storedStateEqual(d.snapshot, w.snapshot, {
           ignoreRevision: false,
@@ -369,7 +374,9 @@ test("every falsified expectation fails the same way in both runners", async () 
   let count = 0;
   for (const file of Object.keys(EXPECTED)) {
     const s = await loadScenarioFile(file);
-    const lists = [s.expect ?? [], ...s.steps.map((step) => step.expect ?? [])];
+    // Only the lists the protocol runner reaches (setup and its executed steps).
+    const reached = (EXPECTED[file] as Expected).stepsRun;
+    const lists = [s.expect ?? [], ...s.steps.slice(0, reached).map((step) => step.expect ?? [])];
     for (const [li, list] of lists.entries()) {
       for (const [ei, e] of list.entries()) {
         const wrong = falsify(e);
@@ -386,5 +393,5 @@ test("every falsified expectation fails the same way in both runners", async () 
       }
     }
   }
-  expect(count).toBeGreaterThan(200);
+  expect(count).toBeGreaterThan(100);
 }, 60_000);
