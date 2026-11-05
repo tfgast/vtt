@@ -1,7 +1,7 @@
 import type { Point, Shape } from "../shape";
 import { GEOM_EPSILON } from "./constants";
 import { pointInRegion } from "./point";
-import { localOutline, rotation, toWorld } from "./transform";
+import { localOutline, placeOutline, rotation } from "./transform";
 import { triangulate } from "./triangulate";
 
 /** An object's footprint: its shape, or a point when it has none. */
@@ -26,14 +26,16 @@ function pieces(shape: Shape, anchor: Point, deg: number): Piece[] {
     return shape.radius > 0 ? [{ kind: "circle", centre: anchor, radius: shape.radius }] : [];
   }
   const r = rotation(deg);
-  const place = (ps: Point[]): Piece => ({
-    kind: "poly",
-    points: ps.map((p) => toWorld(p, anchor, r)),
-  });
   if (shape.type === "rect") {
-    return shape.width > 0 && shape.height > 0 ? [place(localOutline(shape))] : [];
+    return shape.width > 0 && shape.height > 0
+      ? [{ kind: "poly", points: placeOutline(localOutline(shape), anchor, r) }]
+      : [];
   }
-  return triangulate(shape.points).map(place);
+  // Place the whole outline once, so triangles share exactly the same vertices.
+  return triangulate(placeOutline(shape.points, anchor, r)).map((points) => ({
+    kind: "poly",
+    points,
+  }));
 }
 
 interface Range {
@@ -41,15 +43,16 @@ interface Range {
   max: number;
 }
 
-function project(piece: Piece, axis: Point): Range {
+/** Projection onto `axis`, measured from `o` so large coordinates do not cancel. */
+function project(piece: Piece, axis: Point, o: Point): Range {
   if (piece.kind === "circle") {
-    const c = piece.centre[0] * axis[0] + piece.centre[1] * axis[1];
+    const c = (piece.centre[0] - o[0]) * axis[0] + (piece.centre[1] - o[1]) * axis[1];
     return { min: c - piece.radius, max: c + piece.radius };
   }
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
   for (const p of piece.points) {
-    const d = p[0] * axis[0] + p[1] * axis[1];
+    const d = (p[0] - o[0]) * axis[0] + (p[1] - o[1]) * axis[1];
     if (d < min) min = d;
     if (d > max) max = d;
   }
@@ -111,9 +114,10 @@ function piecesOverlap(a: Piece, b: Piece): boolean {
       }
     }
   }
+  const o = a.kind === "circle" ? a.centre : (a.points[0] as Point);
   for (const axis of axes) {
-    const ra = project(a, axis);
-    const rb = project(b, axis);
+    const ra = project(a, axis, o);
+    const rb = project(b, axis, o);
     if (ra.max <= rb.min + GEOM_EPSILON || rb.max <= ra.min + GEOM_EPSILON) return false;
   }
   return true;

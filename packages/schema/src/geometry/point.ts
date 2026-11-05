@@ -1,6 +1,6 @@
 import type { Point, Shape } from "../shape";
 import { GEOM_EPSILON } from "./constants";
-import { localOutline, rotation, toLocal } from "./transform";
+import { localOutline, outlineOrigin, relativeTo, rotation, toLocal } from "./transform";
 
 /** Distance from `p` to the segment `ab`. */
 function segmentDistance(p: Point, a: Point, b: Point): number {
@@ -38,8 +38,12 @@ export function pointInRegion(
   if (shape.type === "circle") {
     return Math.hypot(point[0] - anchor[0], point[1] - anchor[1]) <= shape.radius + GEOM_EPSILON;
   }
-  const p = toLocal(point, anchor, rotation(rotationDeg));
-  const outline = localOutline(shape);
+  // Measure from the outline's first vertex, not the anchor: a polygon may lie
+  // far from its anchor, and large coordinates would cancel.
+  const local = localOutline(shape);
+  const r = rotation(rotationDeg);
+  const p = toLocal(point, outlineOrigin(local, anchor, r), r);
+  const outline = relativeTo(local, local[0] ?? [0, 0]);
   for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
     if (segmentDistance(p, outline[j] as Point, outline[i] as Point) <= GEOM_EPSILON) return true;
   }

@@ -357,6 +357,98 @@ describe("footprintsOverlap", () => {
   });
 });
 
+describe("polygons at large coordinates (about 1e8) do not cancel", () => {
+  const F = 1e8;
+  const shift = (ps: Point[]): Point[] => ps.map(([x, y]) => [x + F, y + F]);
+  const square = shift([
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ]);
+  const lPoints = shift([
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [2, 1],
+    [2, 2],
+    [0, 2],
+  ]);
+  const windings: [string, Shape, Shape][] = [
+    ["as listed", polygon(...square), polygon(...lPoints)],
+    ["reversed", polygon(...square.slice().reverse()), polygon(...lPoints.slice().reverse())],
+  ];
+
+  describe.each(windings)("winding %s", (_, sq, ell) => {
+    test.each([
+      ["square: centre", [F + 0.5, F + 0.5], sq, true],
+      ["square: on edge", [F + 1, F + 0.5], sq, true],
+      ["square: on vertex", [F, F], sq, true],
+      ["square: outside", [F + 1.5, F + 0.5], sq, false],
+      ["square: outside below", [F + 0.5, F - 0.25], sq, false],
+      ["L: in arm", [F + 0.5, F + 0.5], ell, true],
+      ["L: in notch", [F + 1.5, F + 0.5], ell, false],
+      ["L: on notch edge", [F + 1.5, F + 1], ell, true],
+    ] as [string, Point, Shape, boolean][])("pointInRegion %s", (_, p, shape, expected) => {
+      expect(pointInRegion(p, shape, [0, 0], 0)).toBe(expected);
+    });
+
+    test.each([
+      ["square vs 0.5×0.5 rect centred inside", sq, fp(rect(0.5, 0.5), [F + 0.5, F + 0.5]), true],
+      ["square vs rect sharing an edge", sq, fp(rect(1, 1), [F + 1.5, F + 0.5]), false],
+      ["square vs rect penetrating by 0.25", sq, fp(rect(1, 1), [F + 1.25, F + 0.5]), true],
+      ["square vs point inside", sq, fp(null, [F + 0.25, F + 0.75]), true],
+      ["square vs circle tangent", sq, fp(circle(0.5), [F + 1.5, F + 0.5]), false],
+      ["square vs circle crossing", sq, fp(circle(0.5), [F + 1.25, F + 0.5]), true],
+      ["L vs rect in its notch", ell, fp(rect(1, 1), [F + 1.5, F + 0.5]), false],
+      ["L vs rect crossing an arm", ell, fp(rect(1, 1), [F + 1.5, F + 1]), true],
+      [
+        "L vs the square filling its notch",
+        ell,
+        fp(
+          polygon(
+            ...shift([
+              [1, 0],
+              [2, 0],
+              [2, 1],
+              [1, 1],
+            ]),
+          ),
+          [0, 0],
+        ),
+        false,
+      ],
+    ] as [string, Shape, Footprint, boolean][])(
+      "footprintsOverlap %s",
+      (_, shape, other, expected) => {
+        expect(footprintsOverlap(fp(shape, [0, 0]), other)).toBe(expected);
+        expect(footprintsOverlap(other, fp(shape, [0, 0]))).toBe(expected);
+      },
+    );
+
+    test("rotated 90° about a far anchor", () => {
+      // (x, y) -> (-y, x): the square lands on x -F-1..-F, y F..F+1.
+      expect(pointInRegion([-F - 0.5, F + 0.5], sq, [0, 0], 90)).toBe(true);
+      expect(pointInRegion([-F - 1.5, F + 0.5], sq, [0, 0], 90)).toBe(false);
+      expect(footprintsOverlap(fp(sq, [0, 0], 90), fp(rect(0.5, 0.5), [-F - 0.5, F + 0.5]))).toBe(
+        true,
+      );
+      expect(footprintsOverlap(fp(sq, [0, 0], 90), fp(rect(1, 1), [-F - 1.5, F + 0.5]))).toBe(
+        false,
+      );
+    });
+
+    test("rotated 45° about a far anchor", () => {
+      const c: Point = [0, (2 * F + 1) * Math.SQRT1_2]; // the square's centre
+      expect(pointInRegion(c, sq, [0, 0], 45)).toBe(true);
+      expect(footprintsOverlap(fp(sq, [0, 0], 45), fp(rect(0.2, 0.2), c))).toBe(true);
+      expect(footprintsOverlap(fp(sq, [0, 0], 45), fp(rect(0.2, 0.2), [c[0] + 2, c[1]]))).toBe(
+        false,
+      );
+    });
+  });
+});
+
 describe("shapeBounds", () => {
   const cases: [string, Shape | null, Point, number, Bounds][] = [
     ["rect", rect(2, 1), [5, 5], 0, { minX: 4, minY: 4.5, maxX: 6, maxY: 5.5 }],

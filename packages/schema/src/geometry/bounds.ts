@@ -1,6 +1,6 @@
 import type { Bounds, Point, Shape } from "../shape";
 import { GEOM_EPSILON } from "./constants";
-import { localOutline, rotation, toWorld } from "./transform";
+import { localOutline, placeOutline, rotation } from "./transform";
 
 /**
  * The axis-aligned box of the footprint after rotation. A null shape gives
@@ -20,8 +20,7 @@ export function shapeBounds(shape: Shape | null, anchor: Point, rotationDeg: num
     maxX: Number.NEGATIVE_INFINITY,
     maxY: Number.NEGATIVE_INFINITY,
   };
-  for (const p of localOutline(shape)) {
-    const [wx, wy] = toWorld(p, anchor, rot);
+  for (const [wx, wy] of placeOutline(localOutline(shape), anchor, rot)) {
     b.minX = Math.min(b.minX, wx);
     b.minY = Math.min(b.minY, wy);
     b.maxX = Math.max(b.maxX, wx);

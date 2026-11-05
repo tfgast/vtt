@@ -46,3 +46,26 @@ export function localOutline(shape: Exclude<Shape, { type: "circle" }>): Point[]
     [-w, h],
   ];
 }
+
+/** `points` translated so that `origin` is at (0, 0). */
+export function relativeTo(points: Point[], origin: Point): Point[] {
+  return points.map((p) => [p[0] - origin[0], p[1] - origin[1]]);
+}
+
+/**
+ * Board position of a local outline's first vertex. Outlines are placed and
+ * measured relative to it, so a shape far from its anchor keeps its own
+ * small-scale geometry exact instead of cancelling large coordinates.
+ */
+export function outlineOrigin(outline: Point[], anchor: Point, r: Rotation): Point {
+  return toWorld(outline[0] ?? [0, 0], anchor, r);
+}
+
+/** A local outline in board coordinates, each vertex placed from the first. */
+export function placeOutline(outline: Point[], anchor: Point, r: Rotation): Point[] {
+  const [ox, oy] = outlineOrigin(outline, anchor, r);
+  return relativeTo(outline, outline[0] ?? [0, 0]).map(([x, y]) => [
+    ox + (x * r.cos - y * r.sin) + 0,
+    oy + (x * r.sin + y * r.cos) + 0,
+  ]);
+}
