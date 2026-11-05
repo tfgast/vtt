@@ -2,19 +2,19 @@
  * `ObjectView.absent_cell_visibility` (vtt-3l6.19; PROTOCOL.md §7.2 M4-D12,
  * §12): optional, loose like the rest of the view, `__proto__`-safe.
  */
-import { type ObjectView, ObjectViewSchema } from "@vtt/protocol";
+import { type ObjectView, ObjectViewSchema, type WireViewers } from "@vtt/protocol";
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
 
-const gmOnly = { type: "viewers", viewers: ["gm"] } as const;
+const gmOnly: WireViewers = { type: "viewers", viewers: ["gm"] };
 
-const view = {
+const view: ObjectView = {
   id: "chest",
   is_template: false,
   is_character: false,
   cells: { name: { value: { type: "text", value: "Chest" }, kind: "literal" } },
   actions: [],
-} as const;
+};
 
 describe("ObjectView.absent_cell_visibility", () => {
   test("a view with the field round-trips", () => {

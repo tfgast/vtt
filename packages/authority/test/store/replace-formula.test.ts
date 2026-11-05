@@ -6,7 +6,7 @@
 import { DocumentStore, replaceFormula, undo, writeValue } from "@vtt/authority";
 import { type Effect, list, num, ref, type Snapshot, text, type ViewersValue } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
-import { lit, must, obj, table } from "./helpers";
+import { must, obj, table } from "./helpers";
 import { expectRefused, formula, gm, run } from "./structural-helpers";
 
 const gmOnly: ViewersValue = { type: "viewers", viewers: ["gm"] };
@@ -114,7 +114,7 @@ describe("replaceFormula", () => {
   test("on a literal or absent cell it behaves as writeValue", () => {
     for (const [cell, value] of [
       ["name", text("Hobgoblin")],
-      ["hp_max", lit(12).content],
+      ["hp_max", num(12)],
     ] as const) {
       const a = DocumentStore.fromSnapshot(world());
       const b = DocumentStore.fromSnapshot(world());

@@ -2,11 +2,17 @@
  * Wire schemas for `create_object.id_base` and `set_value.replace`
  * (vtt-3l6.19; PROTOCOL.md §5 M4-D12, M4-D17, §12).
  */
-import { parseClientMessage, TransactParamsSchema, type WireOp, WireOpSchema } from "@vtt/protocol";
+import {
+  type Destination,
+  parseClientMessage,
+  TransactParamsSchema,
+  type WireOp,
+  WireOpSchema,
+} from "@vtt/protocol";
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
 
-const board = { type: "board", board: "map", position: [1, 2] } as const;
+const board: Destination = { type: "board", board: "map", position: [1, 2] };
 
 const accepts = (op: unknown) => expect(WireOpSchema.parse(op)).toEqual(op);
 const refuses = (op: unknown) => expect(WireOpSchema.safeParse(op).success).toBe(false);

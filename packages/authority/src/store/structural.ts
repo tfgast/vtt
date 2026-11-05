@@ -11,6 +11,7 @@ import {
   type CellContent,
   type CellEffect,
   isCellContent,
+  isIdSyntax,
   isStructuralLiteral,
   isValidId,
   isValue,
@@ -268,7 +269,10 @@ function withoutPlacement(cells: Record<string, Cell>): Record<string, Cell> {
 
 /**
  * Creates an object from `init` at `dest` and returns its id. An explicit
- * `id` must be valid and not reserved; otherwise `obj_<n>` is allocated.
+ * `id` must be valid and not reserved; otherwise `<idBase>_<n>` is
+ * allocated as spawn allocates copies (DESIGN.md §4.1; PROTOCOL.md §5
+ * M4-D12), `idBase` defaulting to `obj`. `idBase` must have id syntax, and
+ * `id` and `idBase` are exclusive; either refusal is `invalid`.
  * Records `allocate` and `create`; on a board the landing rule applies.
  * Placement cells are refused for a container destination.
  */
@@ -277,10 +281,17 @@ export function createObject(
   init: ObjectInit,
   dest: Destination,
   id?: ObjectId,
+  idBase?: string,
 ): ObjectId {
   if (typeof init !== "object" || init === null) invalid("no initial fields");
   for (const key of Object.keys(init)) {
     if (!INIT_FIELDS.has(key)) invalid(`"${key}" is not an initial field`);
+  }
+  if (idBase !== undefined) {
+    if (id !== undefined) invalid("an id and an id base are exclusive");
+    if (typeof idBase !== "string" || !isIdSyntax(idBase)) {
+      invalid(`"${String(idBase)}" is not a valid id base`);
+    }
   }
   const target = checkDestination(tx, dest, (c) => tx.doc.contentsOf(c).length);
   let seq = tx.doc.nextSeq;
@@ -288,7 +299,7 @@ export function createObject(
     if (typeof id !== "string" || !isValidId(id)) invalid(`"${String(id)}" is not a valid id`);
     if (tx.doc.isReserved(id)) invalid(`"${id}" is reserved`);
   } else {
-    const allocated = allocateIds(tx, [DEFAULT_BASE]);
+    const allocated = allocateIds(tx, [idBase ?? DEFAULT_BASE]);
     id = allocated.ids[0] as ObjectId;
     seq = allocated.seq;
   }

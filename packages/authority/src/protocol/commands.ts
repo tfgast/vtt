@@ -42,6 +42,7 @@ import {
   renameBoard,
   renameCell,
   reorder,
+  replaceFormula,
   setActions,
   setCellVisibility,
   setCharacterFlag,
@@ -521,7 +522,8 @@ function runOp(tx: Transaction, op: WireOp, i: number, s: RunState): void {
   const b = s.bindings;
   switch (op.type) {
     case "set_value":
-      writeValue(tx, b.id(op.object), op.cell, value(op.value, b));
+      if (op.replace === true) replaceFormula(tx, b.id(op.object), op.cell, value(op.value, b));
+      else writeValue(tx, b.id(op.object), op.cell, value(op.value, b));
       return;
     case "set_formula":
       setFormula(tx, b.id(op.object), op.cell, op.source);
@@ -572,7 +574,7 @@ function runOp(tx: Transaction, op: WireOp, i: number, s: RunState): void {
       return;
     case "create_object": {
       const init = objectInit(op.init, b);
-      const id = createObject(tx, init, destination(op.to, b), op.id);
+      const id = createObject(tx, init, destination(op.to, b), op.id, op.id_base);
       s.created.push({ op_index: i, id });
       if (op.as !== undefined) b.bind(op.as, id);
       return;

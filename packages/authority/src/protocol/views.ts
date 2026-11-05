@@ -196,13 +196,38 @@ export class ViewBuilder {
       if (!this.#gm && !this.canSeeCell(id, name)) continue;
       out[name] = this.#cellView(o, name);
     }
-    return {
+    const view: ObjectView = {
       id,
       is_template: o.is_template,
       is_character: o.is_character,
       cells: out,
       actions: o.actions.map((a) => this.#action(a)),
     };
+    if (this.#gm) {
+      const absent = this.#absentCellVisibility(o, out);
+      if (absent !== undefined) view.absent_cell_visibility = absent;
+    }
+    return view;
+  }
+
+  /**
+   * The GM view's `absent_cell_visibility` (PROTOCOL.md §7.2 M4-D12): the
+   * object's per-cell visibility entries for names not in the view's
+   * `cells`, by code point; undefined when there are none.
+   */
+  #absentCellVisibility(
+    o: DeepReadonly<TableObject>,
+    cells: Record<string, CellView>,
+  ): Record<string, WireViewers> | undefined {
+    const names = Object.keys(o.cell_visibility)
+      .filter((name) => !Object.hasOwn(cells, name))
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    if (names.length === 0) return undefined;
+    const out: Record<string, WireViewers> = {};
+    for (const name of names) {
+      out[name] = clone<WireViewers>(o.cell_visibility[name] as DeepReadonly<ViewersValue>);
+    }
+    return out;
   }
 
   /** Structural view cells in table order, then stored user cells by code point. */

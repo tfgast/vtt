@@ -2,14 +2,14 @@
  * `createObject` with an id base (vtt-3l6.19; DESIGN.md §4.1, §5.3;
  * PROTOCOL.md §5 M4-D12): `<idBase>_<n>` allocated as spawn allocates copies.
  */
-import { createObject, DocumentStore } from "@vtt/authority";
+import { createObject, type Destination, DocumentStore } from "@vtt/authority";
 import type { Effect } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { must, table } from "./helpers";
 import { expectRefused, run } from "./structural-helpers";
 
 const bag = { type: "container", container: "bag" } as const;
-const board = { type: "board", board: "map", position: [3, 3] } as const;
+const board: Destination = { type: "board", board: "map", position: [3, 3] };
 
 describe("createObject with idBase", () => {
   test("allocates <idBase>_<n> from next_seq and advances it", () => {

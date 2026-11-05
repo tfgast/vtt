@@ -11,7 +11,12 @@ import {
   Table,
   TxnCache,
 } from "@vtt/authority";
-import { type TransactParams, TransactParamsSchema, type TransactResult } from "@vtt/protocol";
+import {
+  type Destination,
+  type TransactParams,
+  TransactParamsSchema,
+  type TransactResult,
+} from "@vtt/protocol";
 import type { Actor } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { placed, snapshot } from "../engine/helpers";
@@ -41,7 +46,7 @@ function transact(table: Table, raw: unknown): TransactResult {
   return executeTransact(context(table), params);
 }
 
-const board = { type: "board", board: "table", position: [4, 5] } as const;
+const board: Destination = { type: "board", board: "table", position: [4, 5] };
 const zoneInit = { is_zone: true, shape: { type: "rect", width: 2, height: 2 } } as const;
 
 describe("create_object with id_base", () => {
