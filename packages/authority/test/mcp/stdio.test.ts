@@ -64,7 +64,8 @@ interface Proc {
 interface Agent {
   client: Client;
   transport: StdioClientTransport;
-  pid: number;
+  /** The child's pid once the transport has spawned it (also if initialization fails), else 0. */
+  readonly pid: number;
   readonly stderr: string;
 }
 
@@ -89,7 +90,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const a of agents.splice(0)) {
-    if (alive(a.pid)) process.kill(a.pid, "SIGKILL");
+    const pid = a.pid;
+    if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL");
     await a.client.close().catch(() => undefined);
   }
   await Promise.all(
@@ -102,6 +104,8 @@ afterEach(async () => {
 });
 
 function alive(pid: number): boolean {
+  // Never signal 0 or a negative pid: those address process groups.
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -227,6 +231,7 @@ async function agent(args: string[] = [], env: Record<string, string> = {}): Pro
     stderr: "pipe",
   });
   let stderr = "";
+  let spawned = 0;
   transport.stderr?.on("data", (chunk: Buffer | string) => {
     stderr += chunk.toString();
   });
@@ -234,14 +239,25 @@ async function agent(args: string[] = [], env: Record<string, string> = {}): Pro
   const entry: Agent = {
     client,
     transport,
-    pid: 0,
+    get pid() {
+      const pid = transport.pid ?? 0;
+      if (pid > 0) spawned = pid;
+      return spawned;
+    },
     get stderr() {
       return stderr;
     },
   };
   agents.push(entry);
-  await client.connect(transport);
-  entry.pid = transport.pid ?? 0;
+  // Record the child's pid as soon as the transport spawns it, so cleanup can
+  // reach the child even when initialization fails (the transport forgets it on close).
+  const watch = setInterval(() => void entry.pid, 1);
+  try {
+    await client.connect(transport);
+  } finally {
+    void entry.pid;
+    clearInterval(watch);
+  }
   expect(entry.pid).toBeGreaterThan(0);
   return entry;
 }
@@ -547,6 +563,17 @@ describe("vtt-mcp process", () => {
         [[], { VTT_URL: "ws://127.0.0.1:4747/ws" }],
         [[], { VTT_TOKEN: "t" }],
         [[], { VTT_URL: "ftp://127.0.0.1/", VTT_TOKEN: "t" }],
+        [[], { VTT_URL: "", VTT_TOKEN: "" }],
+        [[], { VTT_URL: "", VTT_TOKEN: "t" }],
+        [[], { VTT_URL: "ws://127.0.0.1:4747/ws", VTT_TOKEN: "" }],
+        [[], { VTT_URL: "" }],
+        [[], { VTT_TOKEN: "" }],
+        // Line breaks in a value stay on the one diagnostic line. (WHATWG URL
+        // parsing strips them, so the URLs are otherwise malformed.)
+        [["--url", "ftp://127.0.0.1/\nsecond line", "--token", "t"], {}],
+        [["--bo\ngus"], {}],
+        [["--url", "http://x/\r\nsecond line", "--token", "t"], {}],
+        [[], { VTT_URL: "not a url\nsecond line", VTT_TOKEN: "t" }],
       ];
       await Promise.all(
         cases.map(async ([args, env]) => {

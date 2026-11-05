@@ -63,10 +63,10 @@ function explicit(
   try {
     parsed = new URL(url);
   } catch {
-    throw new UsageError(`${names.url} is not a URL: ${url}`);
+    throw new UsageError(`${names.url} is not a URL: ${JSON.stringify(url)}`);
   }
   if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
-    throw new UsageError(`${names.url} must be a ws:// or wss:// URL, got ${url}`);
+    throw new UsageError(`${names.url} must be a ws:// or wss:// URL, got ${JSON.stringify(url)}`);
   }
   if (token === "") throw new UsageError(`${names.token} must not be empty`);
   return { mode: "explicit", url, token };
@@ -91,9 +91,9 @@ function parse(argv: string[], env: NodeJS.ProcessEnv): McpArgs {
   if (values.url !== undefined || values.token !== undefined) {
     credentials = explicit(values.url, values.token, { url: "--url", token: "--token" });
   } else {
-    // An empty variable counts as unset (hosts often template empty values).
-    const url = env.VTT_URL === "" ? undefined : env.VTT_URL;
-    const token = env.VTT_TOKEN === "" ? undefined : env.VTT_TOKEN;
+    // A defined variable, even an empty one, is an explicit credential.
+    const url = env.VTT_URL;
+    const token = env.VTT_TOKEN;
     credentials =
       url === undefined && token === undefined
         ? { mode: "discovery" }
@@ -105,6 +105,9 @@ function parse(argv: string[], env: NodeJS.ProcessEnv): McpArgs {
 const log = (message: string): void => {
   process.stderr.write(`vtt-mcp: ${message}\n`);
 };
+
+/** Line breaks become spaces, so a diagnostic stays on one stderr line. */
+const oneLine = (text: string): string => text.replace(/[\r\n]+/g, " ");
 
 const describe = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -136,7 +139,7 @@ async function main(argv: string[]): Promise<void> {
   try {
     args = parse(argv, process.env);
   } catch (err) {
-    log(`${describe(err)}; ${USAGE}`);
+    log(`${oneLine(describe(err))}; ${USAGE}`);
     await exit(1);
     return;
   }
