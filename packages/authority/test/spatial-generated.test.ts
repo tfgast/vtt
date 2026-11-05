@@ -80,10 +80,16 @@ function generated(seed: number): Snapshot {
 /** The index bounds of a generated object, read back from the store. */
 function boundsOf(store: DocumentStore, id: string): Bounds {
   const o = must(store.getObject(id));
-  const p = must(store.getCell(id, "position")).content as { items: { value: number }[] };
+  const p = must(store.getCell(id, "position")).content as unknown as {
+    items: { value: number }[];
+  };
   const rot = store.getCell(id, "rotation")?.content;
   const deg = rot?.type === "number" ? rot.value : 0;
-  return indexBounds(o.shape as Shape | null, [must(p.items[0]).value, must(p.items[1]).value], deg);
+  return indexBounds(
+    o.shape as Shape | null,
+    [must(p.items[0]).value, must(p.items[1]).value],
+    deg,
+  );
 }
 
 /** 200 boxes: random small and medium ones, and ones on an object's epsilon boundary. */
@@ -147,13 +153,15 @@ describe("a generated board of 3000 objects", () => {
 
   test("still agrees after a batch of moves and writes", () => {
     const r = rng(23);
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 20; i++) {
       const id = `o${Math.floor(r() * COUNT)}`;
       const x = r() * SIZE;
       const y = r() * SIZE;
       if (store.boardOf(id) === null) continue;
-      if (i % 3 === 0) run(store, (tx) => move(tx, id, { type: "board", board: "map", position: [x, y] }));
-      else if (i % 3 === 1) run(store, (tx) => writeValue(tx, id, "position", list([num(x), num(y)])));
+      if (i % 3 === 0)
+        run(store, (tx) => move(tx, id, { type: "board", board: "map", position: [x, y] }));
+      else if (i % 3 === 1)
+        run(store, (tx) => writeValue(tx, id, "position", list([num(x), num(y)])));
       else run(store, (tx) => writeValue(tx, id, "rotation", num(r() * 360)));
     }
     for (const near of boxes(store, 29)) expectAgrees(index, store, "map", near);

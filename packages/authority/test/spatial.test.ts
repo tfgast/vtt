@@ -33,7 +33,11 @@ function small(): Snapshot {
   const objects = [
     obj("touch", { board: "map", cells: { position: at(-GEOM_EPSILON, 10) } }),
     obj("outside", { board: "map", cells: { position: at(20 + 2 * GEOM_EPSILON, 10) } }),
-    obj("far", { board: "map", shape: { type: "rect", width: 4, height: 4 }, cells: { position: at(100, 100) } }),
+    obj("far", {
+      board: "map",
+      shape: { type: "rect", width: 4, height: 4 },
+      cells: { position: at(100, 100) },
+    }),
     obj("rotated", {
       board: "map",
       shape: { type: "rect", width: 2, height: 20 },
@@ -53,7 +57,11 @@ function small(): Snapshot {
     }),
     obj("fpos", { board: "map", cells: { position: formula("far.position") } }),
     obj("fz", { board: "map", cells: { position: at(500, 500), z: formula("1 + 1") } }),
-    obj("inside", { board: "map", shape: { type: "circle", radius: 1 }, cells: { position: at(5, 5) } }),
+    obj("inside", {
+      board: "map",
+      shape: { type: "circle", radius: 1 },
+      cells: { position: at(5, 5) },
+    }),
     obj("bag", { board: "map", contents: ["coin"], cells: { position: at(300, 300) } }),
     obj("coin"),
     obj("elsewhere", { board: "other", cells: { position: at(5, 5) } }),
@@ -86,7 +94,14 @@ describe("the candidate set on a small board", () => {
 
   test("equals the brute-force reference", () => {
     const { store, index } = setup();
-    expect(candidates(index, "map", B)).toEqual(["fpos", "fz", "inside", "poly", "rotated", "touch"]);
+    expect(candidates(index, "map", B)).toEqual([
+      "fpos",
+      "fz",
+      "inside",
+      "poly",
+      "rotated",
+      "touch",
+    ]);
     expectAgrees(index, store, "map", B);
   });
 
