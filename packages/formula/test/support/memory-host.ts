@@ -295,7 +295,9 @@ export class MemoryHost implements EvalHost {
         throw new Error(`move: ${id} into ${dest.container} makes a containment cycle`);
       }
       const remaining = parent.contents.filter((c) => c !== id);
-      const index = dest.index ?? remaining.length;
+      // Within the same container, the original length also means append.
+      const sameAppend = oldParent === dest.container && dest.index === parent.contents.length;
+      const index = sameAppend ? remaining.length : (dest.index ?? remaining.length);
       if (!Number.isInteger(index) || index < 0 || index > remaining.length) {
         throw new Error(`move: index ${index} out of range for ${dest.container}`);
       }
@@ -429,10 +431,10 @@ export class MemoryHost implements EvalHost {
   /**
    * 1 + the largest literal `z` among the other objects on `board` (absent,
    * empty, or non-number as 0; an overridden formula as its override; a
-   * formula without one skipped).
+   * formula without one skipped). With no eligible object, 1.
    */
   private landingZ(id: ObjectId, board: ObjectId): number {
-    let top = 0;
+    let top = Number.NEGATIVE_INFINITY;
     for (const o of this.objects.values()) {
       if (o.id === id || o.board !== board) continue;
       const stored = this.storedCell(o, "z");
@@ -444,7 +446,8 @@ export class MemoryHost implements EvalHost {
       const z = literal?.type === "number" && Number.isFinite(literal.value) ? literal.value : 0;
       top = Math.max(top, z);
     }
-    return top + 1;
+    // No eligible literal z on the board: land at 1, as over an empty board.
+    return (top === Number.NEGATIVE_INFINITY ? 0 : top) + 1;
   }
 
   /** Every object is on exactly one board or in exactly one container (DESIGN §4.1). */

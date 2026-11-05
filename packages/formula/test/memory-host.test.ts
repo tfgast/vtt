@@ -384,6 +384,46 @@ describe("move", () => {
     expect(host.cell("bag", "contents")).toEqual(list([ref("gem"), ref("coin")]));
   });
 
+  test("within a container, the current length appends", () => {
+    const host = mutationHost();
+    expect(host.move("coin", { container: "bag", index: 2 })).toEqual([
+      cellChange("bag", "contents"),
+    ]);
+    expect(host.cell("bag", "contents")).toEqual(list([ref("gem"), ref("coin")]));
+    expect(host.move("coin", { container: "bag", index: 2 })).toEqual([]);
+    expect(() => host.move("coin", { container: "bag", index: 3 })).toThrow();
+  });
+
+  test("lands one above the highest literal z even when all are negative", () => {
+    const host = MemoryHost.fromSetup({
+      boards: [{ id: "b" }],
+      characters: [],
+      objects: [
+        { id: "low", placement: { board: "b", position: [0, 0] }, cells: { z: num(-5) } },
+        { id: "lower", placement: { board: "b", position: [1, 0] }, cells: { z: num(-3) } },
+        { id: "skipped", placement: { board: "b", position: [2, 0] }, cells: { z: formula("9") } },
+        { id: "bag", placement: { board: "b", position: [3, 0] }, contents: ["coin"] },
+        { id: "coin" },
+      ],
+    });
+    host.set("bag", "z", num(-10));
+    host.move("coin", { board: "b", position: [4, 4] });
+    expect(host.cell("coin", "z")).toEqual(num(-2));
+  });
+
+  test("onto a board with only formula z elsewhere lands at 1", () => {
+    const host = MemoryHost.fromSetup({
+      boards: [{ id: "b" }, { id: "b2" }],
+      characters: [],
+      objects: [
+        { id: "drift", placement: { board: "b", position: [0, 0] }, cells: { z: formula("9") } },
+        { id: "coin", placement: { board: "b2", position: [0, 0] } },
+      ],
+    });
+    host.move("coin", { board: "b", position: [1, 1] });
+    expect(host.cell("coin", "z")).toEqual(num(1));
+  });
+
   test("onto a board lands one above the highest literal z", () => {
     const host = mutationHost();
     const changes = host.move("coin", { type: "board", board: "table", position: [3, 3] });
