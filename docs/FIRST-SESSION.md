@@ -22,7 +22,8 @@ Press `?` in the app at any time for the keys and gestures.
    Use a file that does not exist yet, so you start from a fresh table. If
    `tables/crypt.table.json` is left over from an earlier run, pick a new
    name, such as `tables/crypt-2.table.json`. The table opens in your
-   browser.
+   browser. Below, `tables/<your table>.table.json` means the file you
+   chose here.
 
 2. Attach your own agent before step 5 (README.md, "Attach an agent"). In
    step 5, paste the request quoted there into the agent verbatim.
@@ -99,7 +100,8 @@ vtt-nb8, or hand them to the orchestrator.
 > Open a new table. The GM board is empty except for the GM binder, stocked
 > with the example templates.
 
-1. Run `pnpm start tables/crypt.table.json` on a fresh file (see Setup).
+1. Run `pnpm start tables/<your table>.table.json` on a fresh file (see
+   Setup).
 2. Wait for the browser tab to open.
 
 You should see: the board tab "GM", holding only the GM binder. Its list
@@ -172,7 +174,10 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 3. Press R (the rectangle zone tool). Make sure Fog is checked in the
    toolbar.
 4. Draw a zone exactly over each room, dragging from its top-left corner to
-   its bottom-right corner:
+   its bottom-right corner. Drawing a zone selects it and switches back to
+   the select tool, so press R again before each room (or hold Shift as you
+   start the drag, which keeps the zone tool). Check that Fog is still
+   checked each time:
 
 | Room | Name on the map | Top-left | Size |
 |---|---|---|---|
@@ -305,7 +310,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
    The walkthrough draws three strokes.
 4. Press V to go back to the select tool.
 5. Press Ctrl+S (Cmd+S on a Mac).
-6. Open `tables/crypt.table.json` in a text editor.
+6. Open the table file you chose in setup
+   (`tables/<your table>.table.json`) in a text editor.
 
 You should see: each stroke drawn on the note; the status bar showing
 "Saved"; the file is indented JSON, and searching it finds "Room 4" and
@@ -372,7 +378,7 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 
 The tray:
 
-1. Press R. Uncheck Fog in the toolbar.
+1. Press R (the rectangle zone tool). Uncheck Fog in the toolbar.
 2. Draw a zone below the map from `M + [0, 17]` to `M + [6, 20]`.
 3. While it is selected, set its `name` to `Tray` in the inspector.
 4. Add a cell `text` to it (the Cells section's new cell name box, then
@@ -387,7 +393,8 @@ The rolls, one die per character, in the order Aldric, Brenna, Corin, Dara:
 
 The strip:
 
-7. With R and Fog still unchecked, draw a zone from `M + [8, 17]` to
+7. Press R again: drawing the tray switched back to the select tool. Make
+   sure Fog is unchecked, then draw a zone from `M + [8, 17]` to
    `M + [20, 18]`. Set its `name` to `Initiative`.
 8. Work out each character's initiative: the die's value plus that
    character's sheet `dex_save` (Aldric 1, Brenna 0, Corin 4, Dara 2).
@@ -572,7 +579,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 1. Press Ctrl+S. The status bar shows "Saved".
 2. Close: press Ctrl+C in the terminal running `pnpm start`. It saves and
    stops.
-3. Reopen: run `pnpm start tables/crypt.table.json` again.
+3. Reopen: run `pnpm start tables/<your table>.table.json` again, with
+   the same file you chose in setup.
 4. In the old tab, press Reload on the banner that says the authority
    restarted. (A new tab also opens; close it.)
 5. Press Ctrl+Z once.
