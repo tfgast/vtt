@@ -24,7 +24,7 @@ git rev-parse --verify --quiet "$base^{commit}" >/dev/null || die "unknown base:
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-bd show "$bead_id" >"$tmp/bead.txt" || die "bd show $bead_id failed"
+show_bead_full "$bead_id" >"$tmp/bead.txt" || die "bd show $bead_id failed"
 git diff "$base...HEAD" -- . ':(exclude)pnpm-lock.yaml' >"$tmp/diff.txt"
 [[ -s $tmp/diff.txt ]] || die "empty diff for $base...HEAD (excluding pnpm-lock.yaml); nothing to review"
 fence=$(fence_for "$tmp/diff.txt")

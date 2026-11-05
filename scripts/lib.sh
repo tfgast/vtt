@@ -51,3 +51,21 @@ run_codex() {
 timestamp() {
   date -u +%Y%m%dT%H%M%SZ
 }
+
+# Render a bead in full for a review prompt. `bd show` without --json
+# truncates long table cells, so the description comes from the JSON form.
+show_bead_full() {
+  local id=$1
+  bd show "$id" --json | jq -r '
+    (if type == "array" then .[0] else . end) as $b |
+    "# \($b.id): \($b.title)",
+    "status: \($b.status)  priority: P\($b.priority)  type: \($b.issue_type)" +
+      (if $b.parent then "  parent: \($b.parent)" else "" end),
+    "",
+    $b.description,
+    "",
+    (if ($b.dependencies // []) | length > 0 then
+      "Depends on (recorded): " +
+        ([$b.dependencies[] | "\(.id) (\(.title))"] | join("; "))
+     else "Depends on (recorded): none" end)'
+}

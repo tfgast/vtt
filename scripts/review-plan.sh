@@ -22,7 +22,7 @@ cd "$top"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-bd show "$epic_id" >"$tmp/epic.txt" || die "bd show $epic_id failed"
+show_bead_full "$epic_id" >"$tmp/epic.txt" || die "bd show $epic_id failed"
 # Children by parent relationship, not by id prefix: a bead reparented into
 # the epic keeps its original id.
 bd list --parent "$epic_id" --all --limit 0 --json >"$tmp/children.json" ||
@@ -69,7 +69,7 @@ PROMPT
   cat "$tmp/epic.txt"
   for id in "${children[@]}"; do
     printf '\n===== CHILD %s =====\n' "$id"
-    bd show "$id" || die "bd show $id failed"
+    show_bead_full "$id" || die "bd show $id failed"
   done
 } >"$tmp/prompt.md"
 
