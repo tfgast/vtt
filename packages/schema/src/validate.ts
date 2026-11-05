@@ -140,24 +140,27 @@ export function validateSnapshot(s: Snapshot): Violation[] {
       report("placement", base, `"${key}" is ${where}`);
     }
   }
-  // A cycle is a chain of single parents that comes back to where it started.
-  const cyclic = new Set<string>();
-  for (const [key] of objects) {
-    const path: string[] = [];
-    const onPath = new Set<string>();
-    let at: string | undefined = key;
-    while (at !== undefined && !onPath.has(at) && !cyclic.has(at)) {
-      onPath.add(at);
-      path.push(at);
-      const ps = parents.get(at);
-      at = ps?.length === 1 ? ps[0] : undefined;
+  // Cycles: depth-first over every containment edge, whatever the placement
+  // violations, so a cycle is found even through an object held twice.
+  const state = new Map<string, "open" | "done">();
+  const stack: string[] = [];
+  const visit = (id: string) => {
+    state.set(id, "open");
+    stack.push(id);
+    for (const child of new Set(s.objects[id]?.contents ?? [])) {
+      if (!Object.hasOwn(s.objects, child)) continue;
+      const st = state.get(child);
+      if (st === "open") {
+        const loop = [...stack.slice(stack.indexOf(child)), child];
+        report("containment_cycle", ["objects", child, "contents"], `cycle: ${loop.join(" > ")}`);
+      } else if (st === undefined) {
+        visit(child);
+      }
     }
-    if (at !== undefined && onPath.has(at)) {
-      const loop = path.slice(path.indexOf(at));
-      for (const id of loop) cyclic.add(id);
-      report("containment_cycle", ["objects", at, "contents"], `cycle: ${loop.join(" > ")}`);
-    }
-  }
+    stack.pop();
+    state.set(id, "done");
+  };
+  for (const [key] of objects) if (!state.has(key)) visit(key);
 
   return out;
 }

@@ -295,6 +295,20 @@ describe("placement and containment", () => {
     expect(kinds(s)).toEqual(["containment_cycle"]);
   });
 
+  test("a cycle through an object held twice is still reported", () => {
+    const s = snapshot([obj("a", { contents: ["b", "b"] }), obj("b", { contents: ["a"] })]);
+    expect(kinds(s).sort()).toEqual(["containment_cycle", "placement"]);
+  });
+
+  test("a cycle hanging off a board object", () => {
+    const s = snapshot([
+      obj("bag", { board: "map", contents: ["a"], cells: { position: at(0, 0) } }),
+      obj("a", { contents: ["b"] }),
+      obj("b", { contents: ["a"] }),
+    ]);
+    expect(kinds(s).sort()).toEqual(["containment_cycle", "placement"]);
+  });
+
   test("an object containing itself", () => {
     expect(kinds(snapshot([obj("a", { contents: ["a"] })]))).toEqual(["containment_cycle"]);
   });
