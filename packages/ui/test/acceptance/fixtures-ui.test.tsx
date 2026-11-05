@@ -57,7 +57,9 @@ const MATRIX: Line[] = [
   ["fireball", [10], "gm", "edit", "map"],
   ["fireball", [11], "aldric", "click", "shelf"],
   ["goblin-hit", [0], "gm", "drag", "table"],
-  ["goblin-hit", [1, 3], "gm", "edit", "table"],
+  // Orchestrator amendment: unchanged literal (z is already 1 after the landing
+  // rule) and the inspector writes nothing for unchanged input.
+  ["goblin-hit", [1, 3], "gm", "protocol", "—"],
   ["goblin-hit", [2, 5], "gm", "drag", "table"],
   ["goblin-hit", [4], "aldric", "click", "table"],
   ["hit-points", [0, 2], "gm", "edit", "table"],
