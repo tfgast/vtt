@@ -115,6 +115,17 @@ export function runBlockedReason(
 
 /** Interaction ids of Run stamps (kept apart from the machine's `i<n>`). */
 let runCounter = 0;
+/** Identities of editing sessions: a write's completion only touches its own editor. */
+let editCounter = 0;
+
+function sameDraft(a: ActionDraft, b: ActionDraft): boolean {
+  return (
+    a.name === b.name &&
+    a.when === b.when &&
+    a.steps.length === b.steps.length &&
+    a.steps.every((s, i) => s === b.steps[i])
+  );
+}
 
 export function ActionsList(props: ActionsListProps) {
   // Keyed by role: an open editor or rename never survives a switch to view-as.
@@ -125,6 +136,8 @@ export function ActionsList(props: ActionsListProps) {
 type Open =
   | {
       kind: "edit";
+      /** This editing session's identity (unique: never shared by a later editor). */
+      id: number;
       original: string | null;
       /** What the editor started from (Save writes nothing while the draft equals it). */
       initial: ActionDraft;
@@ -155,28 +168,32 @@ function ActionsBody({ view, gm, policy = defaultFacePolicy, runtime }: ActionsL
     return v === null ? null : editableActions(v);
   };
 
-  /** Writes the list `edit` makes of the current one; resolves whether it committed. */
+  /**
+   * Writes the list `edit` makes of the current one; resolves the revision
+   * the actions now stand at when it committed (or nothing needed writing),
+   * else null.
+   */
   const write = async (
     edit: (actions: ActionDef[]) => ActionsResult,
     base: number,
     verb: string,
-  ): Promise<boolean> => {
+  ): Promise<number | null> => {
     const actions = current();
     if (actions === null) {
       notice("The actions were not changed: the object is not in the GM's view.");
-      return false;
+      return null;
     }
     const result = edit(actions);
     if (!result.ok) {
       notice(`The actions were not changed: ${result.message}`);
-      return false;
+      return null;
     }
-    if (sameActions(actions, result.actions)) return true;
+    if (sameActions(actions, result.actions)) return base;
     const outcome = await port.write(setActionsOps(object, result.actions), {
       baseRevision: base,
       label: label(verb),
     });
-    return outcome.status === "committed";
+    return outcome.status === "committed" ? outcome.revision : null;
   };
 
   const run = (action: string) => {
@@ -202,6 +219,7 @@ function ActionsBody({ view, gm, policy = defaultFacePolicy, runtime }: ActionsL
       action === null ? { name: newActionName(names), when: "", steps: [""] } : draftOf(action);
     setOpen({
       kind: "edit",
+      id: ++editCounter,
       original: action?.name ?? null,
       initial,
       draft: { ...initial, steps: [...initial.steps] },
@@ -218,17 +236,27 @@ function ActionsBody({ view, gm, policy = defaultFacePolicy, runtime }: ActionsL
       setOpen(null);
       return;
     }
-    const setSaving = (saving: boolean) =>
-      setOpen((o) => (o?.kind === "edit" && o.base === edit.base ? { ...o, saving } : o));
-    setSaving(true);
-    const committed = await write(
+    // The submission: this session's draft as Save sent it.
+    const submitted: ActionDraft = { ...edit.draft, steps: [...edit.draft.steps] };
+    const mine = (o: Open | null): o is Extract<Open, { kind: "edit" }> =>
+      o?.kind === "edit" && o.id === edit.id;
+    setOpen((o) => (mine(o) ? { ...o, saving: true } : o));
+    const revision = await write(
       (actions) => saveAction(actions, edit.original, action),
       edit.base,
       edit.original === null ? `Add action ${action.name}` : `Edit action ${action.name}`,
     );
-    // Close once committed; otherwise keep the editor and its text.
-    if (committed) setOpen((o) => (o?.kind === "edit" && o.base === edit.base ? null : o));
-    else setSaving(false);
+    setOpen((o) => {
+      // Another editor (or none) is open now: it is not this write's to touch.
+      if (!mine(o)) return o;
+      // Not committed: keep the editor and its text.
+      if (revision === null) return { ...o, saving: false };
+      // Committed and unchanged since Save: done.
+      if (sameDraft(o.draft, submitted)) return null;
+      // Committed, but edited since Save: keep the newer text, now editing the
+      // saved action from the revision it was saved at.
+      return { ...o, original: action.name, initial: submitted, base: revision, saving: false };
+    });
   };
 
   const editor = (edit: Extract<Open, { kind: "edit" }>) => (

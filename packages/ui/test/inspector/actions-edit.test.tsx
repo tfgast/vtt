@@ -222,7 +222,28 @@ async function world(options: { dice?: ScriptedDiceEntry[]; object?: "card" | "t
       <Harness session={session} object={object} runtime={runtime} />
     </TableProvider>,
   );
-  const request = vi.spyOn(session.client, "request");
+  // Transacts can be held before they are sent, delaying their responses.
+  const send = session.client.request.bind(session.client);
+  let gate: Promise<void> | null = null;
+  const request = vi.spyOn(session.client, "request").mockImplementation((async (
+    method: string,
+    params: unknown,
+    ...rest: unknown[]
+  ) => {
+    if (method === "transact" && gate !== null) await gate;
+    return (send as (...args: unknown[]) => Promise<unknown>)(method, params, ...rest);
+  }) as never);
+  /** Holds every transact until the returned release is called. */
+  const holdTransacts = () => {
+    let release!: () => void;
+    gate = new Promise<void>((r) => {
+      release = r;
+    });
+    return () => {
+      gate = null;
+      release();
+    };
+  };
   const calls = (method: string) =>
     request.mock.calls.filter(([m]) => m === method).map(([, p]) => p);
   const transacts = () =>
@@ -244,6 +265,7 @@ async function world(options: { dice?: ScriptedDiceEntry[]; object?: "card" | "t
     groups,
     stored,
     notices,
+    holdTransacts,
   };
 }
 
@@ -451,6 +473,65 @@ describe("editing as the GM", () => {
     expect(
       (within(section()).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+});
+
+describe("a Save whose response is delayed", () => {
+  test("a draft modified after Save stays open with its newer text, editing the saved action", async () => {
+    const w = await world();
+    const user = userEvent.setup();
+    await user.click(within(item("Roll")).getByRole("button", { name: "Edit Roll" }));
+    const step = within(section()).getByRole("textbox", { name: "Step 1" });
+    await user.clear(step);
+    await user.type(step, "roll(1d20 + 1) -> roll");
+    const release = w.holdTransacts();
+    await user.click(within(section()).getByRole("button", { name: "Save" }));
+    const name = within(section()).getByRole("textbox", { name: "Action name" });
+    await user.clear(name);
+    await user.type(name, "Roll it");
+    act(release);
+    await waitFor(() => expect(w.stored()?.[0]?.steps).toEqual(["roll(1d20 + 1) -> roll"]));
+    expect(w.stored()?.[0]?.name).toBe("Roll");
+    const after = w.session.getSnapshot().revision;
+    // Still open, with the newer text; Save is available again.
+    const editor = within(section()).getByRole("group", { name: "Edit Roll" });
+    expect(
+      (within(editor).getByRole("textbox", { name: "Action name" }) as HTMLInputElement).value,
+    ).toBe("Roll it");
+    const save = within(editor).getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    await waitFor(() => expect(save.disabled).toBe(false));
+    // A second Save writes the newer text from the revision the first one committed at.
+    await user.click(save);
+    await waitFor(() => expect(w.stored()?.[0]?.name).toBe("Roll it"));
+    expect(w.transacts()).toHaveLength(2);
+    expect(w.transacts()[1]?.base_revision).toBe(after);
+    expect(w.stored()?.[0]?.steps).toEqual(["roll(1d20 + 1) -> roll"]);
+    await waitFor(() => expect(within(section()).queryByRole("group")).toBeNull());
+  });
+
+  test("another action's editor opened before the response survives it", async () => {
+    const w = await world();
+    const user = userEvent.setup();
+    const base = w.session.getSnapshot().revision;
+    await user.click(within(item("Roll")).getByRole("button", { name: "Edit Roll" }));
+    const step = within(section()).getByRole("textbox", { name: "Step 1" });
+    await user.clear(step);
+    await user.type(step, "roll(1d20 + 1) -> roll");
+    const release = w.holdTransacts();
+    await user.click(within(section()).getByRole("button", { name: "Save" }));
+    // Opened at the same revision, before the response.
+    await user.click(within(item("Apply")).getByRole("button", { name: "Edit Apply" }));
+    expect(w.session.getSnapshot().revision).toBe(base);
+    const applyStep = within(section()).getByRole("textbox", { name: "Step 2" });
+    await user.type(applyStep, "x");
+    act(release);
+    await waitFor(() => expect(w.stored()?.[0]?.steps).toEqual(["roll(1d20 + 1) -> roll"]));
+    await act(() => w.session.whenRevision(base + 1));
+    const editor = within(section()).getByRole("group", { name: "Edit Apply" });
+    expect(
+      (within(editor).getByRole("textbox", { name: "Step 2" }) as HTMLInputElement).value,
+    ).toBe("set(applied, true)x");
+    expect(w.transacts()).toHaveLength(1);
   });
 });
 
