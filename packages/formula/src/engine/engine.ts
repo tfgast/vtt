@@ -13,6 +13,8 @@ import { validateRefs } from "../eval/refs";
 import type { Registry } from "../functions/registry";
 import { type CellKey, type Change, cellKey, type Dependency, type EvalHost } from "../host";
 import { type ParseResult, parse } from "../syntax/parser";
+import { type AdhocOptions, evaluateAdhoc } from "./adhoc";
+import { DEFAULT_BUDGET } from "./budget";
 import { DependencyGraph, getOrCreate } from "./graph";
 import { type EngineStats, resolve } from "./resolve";
 
@@ -21,8 +23,16 @@ export type { EngineStats } from "./resolve";
 export interface EngineOptions {
   /** The function registry; defaults to the package's default registry. */
   registry?: Registry;
+  /** Units each formula evaluation may spend (budget.ts); defaults to DEFAULT_BUDGET. */
+  budget?: number;
 }
 
+/**
+ * Host exceptions propagate out of `value` and `evaluate`. Results are stored
+ * only when a cell's whole component finishes, and the work stack lives in
+ * one `resolve` call, so a throw leaves every in-progress cell dirty (or
+ * uncomputed) and the engine usable, with no reset needed.
+ */
 export interface Engine {
   /**
    * The result of `id`.`cell` at the current revision: `#REF` if the object
@@ -30,6 +40,13 @@ export interface Engine {
    * `validateRefs`, or a formula's memoized result, recomputed if dirty.
    */
   value(id: ObjectId, cell: string): Result;
+
+  /**
+   * Evaluate a formula that is not a cell (a `when` guard, a show-when) on
+   * `options.thisId` at the current revision: budgeted, reading and
+   * populating the memo, keeping no dependency entry (adhoc.ts).
+   */
+  evaluate(source: string, options: AdhocOptions): Result;
 
   /**
    * Mark everything `changes` affects dirty and return the formula cells this
@@ -92,6 +109,7 @@ export function createEngine(host: EvalHost, options: EngineOptions = {}): Engin
   const ctx = {
     host,
     registry: options.registry,
+    budget: options.budget ?? DEFAULT_BUDGET,
     stats: counters,
     memoized(key: CellKey): Result | undefined {
       const m = memo.get(key);
@@ -128,6 +146,10 @@ export function createEngine(host: EvalHost, options: EngineOptions = {}): Engin
         return validateRefs(content, (oid) => host.exists(oid));
       }
       return ctx.memoized(cellKey(id, cell)) ?? resolve(ctx, id, cell);
+    },
+
+    evaluate(source, adhoc) {
+      return evaluateAdhoc(ctx, source, adhoc);
     },
 
     invalidate(changes) {

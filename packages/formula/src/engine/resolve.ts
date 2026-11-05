@@ -31,9 +31,10 @@ import { EMPTY, type ErrorValue, err, type ObjectId, type Result } from "@vtt/sc
 import { evaluate } from "../eval/evaluate";
 import { validateRefs } from "../eval/refs";
 import type { Registry } from "../functions/registry";
-import { type CellKey, cellKey, type Dependency, type EvalEnv, type EvalHost } from "../host";
+import { type CellKey, cellKey, type Dependency, type EvalHost } from "../host";
 import type { ParseResult } from "../syntax/parser";
-import { dependencyKey } from "./graph";
+import { limitError, withBudget } from "./budget";
+import { createRecordingEnv } from "./env";
 
 /** Counters for tests: evaluator runs, completed evaluations, and cell reads. */
 export interface EngineStats {
@@ -58,10 +59,12 @@ export interface ResolveContext {
   store(key: CellKey, result: Result, deps: readonly Dependency[]): void;
   /** Parse `source`, once per distinct string. */
   parse(source: string): ParseResult;
+  /** Units each formula evaluation may spend (budget.ts). */
+  readonly budget: number;
 }
 
 /** The pending marker: a value the evaluator handles everywhere without stopping. */
-const PENDING: Result = EMPTY;
+export const PENDING: Result = EMPTY;
 
 interface Pending {
   readonly key: CellKey;
@@ -156,43 +159,18 @@ export function resolve(ctx: ResolveContext, id: ObjectId, cell: string): Result
 
   const attempt = (top: Frame): Outcome => {
     const content = ctx.host.cell(top.id, top.cell);
-    const deps = new Map<string, Dependency>();
-    const record = (dep: Dependency) => {
-      const k = dependencyKey(dep);
-      if (!deps.has(k)) deps.set(k, dep);
-    };
-    const exists = (oid: ObjectId) => {
-      record({ type: "exists", object: oid });
-      return ctx.host.exists(oid);
-    };
-    if (content === undefined || content.type !== "formula") {
-      // Not reachable within one revision; read as engine.value would.
-      const result =
-        content === undefined
-          ? err("#NAME", `no cell ${top.cell} on ${top.id}`, { object: top.id, cell: top.cell })
-          : validateRefs(content, exists);
-      return { kind: "done", result, deps: [...deps.values()] };
-    }
-    const parsed = ctx.parse(content.source);
-    if (!parsed.ok) {
-      const origin = { object: top.id, cell: top.cell };
-      return { kind: "done", result: err("#SYNTAX", parsed.message, origin), deps: [] };
-    }
-
     let sawPending = false;
     let conflict: Frame | undefined;
     const pending: Pending[] = [];
     const collected = new Set<CellKey>();
-    const env: EvalEnv = {
-      read(oid, ocell) {
-        ctx.stats.reads++;
-        record({ type: "cell", object: oid, cell: ocell });
-        const c = ctx.host.cell(oid, ocell);
-        if (c === undefined) return undefined;
-        if (c.type !== "formula") return validateRefs(c, exists);
-        const key = cellKey(oid, ocell);
-        const memo = ctx.memoized(key);
-        if (memo !== undefined) return memo;
+    // A fresh env per attempt: dependencies and budget start from zero, so
+    // only the final, complete attempt's charge decides the result.
+    const env = createRecordingEnv({
+      host: ctx.host,
+      budget: ctx.budget,
+      stats: ctx.stats,
+      memoized: (key) => ctx.memoized(key),
+      uncomputed(key, oid, ocell) {
         const open = states.get(key);
         if (open !== undefined) {
           // A cycle-closing read; definite only before the first pending marker.
@@ -210,20 +188,40 @@ export function resolve(ctx: ResolveContext, id: ObjectId, cell: string): Result
         sawPending = true;
         return PENDING;
       },
-      exists,
-      objectsNamed: (name) => ctx.host.objectsNamed(name),
-      allObjects: () => ctx.host.allObjects(),
-      objectsOnBoard: (board, near) => ctx.host.objectsOnBoard(board, near),
-    };
+    });
+    const origin = { object: top.id, cell: top.cell };
+    if (content === undefined || content.type !== "formula") {
+      // Not reachable within one revision; read as engine.value would.
+      const result =
+        content === undefined
+          ? err("#NAME", `no cell ${top.cell} on ${top.id}`, origin)
+          : withBudget(
+              () => validateRefs(content, env.exists),
+              () => limitError(ctx.budget, origin),
+            );
+      return { kind: "done", result, deps: env.dependencies() };
+    }
+    const parsed = ctx.parse(content.source);
+    if (!parsed.ok) {
+      return { kind: "done", result: err("#SYNTAX", parsed.message, origin), deps: [] };
+    }
+
     ctx.stats.attempts++;
     const scope = { thisId: top.id, cell: top.cell };
-    const result =
-      ctx.registry === undefined
-        ? evaluate(parsed.ast, scope, env)
-        : evaluate(parsed.ast, scope, env, ctx.registry);
+    // Exceeding the budget stops the attempt where it is. The pending cells
+    // collected so far are kept (the first is definite, so retries progress);
+    // with none, every read so far was final and the final attempt would
+    // stop at the same point: the result is #LIMIT.
+    const result = withBudget(
+      () =>
+        ctx.registry === undefined
+          ? evaluate(parsed.ast, scope, env)
+          : evaluate(parsed.ast, scope, env, ctx.registry),
+      () => limitError(ctx.budget, origin),
+    );
     if (conflict !== undefined) return { kind: "conflict", unwind: conflict };
     if (pending.length > 0) return { kind: "pending", pending };
-    return { kind: "done", result, deps: [...deps.values()] };
+    return { kind: "done", result, deps: env.dependencies() };
   };
 
   const finish = (top: Frame, result: Result, deps: readonly Dependency[]) => {
