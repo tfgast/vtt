@@ -161,15 +161,43 @@ export type UndoParams = z.infer<typeof UndoParamsSchema>;
 export const UndoResultSchema = TransactResultSchema;
 export type UndoResult = TransactResult;
 
-export const InvokeParamsSchema = z.strictObject({
-  object: ObjectIdSchema,
-  action: ActionName,
-  base_revision: Count,
-});
+/** `invoke` (M5-D1): runs an object's named action as one `action` group (§4, §6). */
+export const InvokeParamsSchema = z
+  .strictObject({
+    object: ObjectIdSchema,
+    action: ActionName,
+    base_revision: Count,
+    txn_id: z.string().min(1).max(64).optional(),
+    /** Only with `txn_id`; set on a client resend (§6). */
+    retry: z.literal(true).optional(),
+    /** The GM driving a character (§3); non-agent connections only. */
+    actor: z.strictObject({ type: z.literal("character"), id: ObjectIdSchema }).optional(),
+    label: z.string().max(200).optional(),
+    /** What the `table` destination resolves to (FORMULAS.md §8.2). */
+    table: z.strictObject({ board: ObjectIdSchema, position: Point }).optional(),
+  })
+  .refine((p) => p.retry === undefined || p.txn_id !== undefined, {
+    message: "retry requires txn_id",
+    path: ["retry"],
+  });
 export type InvokeParams = z.infer<typeof InvokeParamsSchema>;
-/** `invoke` is always answered `unsupported` until M5 (D19). */
-export const InvokeResultSchema = z.never();
-export type InvokeResult = never;
+/** `created`: the ids the action spawned, in creation order; `step`: the refusing step (0-based). */
+export const InvokeResultSchema = looseNoProto(
+  z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("committed"),
+      revision: Count,
+      index: Count,
+      created: z.array(Id),
+    }),
+    z.object({
+      status: z.literal("rejected"),
+      rejection: ProtocolRejectionSchema,
+      step: Count.optional(),
+    }),
+  ]),
+);
+export type InvokeResult = z.infer<typeof InvokeResultSchema>;
 
 export const SaveParamsSchema = z.strictObject({});
 export type SaveParams = z.infer<typeof SaveParamsSchema>;
@@ -399,6 +427,21 @@ export const ExplainActionResultSchema = looseObject({
   /** Present only when the action has a `when`. */
   guard: looseObject({ source: z.string().optional(), value: WireResultSchema }).optional(),
   steps: z.array(z.string()).optional(),
+  /** GM only, present when the action has a `when`: whether it parses. */
+  when_parses: z.boolean().optional(),
+  /** GM only: the parser's message when `when` does not parse. */
+  when_syntax_error: z.string().optional(),
+  /** GM only: one entry per step, in order, from the step parser (FORMULAS.md §8.4). */
+  step_status: z
+    .array(
+      looseNoProto(
+        z.discriminatedUnion("ok", [
+          z.object({ ok: z.literal(true) }),
+          z.object({ ok: z.literal(false), message: z.string(), offset: Count }),
+        ]),
+      ),
+    )
+    .optional(),
 });
 export type ExplainActionResult = z.infer<typeof ExplainActionResultSchema>;
 

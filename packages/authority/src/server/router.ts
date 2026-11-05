@@ -18,6 +18,7 @@ import type { Actor } from "@vtt/schema";
 import type { TableHost } from "../host/table-host";
 import {
   type CommandKind,
+  executeInvoke,
   executeTransact,
   executeUndo,
   type TxnCache,
@@ -77,9 +78,7 @@ const commandContext = (deps: RouterDeps, ctx: RequestContext) => ({
 export const ROUTES: RouteTable = Object.freeze({
   transact: (d, c, p) => executeTransact(commandContext(d, c), p),
   undo: (d, c, p) => executeUndo(commandContext(d, c), p),
-  invoke: () => {
-    throw new ProtocolFailure("unsupported", "invoke is not supported until M5");
-  },
+  invoke: (d, c, p) => executeInvoke(commandContext(d, c), p),
   save: async (d) => {
     const event = await d.host.save();
     return event.message === undefined

@@ -322,6 +322,7 @@ describe("happy paths and errors, one per tool", () => {
       action: "Heal",
       enabled: true,
       steps: ["7 -> hp"],
+      step_status: [{ ok: false, message: expect.any(String), offset: expect.any(Number) }],
     });
     expect(failed(await h.call("explain_action", { object: "goblin", action: "nope" })).code).toBe(
       "not_found",

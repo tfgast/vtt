@@ -519,6 +519,8 @@ describe("explain_action", () => {
         value: { type: "boolean", value: false },
       },
       steps: ["roll(1d20) -> roll"],
+      when_parses: true,
+      step_status: [{ ok: true }],
     });
     const aldric = action(t, { object: "attack_card", action: "Roll", viewer: ALDRIC });
     expect(aldric).toEqual({
@@ -556,6 +558,7 @@ describe("explain_action", () => {
       action: "Roll",
       enabled: true,
       steps: ["roll(1d6) -> value"],
+      step_status: [{ ok: true }],
     });
     const scenario = await loadScenarioFile("hit-points.json");
     const doc = documentFromSetup(scenario.setup);
@@ -573,6 +576,7 @@ describe("explain_action", () => {
       action: "Rest",
       enabled: true,
       steps: ["set(damage_taken, 0)"],
+      step_status: [{ ok: true }],
     });
   });
 
