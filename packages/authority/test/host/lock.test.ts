@@ -184,7 +184,8 @@ describe("acquireTableLock", () => {
     const lost = results.filter((r) => !r.ok);
     expect(lost).toHaveLength(1);
     expect(lost[0]).toMatchObject({ name: "TableLockedError", stale: false });
-    expect(lost[0].info.host).toBe(hostname());
+    // The loser may read the winner's file before its content is written: then info is null.
+    if (lost[0].info !== null) expect(lost[0].info.host).toBe(hostname());
     for (const c of children) c.child.stdin.end();
     await Promise.all(children.map((c) => c.exited));
     expect(await readdir(dir)).toEqual([]);
@@ -388,6 +389,23 @@ describe("TableLock.release", () => {
     await first.release();
     expect((await readLock()).nonce).toBe(second.nonce);
     await expect(acquireTableLock(table)).rejects.toBeInstanceOf(TableLockedError);
+  });
+
+  test("an unreadable lock is reported, left in place, and a later release may retry", async () => {
+    let failRead = true;
+    const fs: TableFs = {
+      ...nodeTableFs,
+      readFile: async (p, enc) => {
+        if (failRead) throw fault("EACCES");
+        return nodeTableFs.readFile(p, enc);
+      },
+    };
+    const lock = await acquireTableLock(table, { fs });
+    await expect(lock.release()).rejects.toMatchObject({ code: "EACCES" });
+    expect(await readdir(dir)).toEqual(["table.json.lock"]);
+    failRead = false;
+    await lock.release();
+    expect(await readdir(dir)).toEqual([]);
   });
 
   test("leaves a lock file it cannot parse", async () => {
