@@ -783,9 +783,8 @@ it. Objects are never DOM nodes. Canvas text is weak at small sizes, which
 show-when zoom thresholds already accommodate. Very large map images are a
 tiling problem and stay in Later.
 
-Left open on purpose: UI framework for the chrome (React is the default
-because of the editor and panel ecosystem), formula parser approach, and the
-desktop shell. The authority runs on Node.
+Decided since (CLAUDE.md): React for the chrome, a hand-written Pratt parser,
+and Node for the authority. Left open on purpose: the desktop shell.
 
 ## 8. Scope
 
