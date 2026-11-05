@@ -220,8 +220,8 @@ and the cell is `#SYNTAX` (2.3).
   an explode: `1d6!=3` is `1d6 != 3`. `2d6+3` is a dice literal plus a number
   (2.2). A dice literal that lexes but breaks a limit of 2.2 (`0d6`, `1d6kh2`)
   is `#TYPE`.
-- **Calls.** A call is an identifier immediately followed by `(`, with
-  comma-separated arguments: `max([a, b])`.
+- **Calls.** A call is an identifier (not a backtick name) followed by `(`,
+  whitespace allowed, with comma-separated arguments: `max([a, b])`.
 - **Methods.** The only methods are `.where(expr)`, with exactly one
   argument, and `.sort(expr)` or `.sort(expr, desc)`. Any other `.name(` is a
   syntax error. `.name` without a parenthesis is dot-access.
