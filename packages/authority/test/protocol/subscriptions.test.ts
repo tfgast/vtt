@@ -22,6 +22,7 @@ import {
   type ScopeSubscription,
   SubscriptionHub,
   setActions,
+  setCellVisibility,
   setCharacterFlag,
   setFormula,
   setShape,
@@ -506,6 +507,62 @@ describe("one operation kind each, for a GM and an Aldric subscription", () => {
   });
 });
 
+describe("deterministic equivalence", () => {
+  test("a sequence of every kind of change keeps every mirror equal to a fresh subscribe", () => {
+    const h = new Harness(world());
+    for (const viewer of [GM, ALDRIC]) {
+      h.subscribe("c1", { scope: { type: "board", board: "table" }, viewer });
+      h.subscribe("c1", { scope: { type: "board", board: "crypt" }, viewer, cells: "structural" });
+      h.subscribe("c2", {
+        scope: { type: "objects", ids: ["chest", "hand"], subtree: true },
+        viewer,
+      });
+      h.subscribe("c2", { scope: { type: "objects", ids: ["card", "goblin"] }, viewer });
+      h.subscribe("c2", { scope: { type: "all" }, viewer });
+    }
+    h.check();
+    const steps: ((tx: Transaction) => void)[] = [
+      (tx) => writeValue(tx, "note", "text", text("x")),
+      (tx) => setFormula(tx, "note", "f", "1 + 2"),
+      (tx) => writeValue(tx, "note", "f", num(7)),
+      (tx) => clearOverride(tx, "note", "f"),
+      (tx) => move(tx, "goblin", { type: "container", container: "chest" }),
+      (tx) => writeValue(tx, "room", "visible_to", viewers("all")),
+      (tx) => setCellVisibility(tx, "note", "text", viewers("gm")),
+      (tx) => writeValue(tx, "card", "face_up", bool(false)),
+      (tx) => move(tx, "card", { type: "board", board: "table", position: [11, 11] }),
+      (tx) => writeValue(tx, "card", "owner", ref("aldric")),
+      (tx) => writeValue(tx, "room", "visible_to", viewers("gm")),
+      (tx) => setFormula(tx, "room", "opaque", '"maybe"'),
+      (tx) => setShape(tx, "room", null),
+      (tx) => setFormula(tx, "room", "position", '"nowhere"'),
+      (tx) => setCharacterFlag(tx, "aldric", false),
+      (tx) => setCharacterFlag(tx, "aldric", true),
+      (tx) => remove(tx, "chest"),
+      (tx) =>
+        createObject(
+          tx,
+          { tag: ["die"], cells: { value: c(num(2)) } },
+          { type: "board", board: "table", position: [10, -20] },
+          "die2",
+        ),
+      (tx) => move(tx, "hand", { type: "board", board: "table", position: [1, 1] }),
+      (tx) => removeBoard(tx, "attic"),
+      (tx) => renameBoard(tx, "crypt", "Crypt"),
+      (tx) => setFormula(tx, "hand", "visible_to", "owner"),
+      (tx) => writeValue(tx, "hand", "owner", ref("goblin")),
+    ];
+    for (const step of steps) {
+      h.commit(step);
+      h.check();
+    }
+    for (let i = 0; i < 6; i++) {
+      h.undo();
+      h.check();
+    }
+  });
+});
+
 describe("scope changes", () => {
   test("moves between boards and containers enter and leave scopes", () => {
     const h = new Harness(world());
@@ -709,14 +766,23 @@ describe("references in effective literal content", () => {
       scope: { type: "objects", ids: ["p", "q"], subtree: true },
       viewer: ALDRIC,
     }).subscription;
-    expect(sorted(h.mirrors.get(s)?.objects.keys() ?? [])).toEqual(["p", "pc", "q"]);
+    expect(sorted([...(h.mirrors.get(s)?.objects.keys() ?? [])])).toEqual(["p", "pc", "q"]);
+    // A dangling ref makes the whole literal read #REF (FORMULAS.md §2.4), before
+    // any redaction: p's visible_to admits nobody, hiding p and pc; q shows #REF.
     const gone = h.commit((tx) => removeBoard(tx, "attic")).get("c1");
-    expect(deltaOf(gone, s)).toBeDefined();
+    expect(shape(deltaOf(gone, s))).toEqual({ objects: ["q"], removed: ["p", "pc"] });
+    expect(deltaOf(gone, s)?.objects[0]?.cells.lst?.value).toMatchObject({
+      type: "error",
+      code: "#REF",
+    });
     h.check();
     const back = h.undo().get("c1");
-    expect(deltaOf(back, s)).toBeDefined();
+    expect(shape(deltaOf(back, s))).toEqual({ objects: ["p", "pc", "q"], removed: [] });
+    expect(deltaOf(back, s)?.objects.find((o) => o.id === "pc")?.cells.b?.value).toEqual(
+      ref("attic"),
+    );
     h.check();
-    expect(sorted(h.mirrors.get(s)?.objects.keys() ?? [])).toEqual(["p", "pc", "q"]);
+    expect(sorted([...(h.mirrors.get(s)?.objects.keys() ?? [])])).toEqual(["p", "pc", "q"]);
     expect(relevant).toEqual([true, true]);
   });
 });

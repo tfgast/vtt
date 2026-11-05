@@ -8,13 +8,20 @@
  * `engine.invalidate` once with the commit's changes, so it runs right after
  * the commit point and before every public `onCommit` listener, including
  * listeners registered before the table was constructed: a public listener
- * always reads the new revision's values.
+ * always reads the new revision's values. `Table.onCommit` registers such a
+ * public listener and hands it the keys `engine.invalidate` returned.
  */
-import { type Change, createEngine, type Engine, type EngineOptions } from "@vtt/formula";
+import {
+  type CellKey,
+  type Change,
+  createEngine,
+  type Engine,
+  type EngineOptions,
+} from "@vtt/formula";
 import type { ObjectId, Result, Snapshot } from "@vtt/schema";
 import { SpatialIndex } from "../spatial/index";
 import { DocumentStore } from "../store/document-store";
-import type { DeepReadonly, History } from "../store/history";
+import type { DeepReadonly, FrozenGroup, History } from "../store/history";
 import type { ChangeSummary } from "../store/summary";
 import { Visibility } from "../visibility";
 import { EngineCover } from "./cover";
@@ -45,6 +52,17 @@ export function engineChanges(summary: DeepReadonly<ChangeSummary>): Change[] {
   return changes;
 }
 
+/**
+ * What `Table.onCommit` listeners receive: the committed group, its change
+ * summary, and the formula cells `engine.invalidate` newly marked dirty for
+ * it (vtt-5su.9).
+ */
+export interface TableCommit {
+  group: FrozenGroup;
+  summary: DeepReadonly<ChangeSummary>;
+  dirty: CellKey[];
+}
+
 export class Table {
   readonly store: DocumentStore;
   readonly index: SpatialIndex;
@@ -52,6 +70,8 @@ export class Table {
   readonly engine: Engine;
   readonly cover: EngineCover;
   readonly visibility: Visibility;
+  /** Per committed group: the keys `engine.invalidate` returned for it. */
+  readonly #dirty = new WeakMap<FrozenGroup, readonly CellKey[]>();
 
   private constructor(store: DocumentStore, options: EngineOptions) {
     this.store = store;
@@ -63,7 +83,7 @@ export class Table {
     this.visibility = new Visibility(store, reader, this.cover);
     store.onCommitInternal(({ group, summary }) => {
       this.index.applyCommit({ group, summary });
-      this.engine.invalidate(engineChanges(summary));
+      this.#dirty.set(group, this.engine.invalidate(engineChanges(summary)));
     });
   }
 
@@ -80,6 +100,19 @@ export class Table {
   static fromStore(store: DocumentStore, options: EngineOptions = {}): Table {
     if (store.openTransaction !== null) throw new Error("Table.fromStore: a transaction is open");
     return new Table(store, options);
+  }
+
+  /**
+   * Registers a commit listener that runs after the internal hook has
+   * updated the spatial index and invalidated the engine, so it reads the
+   * new revision's values. It is a public store listener: one that throws
+   * is reported in the commit's `listenerErrors`. Returns the function that
+   * unregisters it.
+   */
+  onCommit(fn: (commit: TableCommit) => void): () => void {
+    return this.store.onCommit(({ group, summary }) => {
+      fn({ group, summary, dirty: [...(this.#dirty.get(group) ?? [])] });
+    });
   }
 
   /** The result of `obj`.`cell` at the store's current revision (`engine.value`). */
