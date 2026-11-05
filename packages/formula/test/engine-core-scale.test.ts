@@ -44,9 +44,8 @@ describe("iterative resolution", () => {
     const s = engine.stats();
     expect(s.evaluations).toBe(N + 1);
     expect(s.reads).toBeLessThanOrEqual(4 * N);
-    expect(s.attempts).toBeLessThanOrEqual(N + 2);
-    // Recorded for the hand-back.
-    console.log(`wide stats: ${JSON.stringify(s)}`);
+        // One probe reaching every x, 5,000 evaluations, one complete retry.
+    expect(s).toMatchObject({ attempts: N + 2, reads: 2 * (N + 1) });
   });
 });
 
@@ -89,9 +88,7 @@ describe("determinism: cold, warm, and reversed reads agree", () => {
   ];
 
   test.each(cases)("%s", (_name, make, cells) => {
-    const expected = Object.fromEntries(
-      cells.map((c) => [c, readAll(make, [c])[c] as Result]),
-    );
+    const expected = Object.fromEntries(cells.map((c) => [c, readAll(make, [c])[c] as Result]));
     const forward = readAll(make, cells);
     const reversed = readAll(make, [...cells].reverse());
     expect(forward).toEqual(expected);
@@ -104,7 +101,8 @@ describe("determinism: cold, warm, and reversed reads agree", () => {
     for (const firstCell of cells) {
       const e = createEngine(make());
       e.value("o", firstCell);
-      for (const c of cells) expect(e.value("o", c), `${firstCell} first, ${c}`).toEqual(expected[c]);
+      for (const c of cells)
+        expect(e.value("o", c), `${firstCell} first, ${c}`).toEqual(expected[c]);
     }
   });
 });

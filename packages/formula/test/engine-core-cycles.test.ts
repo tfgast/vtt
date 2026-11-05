@@ -97,4 +97,29 @@ describe("cycles", () => {
       }
     }
   });
+
+  test("a cell reached only because a condition was still pending is not a false cycle", () => {
+    // While p is uncomputed, the probe of f takes the else branch and reaches
+    // g, which reads f. The real dependency set of f is {p}, so no cycle.
+    for (const order of [
+      ["f", "g"],
+      ["g", "f"],
+    ]) {
+      const host = doc({ o: { cells: { p: "=1 = 1", f: "=if(p, 1, g)", g: "=f + 1" } } });
+      const engine = createEngine(host);
+      for (const c of order) engine.value("o", c);
+      expect(engine.value("o", "f"), order.join()).toEqual(num(1));
+      expect(engine.value("o", "g"), order.join()).toEqual(num(2));
+      expect(engine.stats().evaluations).toBe(3);
+    }
+  });
+
+  test("a real cycle first reached through a speculative read is still found", () => {
+    const host = doc({ o: { cells: { p: "=1", f: "=p + g", g: "=f", h: "=g" } } });
+    const engine = createEngine(host);
+    expect(engine.value("o", "h")).toMatchObject(cycle("o", "g"));
+    expect(engine.value("o", "f")).toMatchObject(cycle("o", "f"));
+    expect(engine.value("o", "g")).toMatchObject(cycle("o", "g"));
+    expect(engine.value("o", "p")).toEqual(num(1));
+  });
 });

@@ -145,7 +145,10 @@ describe("engine.value", () => {
     const engine = createEngine(host);
     expect(engine.value("a", "f")).toMatchObject({ type: "error", code: "#REF" });
     const dirty = engine.invalidate(
-      host.createObject("b", { cells: { n: num(4) }, placement: { board: "table", position: [1, 1] } }),
+      host.createObject("b", {
+        cells: { n: num(4) },
+        placement: { board: "table", position: [1, 1] },
+      }),
     );
     expect(dirty).toContain(cellKey("a", "f"));
     expect(engine.value("a", "f")).toEqual(num(4));
