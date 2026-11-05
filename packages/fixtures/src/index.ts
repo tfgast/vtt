@@ -3,6 +3,7 @@ import { ScenarioSchema } from "./schema";
 import type { Scenario } from "./types";
 
 export { NON_CELL_STRUCTURAL, RESERVED_NAMES } from "./check";
+export * from "./example-assets";
 export * from "./schema";
 export type * from "./types";
 
