@@ -1,4 +1,11 @@
 export { App } from "./App";
+export * from "./interaction/contracts";
+export * from "./interaction/effects";
+export * from "./interaction/events";
+export * from "./interaction/machine";
+export * from "./interaction/overlays";
+export * from "./interaction/registry";
+export * from "./interaction/tool";
 export * from "./scene/appearance";
 export * from "./scene/camera";
 export * from "./scene/hit-test";

@@ -563,7 +563,7 @@ describe("settled results go to the tool that started the interaction", () => {
     const out = reduce(s2, settled, makeInput({ activeBoard: "main" }), registry);
     expect(calls.map((c) => [c.tool, c.kind])).toEqual([["image", "reduce"]]);
     expect(out.state.tool).toBe("select");
-    expect(out.state.tools.image?.phase).toBe((s2.tools.image?.phase ?? 0) + 1);
+    expect(out.state.tools.image?.phase).toBe((s2.tools.image?.phase as number) + 1);
     // Settled once, the entry is gone: a repeat is dropped.
     calls.length = 0;
     const again = reduce(out.state, settled, makeInput(), registry);

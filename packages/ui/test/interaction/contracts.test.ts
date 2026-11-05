@@ -432,7 +432,12 @@ describe("overlays", () => {
   test("splitOverlays keeps order within each group", () => {
     const overlays: ToolOverlay[] = [
       { kind: "marquee", rect: { minX: 0, minY: 0, maxX: 1, maxY: 1 } },
-      { kind: "creation_preview", anchor: [0, 0], shape: { type: "circle", r: 1 }, zone: false },
+      {
+        kind: "creation_preview",
+        anchor: [0, 0],
+        shape: { type: "circle", radius: 1 },
+        zone: false,
+      },
       { kind: "crosshair", at: [1, 1] },
       { kind: "polygon_draft", points: [[0, 0]], cursor: null, closing: false },
     ];
