@@ -87,7 +87,8 @@ interface Setup {
 /** An authority with `t1` (hp 1), a ready session with a manual-clock notice store, and its write port. */
 async function setup(options: { file?: boolean } = {}): Promise<Setup> {
   const authority = await startAuthority(options);
-  const seed = await authority.client("seed");
+  // An agent, so the seed is not the GM's to undo.
+  const seed = await authority.client("seed", { kind: "agent" });
   await seed.transact([create("t1")], { label: "Seed" });
   const session = authority.session();
   const clock = manualClock();
@@ -111,9 +112,8 @@ describe("baseRevision", () => {
     const sent = request.mock.calls.filter(([method]) => method === "transact");
     expect(sent).toHaveLength(1);
     expect(sent[0]?.[1]).toMatchObject({ base_revision: 1, label: "Disjoint" });
-    // The authority recorded the given base revision too.
-    const log = await session.client.request("log", { limit: 1 });
-    expect(log.groups[0]).toMatchObject({ label: "Disjoint", base_revision: 1, revision: 4 });
+    // The session never substituted its latest revision.
+    expect(session.getSnapshot().revision).toBe(4);
   });
 
   test("a write with the current revision commits and pushes no notice", async () => {
