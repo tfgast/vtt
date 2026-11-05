@@ -38,6 +38,8 @@ the language.
 | record | `{target: it, modifier: 2}` | A set of named values. Used only as the initial-cells argument to `spawn`. Not storable in a cell. A duplicate field name is a syntax error. |
 | error | `#CYCLE`, `#NAME`, `#TYPE`, `#REF`, `#DIV0`, `#LIMIT`, `#SYNTAX` | See 2.3. Never storable. |
 
+An ad hoc formula evaluated on no object (an `evaluate` query without `this`) reads `this` as `#REF` ("no object in scope") and a bare cell name as `#NAME`; everything else, including literals, `obj()`, `objects()` and functions on explicit references, evaluates as usual, budgeted as any ad hoc evaluation.
+
 ### 2.1 Empty, truthiness, and coercion
 
 - A cell that exists but has no value is `empty`. A name that is not a cell on

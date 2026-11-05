@@ -62,6 +62,8 @@ export function evaluate(
 
 const typeError = (message: string): ErrorValue => err("#TYPE", message);
 const nameError = (message: string): ErrorValue => err("#NAME", message);
+/** Object-free ad hoc evaluation (FORMULAS.md §2): `this` and bare names have no owner. */
+const NO_OBJECT = "no object in scope";
 
 class Evaluator {
   constructor(
@@ -98,7 +100,7 @@ class Evaluator {
       case "List":
         return this.list(ast.items, scope);
       case "This":
-        return ref(scope.thisId);
+        return scope.thisId === undefined ? err("#REF", NO_OBJECT) : ref(scope.thisId);
       case "It":
         return scope.it ?? nameError("`it` is only bound inside where, sort, and objects");
       case "Name":
@@ -141,6 +143,7 @@ class Evaluator {
 
   private name(name: string, scope: Scope): Result {
     if (!scope.itBindsNames) {
+      if (scope.thisId === undefined) return nameError(`no cell ${name}: ${NO_OBJECT}`);
       return this.env.read(scope.thisId, name) ?? nameError(`no cell ${name} on this object`);
     }
     const item = scope.it;

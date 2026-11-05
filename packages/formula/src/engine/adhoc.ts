@@ -19,21 +19,30 @@ import { createRecordingEnv } from "./env";
 import { PENDING, type ResolveContext, resolve } from "./resolve";
 
 export interface AdhocOptions {
-  /** The object the formula is evaluated on: `this`, and the owner of bare names. */
-  thisId: ObjectId;
+  /**
+   * The object the formula is evaluated on: `this`, and the owner of bare
+   * names. Absent: object-free (FORMULAS.md §2): `this` is `#REF` ("no
+   * object in scope"), a bare cell name is `#NAME`, and everything else
+   * (literals, `obj()`, `objects()`, functions on explicit references)
+   * evaluates as usual.
+   */
+  thisId?: ObjectId;
 }
 
 /**
- * Evaluate `source` on `thisId` at the current revision. New errors have no
- * origin cell. `#REF` if `thisId` does not exist, `#SYNTAX` if `source` does
- * not parse, `#LIMIT` if the final attempt exceeds the budget.
+ * Evaluate `source` on `thisId`, or on no object when it is absent, at the
+ * current revision. New errors have no origin cell. `#REF` if `thisId` is
+ * given and does not exist, `#SYNTAX` if `source` does not parse, `#LIMIT`
+ * if the final attempt exceeds the budget.
  */
 export function evaluateAdhoc(ctx: ResolveContext, source: string, options: AdhocOptions): Result {
   const { thisId } = options;
-  if (!ctx.host.exists(thisId)) return err("#REF", `reference to deleted object ${thisId}`);
+  if (thisId !== undefined && !ctx.host.exists(thisId)) {
+    return err("#REF", `reference to deleted object ${thisId}`);
+  }
   const parsed = ctx.parse(source);
   if (!parsed.ok) return err("#SYNTAX", parsed.message);
-  const scope = { thisId };
+  const scope = thisId === undefined ? {} : { thisId };
   for (;;) {
     const pending: { key: CellKey; id: ObjectId; cell: string }[] = [];
     const collected = new Set<CellKey>();

@@ -276,11 +276,31 @@ describe("evaluate", () => {
     expect(err.error.code).toBe("not_found");
   });
 
-  test("without this: object-free formulas evaluate; bare names are #NAME", () => {
+  test("without this: object-free formulas evaluate; bare names are #NAME; this is #REF", () => {
     const t = table();
     expect(evaluateAdhoc(t, { source: "1 + 2" }).value).toEqual(num(3));
     expect(evaluateAdhoc(t, { source: 'obj("Goblin").max_hp' }).value).toEqual(num(27));
     expect(evaluateAdhoc(t, { source: "max_hp" }).value).toMatchObject({ code: "#NAME" });
+    expect(evaluateAdhoc(t, { source: "this" }).value).toEqual({
+      type: "error",
+      code: "#REF",
+      message: "no object in scope",
+    });
+  });
+
+  test("without this, in a document with no boards: the same rule", () => {
+    // Every object is on a board or in a container, so no boards means no objects.
+    const t = Table.fromSnapshot(snapshot([], []));
+    expect(t.store.boards()).toEqual([]);
+    expect(evaluateAdhoc(t, { source: "1 + 2" }).value).toEqual(num(3));
+    expect(evaluateAdhoc(t, { source: "len(objects(true))" }).value).toEqual(num(0));
+    expect(evaluateAdhoc(t, { source: 'obj("Goblin")' }).value).toMatchObject({ code: "#REF" });
+    expect(evaluateAdhoc(t, { source: "max_hp" }).value).toMatchObject({ code: "#NAME" });
+    expect(evaluateAdhoc(t, { source: "this" }).value).toEqual({
+      type: "error",
+      code: "#REF",
+      message: "no object in scope",
+    });
   });
 
   test("a syntax error is a #SYNTAX value, not a failure", () => {
