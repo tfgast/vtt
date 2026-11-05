@@ -586,6 +586,10 @@ by setting its `pattern` cell to `"hatch"`.
 | `text` | any value | the value, shown compact inside the object |
 | `name` | text (structural, FORMULAS.md 3.1) | the label below the object |
 
+The inspector's row for a cell named `image` offers Upload…: it imports a
+PNG, JPEG, WebP or GIF through `POST /assets` and writes the returned path
+into the cell (one `set_value`, the revision captured at the click).
+
 An appearance cell the viewer cannot read, or whose value is of the wrong
 kind (an error, a `color` that is not text), is simply not drawn. Drawing
 rules:
@@ -798,9 +802,12 @@ in `_<digits>`.
   roll(1d20) -> value`; face `value total [-0.4, -0.35, 0.8, 0.5] H`,
   `button Roll [-0.4, 0.18, 0.8, 0.25] m=10`; `default_action: "Roll"`.
 - `tpl_token`: circle r 0.5; tag creature; `name: "Token"`, `image: ""`,
-  `ac: empty`, `max_hp: empty`, `damage_taken: 0`, `hp = max_hp -
-  damage_taken`; face `value image [-0.5, -0.5, 1, 1]`, `value name [-0.8,
-  0.55, 1.6, 0.3] m=12`, `value hp [0.2, -0.6, 0.5, 0.3] m=12`.
+  `ac: empty`, `max_hp: empty`, `damage_taken: 0`, `attack_bonus: empty`,
+  `dex_save: empty`, `hit: false`, `hp = max_hp - damage_taken`; face
+  `value image [-0.5, -0.5, 1, 1]`, `value name [-0.8, 0.55, 1.6, 0.3]
+  m=12`, `value hp [0.2, -0.6, 0.5, 0.3] m=12`, `value hit [-0.7, -0.6,
+  0.5, 0.3] m=12 sw="hit"` (the HIT badge; a copy's GM replaces `hit` with
+  a formula), `contents [-0.8, 0.9, 1.6, 0.8] m=24` (entries collapsed).
 - `tpl_zone`: rect 4 × 4, `is_zone`; `name: "Zone"`; no face.
 - `tpl_card`: rect 2.5 × 3.5; `name: "Card"`, `title: ""`, `body: ""`; face
   `editor title [-1.15, -1.65, 2.3, 0.5] L`, `editor body [-1.15, -1.05,
@@ -811,9 +818,11 @@ in `_<digits>`.
 - `tpl_sheet`: rect 6 × 8; `name: "Sheet"`, `owner: empty`, `ac: empty`,
   `max_hp: empty`, `hp = max_hp - owner.damage_taken`, `attack_bonus:
   empty`, `damage_dice: 1d8`, `dex_save: empty`, `spell_dc: empty`, `notes:
-  ""`, `ink: empty`; face `editor name [-2.8, -3.8, 5.6, 0.6] L`, then
-  `C m=12` elements `editor ac [-2.8, -3.0, 2.7, 0.5]`, `editor max_hp [0.1,
-  -3.0, 2.7, 0.5]`, `value hp [-2.8, -2.4, 2.7, 0.5]`, `editor attack_bonus
+  ""`, `ink: empty`; face `editor name [-2.8, -3.8, 5.6, 0.6] L sw="owner =
+  empty"`, `value owner [-2.8, -3.8, 5.6, 0.6] L sw="owner != empty"` (an
+  owned sheet's header shows its owner's name; the character is named on
+  its token), then `C m=12` elements `editor ac [-2.8, -3.0, 2.7, 0.5]`,
+  `editor max_hp [0.1, -3.0, 2.7, 0.5]`, `value hp [-2.8, -2.4, 2.7, 0.5]`, `editor attack_bonus
   [0.1, -2.4, 2.7, 0.5]`, `editor damage_dice [-2.8, -1.8, 2.7, 0.5]`,
   `editor dex_save [0.1, -1.8, 2.7, 0.5]`, `editor spell_dc [-2.8, -1.2,
   2.7, 0.5]`, then `editor notes [-2.8, -0.6, 5.6, 2.4]`, `value ink [-2.8,
@@ -850,7 +859,11 @@ in `_<digits>`.
   roll(1d20) -> roll`; `Roll damage [hit and dmg = empty]:
   roll(attacker.damage_dice) -> dmg`; `Apply [hit and dmg != empty and not
   applied]: add(target.damage_taken, dmg) ; set(applied, true)`; `Discard:
-  remove(this)`; face: the Attack card face (**Face layouts**, 4.6).
+  remove(this)`; face: the Attack card face (**Face layouts**, 4.6), except
+  that its Apply button is `button Apply [-1.2, 1.1, 1.15, 0.45] sw="dmg !=
+  empty"` (it stays drawn after Apply, disabled by its guard, which shows
+  the reason) and a `button Discard [0.05, 1.1, 1.15, 0.45]` (always shown)
+  follows it.
 - `tpl_damage`: rect 2.5 × 3.5; `name: "Damage"`, `target: empty`,
   `dmg_dice: 1d6`, `dmg: empty`, `applied: false`; `Roll damage [target !=
   empty and dmg = empty]: roll(dmg_dice) -> dmg`; `Apply [dmg != empty and
@@ -858,8 +871,8 @@ in `_<digits>`.
   `Discard: remove(this)`; face `value name [-1.2, -1.7, 2.4, 0.4] L`,
   `editor target [-1.2, -1.2, 2.4, 0.4] C`, `editor dmg_dice [-1.2, -0.7,
   2.4, 0.4] C`, `value dmg [-1.2, -0.2, 2.4, 0.5] C`, `button "Roll damage"
-  [-1.2, 0.5, 2.4, 0.45] sw="dmg = empty"`, `button Apply [-1.2, 1.1, 2.4,
-  0.45] sw="not applied"`.
+  [-1.2, 0.5, 2.4, 0.45] sw="dmg = empty"`, `button Apply [-1.2, 1.1, 1.15,
+  0.45] sw="dmg != empty"`, `button Discard [0.05, 1.1, 1.15, 0.45]`.
 - `tpl_area_save`: rect 2.5 × 3.5; contents `tpl_area_save_zone`; `name:
   "Area save"`, `caster: empty`, `zone: @tpl_area_save_zone`, `save_row:
   @tpl_save_row`, `dc = caster.spell_dc`, `damage_dice: 8d6`, `damage:
@@ -876,7 +889,7 @@ in `_<digits>`.
   2.4, 0.35] C`, `contents [-1.2, -0.45, 2.4, 1.4]` (entries collapsed),
   `button "Lock targets" [-1.2, 1.0, 1.15, 0.35] sw="not locked"`, `button
   "Roll damage" [0.05, 1.0, 1.15, 0.35] sw="locked and damage = empty"`,
-  `button "Apply all" [-1.2, 1.4, 1.15, 0.3] sw="not applied"`, `button
+  `button "Apply all" [-1.2, 1.4, 1.15, 0.3] sw="damage != empty"`, `button
   Discard [0.05, 1.4, 1.15, 0.3]`. **Caster initialization:** `caster` is
   `empty` in the GM binder and in every copy made from it (spawning keeps
   external references and an empty value stays empty); the GM sets it by
@@ -915,10 +928,10 @@ is a communication channel. Here:
 **The log panel** (M5-D21) renders the log window's group views as one
 header and one sentence per effect, with names as captured at commit. It
 filters by actor, kind and text, links sentences to live objects, undoes any
-group by index (`undo {type: "group"}`; Ctrl+Z stays `mine`, 7), pages older
-groups with `log`, reloads loaded pages when visibility or undone state may
-have changed, and is filtered by the viewer. Action definitions are not
-recorded in groups (`explain_group` keeps returning the current one).
+group by index (`undo {type: "group"}`; Ctrl+Z stays `human` (§7)), pages
+older groups with `log`, reloads loaded pages when visibility or undone
+state may have changed, and is filtered by the viewer. Action definitions
+are not recorded in groups (`explain_group` keeps returning the current one).
 
 What is given up relative to a guided chat card: a stepped reveal of one
 button at a time. Show-when conditions on face elements recover most of it. A
@@ -981,7 +994,10 @@ outlives agent sessions. Its tools follow the four groups above: query
 invokes an action as a button press does, `undo`, `save`, and
 `import_asset`, which uploads a local image file for an `image` cell),
 explain (`explain_cell`, `explain_group`, `explain_action`), and subscribe
-(`subscribe`, `poll_changes`, `unsubscribe`).
+(`subscribe`, `poll_changes`, `unsubscribe`). At `initialize` the MCP server
+sends instructions: a short orientation naming the resources, the first
+queries, the GM binder's templates, how to give a template to a character,
+and the stale-write rule.
 
 - **Stale writes.** Every `transact` (the batched write command) carries the
   revision it was based on. It is refused as `stale_write` when a group
@@ -1080,13 +1096,14 @@ objects created and removed, the cells written with their before and after
 states, and the objects moved with the changes derived from each move.
 
 **Undo.** Undo reverses one group and adds its own group, of kind `undo`.
-There is no redo. The group to reverse is chosen by one of three targets:
+There is no redo. The group to reverse is chosen by one of four targets:
 
 | Target | Reverses |
 |---|---|
 | `latest` | The most recent group that is neither an undo nor already undone. The fixture `undo` step always means this (FIXTURES.md 8). |
 | `actor` | The latest such group by a given actor. |
 | `group` | The group at an explicit absolute index. |
+| `human` | The latest such group whose actor is the GM or any character. |
 
 Undoing a target G conflicts with a later group H when H is not an undo group,
 H is not undone, and the two share a touched key:
@@ -1107,9 +1124,10 @@ and so is an undo whose inverse fails an invariant on commit. A later group
 that conflicts in this sense is what FIXTURES.md 8 calls a *surviving*
 operation.
 
-**Undo and writes in the UI.** The UI's undo targets the GM's own latest
-group (`mine`: the `actor` target with the connection's own actor,
-docs/PROTOCOL.md §6), so the GM's undo never reverses the agent's newer work.
+**Undo and writes in the UI.** The UI's undo targets `human`: the latest
+group by the GM or by a character the GM drove (a button pressed in view-as,
+§4.5), docs/PROTOCOL.md §6, so the GM's undo never reverses the agent's
+newer work.
 Every UI write carries the revision its interaction began on (drag start,
 editor open, formula bar focus, or the click for instantaneous commands),
 never the latest one, so a conflicting write committed since the
@@ -1264,7 +1282,11 @@ session token injected into the page, and refuses HTTP requests whose `Host`
 is not its own loopback address (docs/PROTOCOL.md §1, §2). The MCP server
 runs as its own stdio process (`vtt-mcp`), launched by the agent host, and
 attaches to the running authority as a protocol client with an `agent`
-actor. The wire schemas and
+actor. `pnpm start <file>` builds the UI when `packages/ui/dist` is missing
+or older than its sources (`--no-build` skips that) and runs `vtt-serve
+<file> --open`, which opens the served page in a browser once listening
+(`$BROWSER` if set, else the platform opener); a failure to open is logged
+and never stops the server. `pnpm mcp` runs `vtt-mcp`. The wire schemas and
 the client (`ProtocolClient`, `ViewMirror`) live in the browser-safe package
 `@vtt/protocol`, which depends only on `@vtt/schema` and zod and is shared by
 the authority, the MCP server and the UI; its wire schemas are
@@ -1369,26 +1391,32 @@ way; nothing about the tool assumes it.
    with the example templates.
 2. Add the HIT badge formula to the character template's token once. Then
    drag the character template out four times. Each creates a character
-   object owning a sheet and a binder. Fill in name, AC, HP, attack bonus,
-   Dex save by typing into the sheet faces. Each binder already holds an
-   Attack card template.
+   object owning a sheet and a binder. Name each character on its token,
+   then fill in AC, HP, attack bonus and Dex save by typing into the sheet
+   faces; each sheet's header shows its character's name. Each binder
+   already holds an Attack card template.
 3. Import the dungeon map as one image on a second board, "Crypt." Draw six
    opaque zones over the rooms, each `visible_to = gm`. Give rooms 2 and 4 the
    re-hiding formula; leave the rest manual.
 4. Make a goblin template once: image, `ac` (GM-only cell), `max_hp`,
-   `damage_taken`, `attack_bonus`, the HIT badge formula, tag `creature`, and
+   `damage_taken`, `attack_bonus`, `dex_save`, the HIT badge formula, tag
+   `creature`, and
    an owned attack d20 whose `modifier` follows the owner's attack bonus.
    Place eight: four in room 3, four in room 5.
 5. Through the MCP server, ask the agent: "Make room 4 difficult terrain and
-   hatch it, and make a Fireball card for Aldric with DC 14 and 8d6." Check
-   its work in the inspector. Correct the DC by typing over it.
+   hatch it, and make a Fireball card for Aldric with DC 14 and 8d6." The
+   agent gives Aldric's binder a copy of the Area Save card named Fireball
+   with `caster` Aldric and `damage_dice` 8d6, and writes 14 into Aldric's
+   sheet `spell_dc`, which the card's `dc` follows. Check its work in the
+   inspector. Correct the DC by typing over it.
 6. Scribble "trap on the third stair" in ink on a sticky note on the GM board.
    Save. Glance at the file; it is readable.
 
 **Play (about two hours, GM driving everything)**
 
-7. Show the Crypt board in "view as" Aldric. Only the entrance room is
-   uncovered. Toggle back to GM view as needed.
+7. Show the Crypt board in "view as" Aldric: every room is covered. Reveal
+   room 1, the entrance, by hand; now only it is uncovered. Toggle back to GM
+   view as needed.
 8. Move the PC tokens into room 1. Reveal room 3 by hand when they open the
    door. Room 2 reveals itself when a PC token enters and re-covers once the
    party has left.
@@ -1399,10 +1427,11 @@ way; nothing about the tool assumes it.
 10. Aldric attacks: expand the Attack card in Aldric's binder (a working copy
     appears), drop a goblin onto `target`, press Roll. HIT shows; AC does not.
     Roll damage, press Apply. The goblin's `hp` changes on its face and the
-    log says so in a sentence. Pressing Apply again does nothing and says why.
-11. Goblins attack back: drag a goblin's own attack die onto a PC token and
-    double-click it. Its `total` includes the goblin's bonus; the PC's HIT
-    badge reads it. Fast path, no cards.
+    log says so in a sentence. Apply stays visible but disabled, and says
+    why.
+11. Goblins attack back: drag a goblin's own attack die out of the goblin's
+    contents list onto a PC token and double-click it. Its `total` includes
+    the goblin's bonus; the PC's HIT badge reads it. Fast path, no cards.
 12. Aldric casts Fireball: drag the card from the binder onto the table, drag
     its zone out of the card onto room 3, nudge it to catch three goblins and miss the fighter
     while `targets` updates live. Press Lock targets; three rows appear. Roll
@@ -1411,8 +1440,10 @@ way; nothing about the tool assumes it.
 13. The rogue triggers the stair trap. No template exists. Make a sticky note,
     type the DC on it, roll a loose d20 in the tray, decide by eye. The tool
     got out of the way.
-14. Undo once after applying damage to the wrong goblin. Scroll the log back
-    to confirm what happened.
+14. Discard the spent Attack card with its Discard button, attack the wrong
+    goblin with a fresh one, and undo once after applying the damage. Delete a
+    goblin by mistake and undo that too. Scroll the log back to confirm what
+    happened.
 15. Save. Close. Reopen; everything, including the log, the undo, and the
     deleted-then-restored goblin, is there.
 
@@ -1614,3 +1645,10 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M5-D22. `@vtt/authority` exposes its scenario runner helpers at the dev-only subpath `./test-runner`. CLAUDE.md Conventions. | The UI acceptance test needs the runner's setup helper without duplicating it. |
 | 2026-11-05 | M5-D23. Object views carry action definitions (`ActionDefinitionView`: name, and for the GM `when` and steps; also used in effects and snapshots) and, separately, live action state (`ActionStateView`: name, enabled, reason) only in live views; face element views carry `index`, their position in the stored layout, which the fixture `face_element.element` names. PROTOCOL §7.2, §7.6; FIXTURES §7. | Historical effects must not need live evaluation; character filtering must not renumber elements. |
 | 2026-11-05 | M5-D24. MCP tools: the request-surface server has 15 tools (14 plus `invoke`); the composed `vtt-mcp` process has 19 (with `subscribe`, `poll_changes`, `unsubscribe` and `import_asset`). PROTOCOL §11. | `import_asset` (M4-D3) already exists; counting the composed process avoids deleting it. |
+| 2026-11-05 | M6-D1. §8.4 is amended: step 2 names characters on their tokens (sheet headers show the owner); step 4's goblin has `dex_save`; step 5's agent writes Aldric's sheet `spell_dc` 14, which the card's `dc` follows; step 7 reveals room 1 by hand before checking the view; step 10's Apply stays visible, disabled, with the reason; step 11's die comes out of the goblin's contents list; step 14 discards the spent card first and also deletes a goblin and undoes it. DESIGN §8.4. | Step 7 contradicted step 3 (every room starts `gm`); step 15 checked a deleted-then-restored goblin no step made; Fireball save rows read `target.dex_save`; a sheet cannot name its character; a hidden button cannot be pressed again. |
+| 2026-11-05 | M6-D2. Undo gains the target `human`: the latest group by `gm` or any character (characters are driven only from non-agent connections). The UI's Ctrl+Z uses it, so it reverses a button the GM pressed in view-as and never the agent's work; `mine` is unchanged. Amends M4-D7 (the UI's undo target). Additive on the wire. PROTOCOL §4, §6, §12; DESIGN §7. | A view-as press commits as the character (M5-D11); `mine` would skip it. |
+| 2026-11-05 | M6-D3. Example templates: tokens carry `attack_bonus`, `dex_save`, a HIT badge (`hit`, shown when true) and a contents list; an owned sheet's header shows its owner; Apply buttons stay drawn once their roll exists, disabled with the reason after use; Attack and Damage cards show a Discard button. DESIGN §4.7. | §8.4 steps 2, 4, 10, 11 and 12 could not be done as written with the M5 records. |
+| 2026-11-05 | M6-D4. The inspector's `image` row offers Upload…, writing the imported asset's path. DESIGN §4.6. | §8.4 step 4 puts an image on a token; the image tool makes a separate object. |
+| 2026-11-05 | M6-D5. `pnpm start <file>` builds the UI only when its build is missing or older than its sources (`--no-build` skips) and runs `vtt-serve --open`; `--open` uses `$BROWSER` or the platform opener and never fails the server; `pnpm mcp` runs `vtt-mcp`; local tables live in the gitignored `tables/`. DESIGN §7; PROTOCOL §2. | One command from clone to table without a needless rebuild; stdio MCP launched through `pnpm --silent`. |
+| 2026-11-05 | M6-D6. The MCP server sends `instructions` at `initialize`. DESIGN §5.2; PROTOCOL §11. | A bring-your-own agent should find the templates and the write rules without being told by the GM. |
+| 2026-11-05 | M6-D7. Example images (`crypt-map.png`, `goblin.png`) ship in `@vtt/fixtures/assets`, generated in-repo. | §8.4 step 3 needs a map; generated art has no licence question. |

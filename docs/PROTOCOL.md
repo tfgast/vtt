@@ -84,7 +84,7 @@ Decisions: D1, D3; M4-D1, M4-D3.
 
 ## 2. Handshake, authentication, origin, discovery, new table
 
-Decisions: D4, D5, D8, D25, D33; M4-D1.
+Decisions: D4, D5, D8, D25, D33; M4-D1; M6-D5.
 
 ```ts
 { type: "hello"; protocol: 1; token: string;
@@ -170,6 +170,13 @@ GM binder `gm_binder` on `gm_board`, stocked with the example templates
 default for a missing file stays the empty table, which tests use. The
 default port is 4747.
 
+**Opening a browser (M6-D5).** `vtt-serve --open` opens
+`http://127.0.0.1:<port>/` in a browser once listening. `$BROWSER`, when
+set, names an executable called with the URL as its only argument; else the
+opener is `open` on macOS and `xdg-open` elsewhere. A failure to open logs
+one line and the server keeps running. `--open` with `--no-ui` is refused as
+a usage error.
+
 **Canonical path.** `<file>` below is the canonical table path: the
 `realpath` of the table file, or, when the file does not exist yet, the
 `realpath` of its directory joined with its basename. Symlink aliases of one
@@ -217,7 +224,7 @@ Decision: D9.
 
 ## 4. Requests, responses, methods
 
-Decisions: D6, D19, D28, D29, D30; M5-D1.
+Decisions: D6, D19, D28, D29, D30; M5-D1; M6-D2.
 
 ```ts
 { type: "request"; id: string /* 1–64 chars */; method: M; params: Params<M> }
@@ -233,7 +240,7 @@ brackets.
 | Method | Params | Result |
 |---|---|---|
 | transact [write] | `base_revision: number`, `ops: WireOp[]` (1..max_ops), `label?: string` (≤ 200), `txn_id?: string` (1–64), `retry?: true` (only with `txn_id`; set on a client resend, §6), `actor?: Actor` (character only, §3) | `TransactResult` = `{status:"committed", revision, index, created: {op_index, id}[], copies: {op_index, root, copies: Record<ObjectId,ObjectId>}[], bindings: Record<BindingName, ObjectId>}` or `{status:"rejected", rejection: ProtocolRejection, op_index?: number}` |
-| undo [write] | `target: {type:"latest"} \| {type:"mine"} \| {type:"actor", actor: Actor} \| {type:"group", index: number}`, `expect_index?: number`, `label?: string` | `TransactResult`; `created`, `copies`, `bindings` empty |
+| undo [write] | `target: {type:"latest"} \| {type:"mine"} \| {type:"human"} \| {type:"actor", actor: Actor} \| {type:"group", index: number}`, `expect_index?: number`, `label?: string` | `TransactResult`; `created`, `copies`, `bindings` empty |
 | invoke [write] | `object: ObjectId`, `action: string`, `base_revision: number`, `txn_id?: string` (1–64), `retry?: true` (only with `txn_id`, §6), `actor?: Actor` (character only, non-agent connections, §3), `label?: string` (≤ 200), `table?: {board: BoardId, position: [number, number]}` (what the `table` destination resolves to, FORMULAS.md §8.2) | `InvokeResult` = `{status:"committed", revision, index, created: ObjectId[]}` or `{status:"rejected", rejection: ProtocolRejection, step?: number}` |
 | save [write] | `{}` | `{status: "saved" \| "saved_not_durable" \| "failed", revision: number, message?: string}` (`revision` = the revision the save captured) |
 | list_objects [query] | `viewer?`, `filter?: {board?, container?, tag?, name?, is_template?, is_zone?, is_character?}`, `cells?: "all" \| "structural" \| string[]` (default `"structural"`), `cursor?: string`, `limit?: number` (default 50, ≤ max_page) | `{revision, objects: ObjectView[], next_cursor: string \| null}` |
@@ -385,7 +392,7 @@ layout breaking these is rejected `invalid`.
 
 ## 6. Revisions, stale writes, deduplication
 
-Decisions: D7, D8; M5-D1.
+Decisions: D7, D8; M5-D1; M6-D2.
 
 **Revisions.** Each commit increments the revision by one (DESIGN.md §7).
 `base_revision` must be an integer between 0 and the current revision
@@ -444,8 +451,11 @@ reports the removal's `obj:<id>`.
 Disjoint writes commit. Nothing is rebased or re-evaluated.
 
 **Undo.** Undo takes no `base_revision` and is never stale-checked.
-`target: {type:"mine"}` means the connection's actor. With `expect_index`, a
-different selected target (or none) is rejected
+`target: {type:"mine"}` means the connection's actor.
+`target: {type:"human"}` selects the latest candidate whose actor is `gm` or
+any character (characters are driven only from non-agent connections, §3);
+the UI's Ctrl+Z uses it. `expect_index` works with it as with `mine`. With
+`expect_index`, a different selected target (or none) is rejected
 `{type:"undo_target_changed", expected, actual: number | null}`.
 
 **Deduplication (D8).**
@@ -966,11 +976,12 @@ Formula cost stays under the engine budget (FORMULAS.md §7).
 
 ## 11. MCP
 
-Decisions: D1, D17, D18, D19; M4-D3; M5-D24.
+Decisions: D1, D17, D18, D19; M4-D3; M5-D24; M6-D6.
 
 `vtt-mcp` is a separate stdio process launched by the agent host. It attaches
 to the running authority as a protocol client with `client.kind: "agent"`
-(D1).
+(D1). The server's `initialize` result carries `instructions`
+(`MCP_INSTRUCTIONS` in `packages/authority/src/mcp/instructions.ts`).
 
 **Tools.** The request-surface server (`createMcpServer`) has 15 tools: the
 14 query, explain and write tools below plus `invoke`. The composed `vtt-mcp`
@@ -1095,7 +1106,8 @@ formulas and actions follow docs/FORMULAS.md.
 Decision: D32.
 
 Protocol v1 grows only additively: new optional fields, new methods, new ops,
-new event kinds. M5 added `invoke` behaviour (its optional params `txn_id`,
+new event kinds. M6 added the undo target `{type:"human"}` this way (an
+older authority refuses it as `bad_request`). M5 added `invoke` behaviour (its optional params `txn_id`,
 `retry`, `actor`, `label`, `table` and `InvokeResult`), the MCP tool
 `invoke`, the op `set_face` and `ObjectInit.face`, the `field: "face"`
 effect and `ObjectSnapshotView.face` (`FaceLayoutView`),
