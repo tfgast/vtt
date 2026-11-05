@@ -336,6 +336,27 @@ describe("placement and containment", () => {
   }
 });
 
+describe("actions", () => {
+  const withActions = (...names: string[]) =>
+    kinds(
+      snapshot([
+        obj("coin", {
+          board: "map",
+          cells: { position: at(0, 0) },
+          actions: names.map((name) => ({ name, steps: ["set(x, 1)"] })),
+        }),
+      ]),
+    );
+
+  test("distinct action names are valid", () => {
+    expect(withActions("Roll", "Discard", "roll")).toEqual([]);
+  });
+
+  test("a duplicate action name", () => {
+    expect(withActions("Roll", "Discard", "Roll")).toEqual(["duplicate_action"]);
+  });
+});
+
 describe("shapes", () => {
   const withShape = (shape: unknown) =>
     kinds(

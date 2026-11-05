@@ -46,7 +46,9 @@ export type ViolationKind =
   /** `next_seq` is not a non-negative integer. */
   | "invalid_next_seq"
   /** `retired_ids` lists an id twice. */
-  | "duplicate_retired_id";
+  | "duplicate_retired_id"
+  /** Two actions on one object share a name (FIXTURES.md §3). */
+  | "duplicate_action";
 
 export interface Violation {
   kind: ViolationKind;
@@ -228,6 +230,18 @@ function checkObject(o: TableObject, base: Violation["path"], report: Report): v
       report("invalid_cell_visibility", path, `visibility of "${name}" is not a viewers value`);
     }
   }
+
+  const actionNames = new Set<string>();
+  o.actions.forEach((a, i) => {
+    if (actionNames.has(a.name)) {
+      report(
+        "duplicate_action",
+        [...base, "actions", i, "name"],
+        `action "${a.name}" is defined twice`,
+      );
+    }
+    actionNames.add(a.name);
+  });
 
   if (o.shape !== null) {
     const problem = shapeProblem(o.shape);
