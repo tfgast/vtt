@@ -138,7 +138,7 @@ export const UndoParamsSchema = z.strictObject({
     z.strictObject({ type: z.literal("group"), index: Count }),
   ]),
   expect_index: Count.optional(),
-  label: z.string().optional(),
+  label: z.string().max(200).optional(),
 });
 export type UndoParams = z.infer<typeof UndoParamsSchema>;
 /** `TransactResult` with `created`, `copies` and `bindings` empty. */
