@@ -75,7 +75,7 @@ function current(ctx: StepContext, object: string, cell: string): Result {
 }
 
 function set(ctx: StepContext, step: Step): StepOutcome {
-  if (step.kind !== "set") throw new Error("set handler got " + step.kind);
+  if (step.kind !== "set") throw new Error(`set handler got ${step.kind}`);
   const t = target(ctx, step.path);
   if (!t.ok) return t.outcome;
   const v = ctx.evaluate(step.value);
@@ -85,7 +85,7 @@ function set(ctx: StepContext, step: Step): StepOutcome {
 }
 
 function add(ctx: StepContext, step: Step): StepOutcome {
-  if (step.kind !== "add") throw new Error("add handler got " + step.kind);
+  if (step.kind !== "add") throw new Error(`add handler got ${step.kind}`);
   const t = target(ctx, step.path);
   if (!t.ok) return t.outcome;
   const v = ctx.evaluate(step.value);
@@ -111,7 +111,7 @@ function add(ctx: StepContext, step: Step): StepOutcome {
 }
 
 function append(ctx: StepContext, step: Step): StepOutcome {
-  if (step.kind !== "append") throw new Error("append handler got " + step.kind);
+  if (step.kind !== "append") throw new Error(`append handler got ${step.kind}`);
   const t = target(ctx, step.path);
   if (!t.ok) return t.outcome;
   const v = ctx.evaluate(step.value);
@@ -130,7 +130,7 @@ function append(ctx: StepContext, step: Step): StepOutcome {
 }
 
 function roll(ctx: StepContext, step: Step): StepOutcome {
-  if (step.kind !== "roll") throw new Error("roll handler got " + step.kind);
+  if (step.kind !== "roll") throw new Error(`roll handler got ${step.kind}`);
   const d = ctx.evaluate(step.dice);
   if (d.type === "error") return errorOutcome(ctx, d);
   if (d.type !== "dice") {
@@ -143,7 +143,7 @@ function roll(ctx: StepContext, step: Step): StepOutcome {
 }
 
 function shuffle(ctx: StepContext, step: Step): StepOutcome {
-  if (step.kind !== "shuffle") throw new Error("shuffle handler got " + step.kind);
+  if (step.kind !== "shuffle") throw new Error(`shuffle handler got ${step.kind}`);
   const r = ctx.resolveRef(step.object);
   if (!r.ok) return r;
   ctx.primitives.shuffleWith(r.object);
@@ -151,7 +151,7 @@ function shuffle(ctx: StepContext, step: Step): StepOutcome {
 }
 
 function each(ctx: StepContext, step: Step): StepOutcome {
-  if (step.kind !== "each") throw new Error("each handler got " + step.kind);
+  if (step.kind !== "each") throw new Error(`each handler got ${step.kind}`);
   const v = ctx.evaluate(step.list);
   if (v.type === "error") return errorOutcome(ctx, v);
   const items: readonly Value[] = v.type === "list" ? v.items : v.type === "empty" ? [] : [v];

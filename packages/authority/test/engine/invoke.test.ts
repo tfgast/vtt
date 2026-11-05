@@ -25,7 +25,7 @@ import {
   type Snapshot,
 } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
-import { c, gm, obj, placed, snapshot } from "./helpers";
+import { c, gm, placed, snapshot } from "./helpers";
 
 const roll = (expr: string, d: number[], total: number): RollValue => ({
   type: "roll",
