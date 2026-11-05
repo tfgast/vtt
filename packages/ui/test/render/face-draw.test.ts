@@ -635,6 +635,30 @@ describe("contents elements", () => {
     expect(bar).toBeGreaterThan(ctx.paints.indexOf(textCall(ctx, "item 7")));
   });
 
+  test("at low zoom the scroll indicator stays inside a small contents rect, clipped", () => {
+    const tiny = mk("bag", {
+      shape: rect(4, 4),
+      at: [0, 0],
+      contents: children.map((c) => c.id),
+      // A 1 × 0.5-unit list: rows 0.1 high, ten of them overflow.
+      face: { elements: [contents([0, 0, 1, 0.5], 0)] },
+    });
+    const ctx = render([tiny, ...children], { camera: { x: 0, y: 0, zoom: 1 / 32 } });
+    // 2 px per unit: the element covers [400, 300]–[402, 301] device px.
+    const element = { minX: 400, minY: 300, maxX: 402, maxY: 301 };
+    const bar = ctx.paints.find((c) => c.style?.fillStyle === SCROLL_FILL);
+    expect(bar).toBeDefined();
+    expect(round(bar?.clip)).toEqual(element);
+    // Its unclipped geometry fits too: the rect it asks for lies inside the element.
+    const [bx, by, bw, bh] = (bar?.args ?? []) as number[];
+    expect(bx).toBeGreaterThanOrEqual(0);
+    expect(by).toBeGreaterThanOrEqual(0);
+    expect((bx ?? 0) + (bw ?? 0)).toBeLessThanOrEqual(1 + 1e-9);
+    expect((by ?? 0) + (bh ?? 0)).toBeLessThanOrEqual(0.5 + 1e-9);
+    expect(bw).toBeGreaterThan(0);
+    expect(bh).toBeGreaterThan(0);
+  });
+
   test("no scroll indicator when everything fits", () => {
     const small = mk("bag", {
       shape: rect(4, 4),
