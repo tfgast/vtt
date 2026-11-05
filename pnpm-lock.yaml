@@ -131,6 +131,9 @@ importers:
       '@vtt/authority':
         specifier: workspace:*
         version: link:../authority
+      '@vtt/fixtures':
+        specifier: workspace:*
+        version: link:../fixtures
       jsdom:
         specifier: 30.1.3
         version: 30.1.3
