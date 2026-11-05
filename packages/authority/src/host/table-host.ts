@@ -5,14 +5,18 @@
  * dice, and the save queue with autosave and retries.
  *
  * Saves are serialized: at most one `saveTable` is in flight. A save
- * captures the store's revision and calls `saveTable` in the same tick;
- * `saveTable` serializes before its first await, so the file holds exactly
- * that revision, and only that revision is marked saved.
+ * captures the store's revision, the asset generation and the asset list,
+ * and calls `saveTable` in the same tick; `saveTable` serializes before its
+ * first await, so the file holds exactly that state, and only that pair
+ * (revision, assets generation) is marked saved. The host is dirty while
+ * the current pair differs from the saved pair (DESIGN.md §7, Revisions and
+ * assets: an imported path is listed in the file's assets from the next save).
  */
 /// <reference types="node" />
 import { type DiceSource, RandomDiceSource } from "../engine/dice";
 import { Table } from "../engine/table";
 import { type LoadedTable, loadTable, nodeFs, type PersistFs, saveTable } from "../persist/io";
+import { InvalidAssetPathError } from "../persist/serialize";
 import { DocumentStore } from "../store/document-store";
 import { canonicalTablePath, readOrCreateTableId } from "./identity";
 import { acquireTableLock, type TableLock } from "./lock";
@@ -98,7 +102,16 @@ const describe = (err: unknown): string => (err instanceof Error ? err.message :
 const randomDice = (): DiceSource =>
   new RandomDiceSource(globalThis.crypto.getRandomValues(new Uint32Array(1))[0] ?? 0);
 
+/** Absolute POSIX, Windows drive and UNC paths, as `serializeTable` refuses them. */
+const ABSOLUTE_PATH = /^(?:[/\\]|[A-Za-z]:)/;
+
 type SaveListener = (event: SaveEvent) => void;
+
+/** What a save captures, and what is recorded as saved. */
+interface SavePoint {
+  revision: number;
+  assetsGeneration: number;
+}
 
 /** The host's timers: the debounce, the max-delay deadline, and the retry. */
 type TimerKind = "debounce" | "maxDelay" | "retry";
@@ -123,8 +136,6 @@ export class TableHost {
   readonly path: string | null;
   /** The content of `<path>.table-id`; null for an in-memory table. */
   readonly tableId: string | null;
-  /** The asset list loaded with the file, passed unchanged to every save. */
-  readonly assets: readonly string[];
   /** What the load noticed: missing assets, a hand edit, a migration. */
   readonly warnings: readonly string[];
 
@@ -134,8 +145,10 @@ export class TableHost {
   readonly #clock: HostClock;
   readonly #listeners: SaveListener[] = [];
   readonly #unsubscribe: () => void;
-  #lastSaved: number | null;
-  #inFlight: { revision: number; promise: Promise<SaveEvent> } | null = null;
+  #assets: readonly string[];
+  #assetsGeneration = 0;
+  #lastSaved: SavePoint | null;
+  #inFlight: (SavePoint & { promise: Promise<SaveEvent> }) | null = null;
   #queued: Promise<SaveEvent> | null = null;
   readonly #timers = new Map<TimerKind, unknown>();
   #retryStep = 0;
@@ -147,13 +160,14 @@ export class TableHost {
     this.dice = init.dice;
     this.path = init.path;
     this.tableId = init.tableId;
-    this.assets = Object.freeze([...init.assets]);
+    this.#assets = Object.freeze([...init.assets]);
     this.warnings = Object.freeze([...init.warnings]);
     this.#lock = init.lock;
     this.#fs = init.fs;
     this.#autosave = init.autosave;
     this.#clock = init.clock;
-    this.#lastSaved = init.path === null ? null : init.table.store.revision;
+    this.#lastSaved =
+      init.path === null ? null : { revision: init.table.store.revision, assetsGeneration: 0 };
     this.#unsubscribe =
       init.autosave === null ? () => undefined : init.table.store.onCommit(() => this.#onCommit());
   }
@@ -240,7 +254,41 @@ export class TableHost {
 
   /** The latest revision a save wrote durably; null for an in-memory table. */
   get lastSavedRevision(): number | null {
-    return this.#lastSaved;
+    return this.#lastSaved?.revision ?? null;
+  }
+
+  /**
+   * The table's asset paths, relative to the file's directory: the list
+   * loaded with the file plus every path added since, in order. Each save
+   * writes the list as it was when the save started. A frozen array that a
+   * later `addAsset` replaces rather than changes.
+   */
+  get assets(): readonly string[] {
+    return this.#assets;
+  }
+
+  /** How many new paths `addAsset` has added since the table was opened (0 on open). */
+  get assetsGeneration(): number {
+    return this.#assetsGeneration;
+  }
+
+  /**
+   * Adds a relative asset path to the table's asset list, so the next save
+   * lists it (DESIGN.md §7, Revisions and assets). A path already listed
+   * (the same string) changes nothing. A new path increments
+   * `assetsGeneration`, makes the table unsaved, and schedules the autosave
+   * exactly as a commit does. An empty or absolute path throws
+   * InvalidAssetPathError and changes nothing. Writing the asset's bytes is
+   * the caller's job.
+   */
+  addAsset(path: string): void {
+    if (typeof path !== "string" || path === "" || ABSOLUTE_PATH.test(path)) {
+      throw new InvalidAssetPathError([path]);
+    }
+    if (this.#assets.includes(path)) return;
+    this.#assets = Object.freeze([...this.#assets, path]);
+    this.#assetsGeneration++;
+    this.#onCommit();
   }
 
   /**
@@ -259,8 +307,9 @@ export class TableHost {
 
   /**
    * Saves now, queued behind a save in flight, and cancels the pending
-   * autosave. Never rejects. A request for a revision already saved, or
-   * captured by the save in flight or the queued one, shares that result.
+   * autosave. Never rejects. A request for a state (revision and assets
+   * generation) already saved, or captured by the save in flight or the
+   * queued one, shares that result.
    */
   save(): Promise<SaveEvent> {
     if (this.path === null) {
@@ -282,7 +331,8 @@ export class TableHost {
 
   /**
    * Cancels the timers, awaits the save in flight and the queued one, saves
-   * if the revision is unsaved, then always releases the lock. Never throws
+   * if the revision or the asset list is unsaved, then always releases the
+   * lock. Never throws
    * for a save failure. Idempotent: later calls return the first's result.
    */
   close(): Promise<CloseResult> {
@@ -300,14 +350,17 @@ export class TableHost {
     while (this.#queued !== null || this.#inFlight !== null) {
       await (this.#queued ?? this.#inFlight?.promise);
     }
-    if (this.revision !== this.#lastSaved) {
+    if (this.#dirty()) {
       const event = await this.#start();
       if (event.status !== "saved") error = event.message;
     }
     const revision = this.revision;
-    const saved = this.#lastSaved === revision;
+    const saved = !this.#dirty();
     if (!saved && error === undefined) {
-      error = `revision ${revision} was committed during close and is not saved`;
+      error =
+        this.#lastSaved?.revision === revision
+          ? `an asset was added during close and is not saved`
+          : `revision ${revision} was committed during close and is not saved`;
     }
     try {
       await this.#lock.release();
@@ -317,7 +370,21 @@ export class TableHost {
     return error === undefined ? { saved, revision } : { saved, revision, error };
   }
 
-  /** Schedules the autosave after a commit (D24). */
+  /** Whether the current (revision, assets generation) differs from the saved pair. */
+  #dirty(): boolean {
+    return !this.#isCurrent(this.#lastSaved);
+  }
+
+  /** Whether `point` is the current (revision, assets generation). */
+  #isCurrent(point: SavePoint | null): boolean {
+    return (
+      point !== null &&
+      point.revision === this.revision &&
+      point.assetsGeneration === this.#assetsGeneration
+    );
+  }
+
+  /** Schedules the autosave after a commit or a new asset (D24). */
   #onCommit(): void {
     const autosave = this.#autosave;
     if (autosave === null || this.#closed) return;
@@ -338,7 +405,7 @@ export class TableHost {
     if (this.#queued !== null) return this.#queued;
     const inFlight = this.#inFlight;
     if (inFlight !== null) {
-      if (this.revision === inFlight.revision) return inFlight.promise;
+      if (this.#isCurrent(inFlight)) return inFlight.promise;
       const queued = inFlight.promise.then(() => {
         this.#queued = null;
         return this.#start();
@@ -346,7 +413,7 @@ export class TableHost {
       this.#queued = queued;
       return queued;
     }
-    if (this.revision === this.#lastSaved) {
+    if (!this.#dirty()) {
       const event: SaveEvent = { status: "saved", revision: this.revision };
       if (explicit) this.#emit(event);
       return Promise.resolve(event);
@@ -355,9 +422,9 @@ export class TableHost {
   }
 
   /**
-   * Starts a save of the current revision. The revision is captured and
-   * `saveTable` is called in this tick, so later commits never reach the
-   * file. Every pending timer is cancelled: this save covers what they were
+   * Starts a save of the current revision and asset list. Both, and the
+   * asset generation, are captured and `saveTable` is called in this tick,
+   * so later commits and assets never reach the file. Every pending timer is cancelled: this save covers what they were
    * for.
    */
   #start(): Promise<SaveEvent> {
@@ -365,7 +432,8 @@ export class TableHost {
     if (path === null) throw new Error("TableHost: no file");
     this.#clearAll();
     const revision = this.revision;
-    const promise = saveTable(path, this.table.store, this.assets, this.#fs)
+    const assetsGeneration = this.#assetsGeneration;
+    const promise = saveTable(path, this.table.store, this.#assets, this.#fs)
       .then(
         (result): SaveEvent => {
           if (result.ok) return { status: "saved", revision };
@@ -390,16 +458,24 @@ export class TableHost {
       )
       .then((event) => {
         this.#inFlight = null;
-        this.#settle(event);
+        this.#settle(event, { revision, assetsGeneration });
         return event;
       });
-    this.#inFlight = { revision, promise };
+    this.#inFlight = { revision, assetsGeneration, promise };
     return promise;
   }
 
-  #settle(event: SaveEvent): void {
+  /** Records `captured` as saved when the save ended `saved`; otherwise schedules a retry. */
+  #settle(event: SaveEvent, captured: SavePoint): void {
     if (event.status === "saved") {
-      this.#lastSaved = Math.max(this.#lastSaved ?? event.revision, event.revision);
+      const last = this.#lastSaved;
+      this.#lastSaved = {
+        revision: Math.max(last?.revision ?? captured.revision, captured.revision),
+        assetsGeneration: Math.max(
+          last?.assetsGeneration ?? captured.assetsGeneration,
+          captured.assetsGeneration,
+        ),
+      };
       this.#retryStep = 0;
     } else {
       this.#scheduleRetry();
