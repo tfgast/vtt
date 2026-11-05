@@ -1,77 +1,65 @@
-# Project Instructions for AI Agents
+# A Table of Dumb Objects
 
-This file provides instructions and context for AI coding agents working on this project.
+A virtual tabletop built on one idea: every object is a bag of cells, cells hold
+literals or formulas, and rules attach to space. Read `docs/DESIGN.md` for the
+model and `docs/FORMULAS.md` for the formula and action language. The decision
+log at the end of DESIGN.md is the ADR; a commit that changes a decision edits it.
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:1105d646 -->
-## Beads Issue Tracker
+## Stack (decided)
 
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+TypeScript end to end, pnpm workspace, Node, Vitest. Formula parser is a
+hand-written Pratt parser. UI chrome is React; the scene is Canvas2D behind a
+renderer interface. See DESIGN.md section 7.
 
-### Quick Reference
+Packages: `schema` (document and operation types, validation), `formula`
+(lexer, parser, evaluator, dice; pure), `authority` (document plus op stream,
+undo, persistence, spatial index, WebSocket protocol, MCP server), `ui`,
+`fixtures` (machine-readable acceptance fixtures shared by tests and review).
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
-```
+## Tracking: beads
 
-### Rules
+Issues live in beads (`bd`), prefix `vtt`. `.beads/issues.jsonl` is committed.
 
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+- Milestone epics are filed ahead of time. Each starts with one child: a
+  planning bead. Working a planning bead means writing that epic's
+  implementation beads, then getting them reviewed by Codex as a plan, then
+  closing the planning bead.
+- A planning bead for epic N is ready once the planning beads of N's
+  predecessor epics are closed. Planning runs one epic ahead of implementation
+  along the dependency graph, not in a strict line.
+- Standing epics `Polish` and `Later` collect followups that are not needed for
+  the current milestone.
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
+### Implementation bead shape
 
-## Agent Context Profiles
+Every implementation bead must state, in its description:
 
-The managed Beads block is task-tracking guidance, not permission to override repository, user, or orchestrator instructions.
+1. **Implements:** the doc sections (e.g. `FORMULAS.md §2.2, §6`).
+2. **Done when:** fixtures or acceptance criteria that must pass.
+3. **Out of scope:** what this bead explicitly does not touch.
+4. **Depends on:** other beads, recorded with `bd dep`.
 
-- **Conservative (default)**: Use `bd` for task tracking. Do not run git commits, git pushes, or Dolt remote sync unless explicitly asked. At handoff, report changed files, validation, and suggested next commands.
-- **Minimal**: Keep tool instruction files as pointers to `bd prime`; use the same conservative git policy unless active instructions say otherwise.
-- **Team-maintainer**: Only when the repository explicitly opts in, agents may close beads, run quality gates, commit, and push as part of session close. A current "do not commit" or "do not push" instruction still wins.
+If a subagent finds the scope ambiguous, the bead is defective. Fix the bead,
+do not let the agent guess.
 
-## Session Completion
+## Loop per implementation bead
 
-This protocol applies when ending a Beads implementation workflow. It is subordinate to explicit user, repository, and orchestrator instructions.
+1. Pick from `bd ready`. Mark in progress.
+2. Branch `vtt-<id>/<slug>` in its own worktree. Subagent (Opus 5.5) implements
+   from the bead text plus the named doc sections. Tests first.
+3. Orchestrator checks the diff against the doc and runs the tests. Does not
+   implement.
+4. Codex reviews the branch against the bead's stated scope. Findings are
+   input, not a gate. Each finding gets one disposition: fix before merge,
+   file as a bead in the current milestone epic, or file into Polish or Later.
+   Out-of-scope findings never block the bead, however real.
+5. Merge to main. Close the bead referencing the merge commit.
 
-1. **File issues for remaining work** - Create beads for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **Handle git/sync by active profile**:
-   ```bash
-   # Conservative/minimal/default: report status and proposed commands; wait for approval.
-   git status
+Two or three implementation beads run concurrently.
 
-   # Team-maintainer opt-in only, unless current instructions forbid it:
-   git pull --rebase
-   git push
-   git status
-   ```
-5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
+## Commit conventions
 
-**Critical rules:**
-- Explicit user or orchestrator instructions override this Beads block.
-- Do not commit or push without clear authority from the active profile or the current user request.
-- If a required sync or push is blocked, stop and report the exact command and error.
-<!-- END BEADS INTEGRATION -->
-
-
-## Build & Test
-
-_Add your build and test commands here_
-
-```bash
-# Example:
-# npm install
-# npm test
-```
-
-## Architecture Overview
-
-_Add a brief overview of your project architecture_
-
-## Conventions & Patterns
-
-_Add your project-specific conventions here_
+- Subject starts with the bead id: `vtt-a3f2dd: parse dice literals`.
+- One bead per branch. Planning changes to `.beads/` may ride along.
+- Design decisions changed by the work are recorded in the decision log in the
+  same commit.
