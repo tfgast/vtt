@@ -13,6 +13,7 @@ export * from "./protocol/log-window";
 export * from "./protocol/queries";
 export * from "./protocol/subscriptions";
 export * from "./protocol/views";
+export * from "./server/http-ui";
 export * from "./server/server";
 export * from "./spatial/index";
 export * from "./store/index";
