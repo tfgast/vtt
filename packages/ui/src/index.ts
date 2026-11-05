@@ -1,4 +1,5 @@
 export { App } from "./App";
+export * from "./canvas/BoardCanvas";
 export * from "./interaction/contracts";
 export * from "./interaction/effects";
 export * from "./interaction/events";
@@ -6,6 +7,10 @@ export * from "./interaction/machine";
 export * from "./interaction/overlays";
 export * from "./interaction/registry";
 export * from "./interaction/tool";
+export * from "./render/canvas2d";
+export * from "./render/image-cache";
+export * from "./render/recording";
+export * from "./render/renderer";
 export * from "./scene/appearance";
 export * from "./scene/camera";
 export * from "./scene/hit-test";
