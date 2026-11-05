@@ -9,8 +9,9 @@
  * scene gets its faces (vtt-1xv.26's `attachFaces`, memoized per scene and
  * face-state change), and a primary pointer down is hit-tested with
  * `faceHitAt`. The hit is offered to `gestures` in order first: one that
- * starts receives every event until it ends, and its overlays follow the
- * wrapped tool's. Otherwise:
+ * starts receives every event until it ends (wheel events included: they
+ * are claimed, so the camera does not zoom mid-gesture), and its overlays
+ * follow the wrapped tool's. Otherwise:
  *
  * - a button: pressed when the pointer comes up within `FACE_CLICK_PX` →
  *   `policy.onButton`, else `requestInvoke` (invoke.ts), with the stamp
@@ -18,7 +19,8 @@
  * - an editor element (the GM, a cell `cellCapabilities` lets them type
  *   into): a click opens the in-place editor over the element's rect; a
  *   formula cell focuses the formula bar there (vtt-3l6.13's rule). A value
- *   element likewise on a double-click;
+ *   element likewise on a double-click. A double-click's effects carry the
+ *   stamp of its first pointer down;
  * - a chevron click → `policy.onToggle`, else the entry toggles and, when it
  *   expands, the list holding it (the last entry of the hit's `path`) is
  *   scrolled to reveal it (`revealOffset` on the re-resolved drawing); a
@@ -104,6 +106,12 @@ export interface FacesPhase<TPhase> {
   innerOverlays: ToolOverlay[];
   /** The active gesture's overlays, as last emitted. */
   gestureOverlays: ToolOverlay[];
+  /**
+   * The stamps of the last two primary pointer downs, oldest first: a
+   * `double_click` uses the first of them (its first press), so its write
+   * carries the revision the double click began on.
+   */
+  recentDowns: InteractionStamp[];
 }
 
 /** A tool state as plain data (the decorator is generic over the tool id). */
@@ -340,12 +348,21 @@ export function withFaces<TPhase, K extends ToolId>(
     }
   }
 
+  /** Records the stamp of a primary pointer down (the last two are kept). */
+  function recordDown(state: State, event: InteractionEvent, input: ToolInput): State {
+    if (event.type !== "pointer_down" || event.button !== PRIMARY_BUTTON) return state;
+    const stamp = captureStamp(input);
+    if (stamp === null) return state;
+    return withPhase(state, { recentDowns: [...phaseOf(state).recentDowns, stamp].slice(-2) });
+  }
+
   function doubleClick(
     state: State,
     event: Extract<InteractionEvent, { type: "double_click" }>,
     input: ToolInput,
   ): Result {
-    const stamp = captureStamp(input);
+    // The stamp of the double click's first pointer down, else one taken now.
+    const stamp = phaseOf(state).recentDowns[0] ?? captureStamp(input);
     const hit = stamp === null ? null : faceHitAt(facesOf(input), event.board, input.camera);
     if (stamp === null || hit === null) return delegate(state, event, input);
     const done = (effects: Effect[]): Result => ({ state, effects });
@@ -418,6 +435,7 @@ export function withFaces<TPhase, K extends ToolId>(
         innerPointer: null,
         innerOverlays: [],
         gestureOverlays: [],
+        recentDowns: [],
       };
       return { ...inner, phase } as unknown as State;
     },
@@ -427,7 +445,8 @@ export function withFaces<TPhase, K extends ToolId>(
       if (gesture !== null) return "grabbing";
       return tool.cursor(innerOf(state));
     },
-    reduce(state, event: InteractionEvent, input: ToolInput): Result {
+    reduce(state0, event: InteractionEvent, input: ToolInput): Result {
+      const state = recordDown(state0, event, input);
       const { gesture, press } = phaseOf(state);
       if (gesture !== null) {
         const out = gesture.gesture.reduce(gesture.state, event, input);
@@ -460,6 +479,13 @@ export function withFaces<TPhase, K extends ToolId>(
       return present(withInner(next, out.state), [...effects, ...out.effects], []);
     },
     wheel(state, event, input) {
+      // An active gesture receives every event until it ends, wheels included.
+      const { gesture } = phaseOf(state);
+      if (gesture !== null) {
+        const out = gesture.gesture.reduce(gesture.state, event, input);
+        const next = out.state === null ? null : { gesture: gesture.gesture, state: out.state };
+        return gestureStep(state, next, out.effects);
+      }
       if (scrollAt(event, input)) return { state, effects: [] };
       const out = tool.wheel?.(innerOf(state), event, input) ?? null;
       if (out === null) return null;

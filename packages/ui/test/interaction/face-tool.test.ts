@@ -531,13 +531,26 @@ describe("editing in place", () => {
     expect(r.inner.events).toEqual(["pointer_down", "pointer_up"]);
     const effects = r.send(dbl(TOTAL), { revision: 6, interactionId: "i3" });
     expect(effects).toHaveLength(1);
-    expect(effects[0]).toMatchObject({
-      type: "open_editor",
-      stamp: { interactionId: "i3", baseRevision: 6 },
-      object: "card",
-      cell: "total",
-    });
+    expect(effects[0]).toMatchObject({ type: "open_editor", object: "card", cell: "total" });
     expect(r.inner.events).toEqual(["pointer_down", "pointer_up"]);
+  });
+
+  test("a double-click edits with the stamp of its first pointer down although the revision advanced", () => {
+    const r = rig();
+    r.send(ptr("pointer_down", TOTAL), { revision: 5, interactionId: "i1" });
+    r.send(ptr("pointer_up", TOTAL), { revision: 6, interactionId: "i2" });
+    r.send(ptr("pointer_down", TOTAL), { revision: 7, interactionId: "i3" });
+    r.send(ptr("pointer_up", TOTAL), { revision: 8, interactionId: "i4" });
+    const effects = r.send(dbl(TOTAL), { revision: 9, interactionId: "i5" });
+    expect(effects).toEqual([
+      {
+        type: "open_editor",
+        stamp: STAMP_GM,
+        object: "card",
+        cell: "total",
+        rect: expect.any(Object),
+      },
+    ]);
   });
 
   test("a double-click on an editor element does nothing more", () => {
@@ -564,6 +577,25 @@ describe("double-click on the body", () => {
       },
     ]);
     expect(r.inner.events).toEqual([]);
+  });
+
+  test("the default action is invoked with the stamp of the double click's first pointer down", () => {
+    const r = rig();
+    // An earlier, unrelated click: only the last two pointer downs make the double click.
+    click(r, [-10, 0]);
+    r.send(ptr("pointer_down", BODY), { revision: 5, interactionId: "i6" });
+    r.send(ptr("pointer_up", BODY), { revision: 6, interactionId: "i7" });
+    r.send(ptr("pointer_down", BODY), { revision: 7, interactionId: "i8" });
+    r.send(ptr("pointer_up", BODY), { revision: 8, interactionId: "i9" });
+    const effects = r.send(dbl(BODY), { revision: 9, interactionId: "i10" });
+    expect(effects).toEqual([
+      {
+        type: "extension",
+        name: INVOKE_EXTENSION,
+        stamp: { interactionId: "i6", board: BOARD, viewer: GM, baseRevision: 5 },
+        payload: { object: "card", action: "Roll", table: { board: BOARD, position: [0, 0] } },
+      },
+    ]);
   });
 
   test("on a template the default action refuses with the template notice", () => {
@@ -763,6 +795,23 @@ describe("gestures", () => {
     // Ended: the next press on the body is the wrapped tool's again.
     click(r, BODY);
     expect(r.inner.events).toEqual(["key_down", "pointer_down", "pointer_up"]);
+  });
+
+  test("an active gesture receives wheel events and claims them (no zoom); after it ends the wheel is ordinary", () => {
+    const log: string[] = [];
+    const r = rig({ gestures: [entryGesture(log)] });
+    const row: Point = [0, rowY(1, 0)];
+    r.send(ptr("pointer_down", row), { revision: 5 });
+    // Over empty board, where the wheel would otherwise zoom.
+    expect(r.wheel([200, 200], 100)).toEqual([]);
+    // Over the list: the gesture's, not a scroll.
+    expect(r.wheel([0, 18], 100)).toEqual([]);
+    expect(r.faceState.scrollOffset("b", 0)).toBe(0);
+    r.send(ptr("pointer_up", row), { revision: 6 });
+    expect(log).toEqual(["start pointer_down c1 5", "wheel", "wheel", "pointer_up"]);
+    expect(r.wheel([200, 200], 100)).toBeNull();
+    r.wheel([0, 18], 100);
+    expect(r.faceState.scrollOffset("b", 0)).toBeCloseTo(1, 9);
   });
 
   test("buttons inside a contained object stay withFaces' while a gesture is registered", () => {
