@@ -213,8 +213,8 @@ function nonEmptyName(view: ObjectView | null | undefined): string | null {
  * The face of `view` in `list` for one viewer. A full list draws the
  * layout's elements, or the default face when the view has none; a
  * collapsed list draws `face.collapsed`, or the default collapsed face (the
- * `name`). A face-down object has no primitives (collapsed: its name). A
- * template not in a container gets the board gear.
+ * `name`). A face-down object has no face primitives (collapsed: its
+ * name). A template not in a container gets the board gear, face down too.
  */
 export function resolveFace(view: ObjectView, opts: ResolveFaceOptions): FaceDrawing {
   const refLabel: RefLabel = (id) => nonEmptyName(opts.views(id));
@@ -271,10 +271,12 @@ function resolveDrawing(
         view,
       )
     : null;
-  if (faceDown) return finish(frame, base, []);
-  const primitives = view.face
-    ? elementPrimitives(view, view.face.elements, ctx, ancestors)
-    : defaultPrimitives(view, frame, ctx, ancestors);
+  // Face down: no face content (DESIGN.md §4.4), but a board template keeps its gear.
+  const primitives = faceDown
+    ? []
+    : view.face
+      ? elementPrimitives(view, view.face.elements, ctx, ancestors)
+      : defaultPrimitives(view, frame, ctx, ancestors);
   if (!nested && view.is_template && !isContained(view)) {
     primitives.push({
       kind: "gear",
