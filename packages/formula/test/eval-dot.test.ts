@@ -70,6 +70,14 @@ describe("dot-access", () => {
     expect(run("[target, 3].ac", cells)).toMatchObject({ code: "#TYPE" });
   });
 
+  test("flattening a very long cell list does not overflow the stack", () => {
+    const n = 200_000;
+    const items = list(Array.from({ length: n }, (_, i) => num(i)));
+    const result = run("[this].items", { self: { items } });
+    expect(result.type).toBe("list");
+    expect(result.type === "list" && result.items.length).toBe(n);
+  });
+
   test("on this", () => {
     expect(run("this.n", cells)).toEqual(num(3));
   });

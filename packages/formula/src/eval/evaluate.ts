@@ -34,7 +34,7 @@ import {
 } from "../functions/registry";
 import type { EvalEnv } from "../host";
 import type { CallNode, DotNode, Expr, MethodNode } from "../syntax/ast";
-import { collectList, firstError, withOrigin } from "./errors";
+import { collectList, withOrigin } from "./errors";
 import { binary, unary } from "./operators";
 import { type Scope, scopeOrigin } from "./scope";
 import { truthy } from "./values";
@@ -187,7 +187,8 @@ class Evaluator {
         for (const item of target.items) {
           const r = this.access(item, name);
           if (r.type === "error") return r;
-          if (r.type === "list") out.push(...r.items);
+          // A loop, not push(...items): a cell list can be arbitrarily long.
+          if (r.type === "list") for (const x of r.items) out.push(x);
           else out.push(r);
         }
         return list(out);
@@ -234,8 +235,7 @@ class Evaluator {
 
   private applyEager(def: EagerFunctionDef, args: Result[], scope: Scope): Result {
     if (!def.acceptsErrors) {
-      const e = firstError(...args);
-      if (e) return e;
+      for (const a of args) if (a.type === "error") return a;
     }
     const ctx = this.context(scope);
     if (def.broadcast === "none") return def.impl(args, ctx);
