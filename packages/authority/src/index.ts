@@ -7,6 +7,7 @@ export * from "./host/new-table";
 export * from "./host/table-host";
 export * from "./mcp/gate";
 export * from "./mcp/server";
+export * from "./mcp/subscriptions";
 export * from "./persist/index";
 export * from "./protocol/commands";
 export * from "./protocol/conflicts";
