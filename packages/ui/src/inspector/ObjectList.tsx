@@ -1,13 +1,16 @@
 /**
  * The inspector's object list (vtt-3l6.12; review r1 finding 6, r2 finding
  * 10; DESIGN.md §4.4, §4.6; FORMULAS.md §5 query order): the objects
- * directly on the active board in the current view, topmost first (the
- * reverse of the scene's draw order), labelled with
+ * directly on the active board in the current view (by placement, so an
+ * invalid or hidden `position` does not drop a row), topmost first (`z`,
+ * then id, descending: the reverse of query order), labelled with
  * `session.refLabel(viewer, id)`, zones marked. A click selects (Shift
  * toggles the row in the selection); hovering a zone row sets
  * `UiStore.hoveredZone` and leaving it clears it, so a room zone lying under
- * a map image can be selected and traced without the canvas.
+ * a map image can be selected and traced without the canvas. A hover the
+ * list set is also cleared when its row disappears or the list unmounts.
  */
+import type { ObjectView, WireResult } from "@vtt/protocol";
 import type { BoardId, ObjectId } from "@vtt/schema";
 import {
   type CSSProperties,
@@ -17,7 +20,6 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
-import { buildScene } from "../scene/scene";
 import type { TableSession } from "../session/table-session";
 import type { UiStore } from "../state/ui-state";
 
@@ -33,20 +35,59 @@ export interface BoardObjectEntry {
   readonly isZone: boolean;
 }
 
-/** The objects directly on the active board in the session's current view, topmost first. */
+/** A `z` as query order reads it: a finite number, a roll as its total, anything else 0. */
+function orderZ(v: WireResult | undefined): number {
+  const n = v?.type === "number" ? v.value : v?.type === "roll" ? v.total : 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Ids compared by code point (FORMULAS.md §5). */
+function compareIds(a: string, b: string): number {
+  const ai = Array.from(a, (c) => c.codePointAt(0) as number);
+  const bi = Array.from(b, (c) => c.codePointAt(0) as number);
+  for (let i = 0; i < Math.min(ai.length, bi.length); i++) {
+    if (ai[i] !== bi[i]) return (ai[i] as number) < (bi[i] as number) ? -1 : 1;
+  }
+  return ai.length - bi.length;
+}
+
+/**
+ * Whether `view` is directly on `board`: its `board` cell names the board
+ * and its `container` is not a ref. Placement only, never geometry: an
+ * object whose `position` is invalid or hidden from the viewer is still on
+ * the board.
+ */
+function directlyOn(view: ObjectView, board: BoardId): boolean {
+  const boardCell = view.cells.board?.value;
+  const container = view.cells.container?.value;
+  return boardCell?.type === "ref" && boardCell.object === board && container?.type !== "ref";
+}
+
+function isZoneView(view: ObjectView): boolean {
+  const v = view.cells.is_zone?.value;
+  return v?.type === "boolean" && v.value;
+}
+
+/**
+ * The objects directly on the active board in the session's current view,
+ * topmost first: by `z` descending (as query order reads it), then by id
+ * descending, the reverse of FORMULAS.md §5's order.
+ */
 export function boardObjectEntries(session: TableSession): BoardObjectEntry[] {
   const board = session.boardView();
   if (board === null) return [];
   const viewer = session.getSnapshot().viewer;
-  const scene = buildScene({
-    views: board.objects.values(),
-    covers: [],
-    board: board.board as BoardId,
-    viewer,
+  const views = [...board.objects.values()].filter((view) => directlyOn(view, board.board));
+  views.sort((a, b) => {
+    const za = orderZ(a.cells.z?.value);
+    const zb = orderZ(b.cells.z?.value);
+    return za !== zb ? (za > zb ? -1 : 1) : compareIds(b.id, a.id);
   });
-  return scene.items
-    .map((item) => ({ id: item.id, label: session.refLabel(viewer, item.id), isZone: item.isZone }))
-    .reverse();
+  return views.map((view) => ({
+    id: view.id,
+    label: session.refLabel(viewer, view.id),
+    isZone: isZoneView(view),
+  }));
 }
 
 const LIST_STYLE: CSSProperties = { margin: 0, padding: 0 };
@@ -74,6 +115,18 @@ export function ObjectList({ session, ui }: ObjectListProps) {
   const entries = boardObjectEntries(session);
   // The zone row under the pointer, cleared when the list unmounts.
   const hovered = useRef<ObjectId | null>(null);
+  // A hovered zone row that is no longer listed (removed, hidden, another board or
+  // viewer) gives up the hover it set; a hover set by someone else is left alone.
+  const zoneKey = entries
+    .filter((e) => e.isZone)
+    .map((e) => e.id)
+    .join("\u0000");
+  useEffect(() => {
+    const id = hovered.current;
+    if (id === null || zoneKey.split("\u0000").includes(id)) return;
+    hovered.current = null;
+    if (ui.getState().hoveredZone === id) ui.setHoveredZone(null);
+  }, [zoneKey, ui]);
   useEffect(
     () => () => {
       if (hovered.current !== null && ui.getState().hoveredZone === hovered.current) {
