@@ -1,22 +1,24 @@
 /**
- * The M2 scenario runner over the protocol (vtt-5su.12; FIXTURES.md §1–§8,
- * §11; DESIGN.md §5.2): the scenario's setup in an in-memory host behind a
- * real server on port 0, driven by one GM `ProtocolClient`. It follows the
- * in-process runner (test/runner/run.ts) step for step: setup expectations,
- * then each step and its expectations, stopping at the first `invoke`
- * (partial), skipping and counting `action` expectations, the same
- * rejection protocol (FIXTURES §6) with the refusal mapped through
- * `toFixtureReason`, the same leftover-dice check, and the same failure
- * messages (ScenarioFailure / ScenarioError naming the scenario, the step
- * and the expectation). After setup and after every executed step, `onStep`
- * receives the `document` result's snapshot (step -1 for setup).
+ * The scenario runner over the protocol (vtt-5su.12, vtt-1xv.13; FIXTURES.md
+ * §1–§8, §11; DESIGN.md §5.2): the scenario's setup in an in-memory host
+ * behind a real server on port 0, driven by one GM `ProtocolClient`. It
+ * follows the direct runner (test/runner/run.ts) step for step: setup
+ * expectations, then every step (`invoke` included) and its expectations
+ * (`action` and `face_element` included), the same rejection protocol
+ * (FIXTURES §6) with the refusal mapped through `toFixtureReason` (the
+ * action refusals `when_false`, `when_error`, `step_error` included; a
+ * refused step must consume no dice), the same leftover-dice check, and the
+ * same failure messages (ScenarioFailure / ScenarioError naming the
+ * scenario, the step and the expectation). After setup and after every
+ * step, `onStep` receives the `document` result's snapshot (step -1 for
+ * setup); at the end, `onEnd` receives the final `document` result.
  *
  * The server, the client and the host are closed when the run ends, passing
  * or failing.
  */
 import { canonicalJson, ScenarioError } from "@vtt/authority";
 import type { Expectation, RejectionReason, Scenario } from "@vtt/fixtures";
-import type { ProtocolRejection } from "@vtt/protocol";
+import type { DocumentResult, ProtocolRejection } from "@vtt/protocol";
 import { type Rejection, toFixtureReason } from "@vtt/schema";
 import { ScenarioFailure } from "../runner/expect";
 import { describeRejection, type RunReport, reasonMatches, type StepReport } from "../runner/run";
@@ -34,6 +36,8 @@ export interface ProtocolRunOptions {
   onStep?: (report: StepReport) => void;
   /** Called once the session is open, before setup expectations; it is closed when the run ends. */
   onSession?: (session: ProtocolSession) => void;
+  /** Called once after the last step with a copy of the final `document` result (snapshot and log). */
+  onEnd?: (doc: DocumentResult) => void;
 }
 
 /** Awaits `fn`, prefixing any error with `where`, keeping its class. */
@@ -56,9 +60,12 @@ const SCHEMA_REJECTIONS: ReadonlySet<string> = new Set([
   "nothing_to_undo",
   "type_error",
   "invalid",
+  "when_false",
+  "when_error",
+  "step_error",
 ]);
 
-/** The schema rejection a protocol rejection is, or null for the protocol's own (`stale_write`, `undo_target_changed`). */
+/** The schema rejection a protocol rejection is, or null for the protocol's own (`stale_write`, `undo_target_changed`, …). */
 const asSchemaRejection = (r: ProtocolRejection): Rejection | null =>
   SCHEMA_REJECTIONS.has(r.type) ? (r as Rejection) : null;
 
@@ -80,11 +87,13 @@ const matches = (want: RejectionReason, got: ProtocolRejection): boolean => {
 interface Before {
   snapshot: string;
   nextIndex: number;
+  dice: number;
 }
 
 const before = (state: ProtocolRunState): Before => ({
   snapshot: canonicalJson(state.doc.snapshot),
   nextIndex: state.doc.log.first_index + state.doc.log.groups.length,
+  dice: state.session.dice.remaining(),
 });
 
 /** The rejection protocol for one step; `state.doc` is the document after it. */
@@ -117,6 +126,9 @@ function checkRejection(
     const after = before(state);
     if (after.snapshot !== prior.snapshot || after.nextIndex !== prior.nextIndex) {
       throw new ScenarioFailure(`${label}: the refused step changed the document or the log`);
+    }
+    if (after.dice !== prior.dice) {
+      throw new ScenarioFailure(`${label}: the refused step consumed dice script entries`);
     }
   } else if (predicted !== undefined) {
     throw new ScenarioFailure(
@@ -165,7 +177,6 @@ export async function runScenarioOverProtocol(
 
     let stepsRun = 0;
     for (const [i, step] of scenario.steps.entries()) {
-      if (step.do.type === "invoke") break;
       const where = `${title}: step ${i}`;
       const list = step.expect ?? [];
       const prior = before(state);
@@ -181,9 +192,10 @@ export async function runScenarioOverProtocol(
     const left = session.dice.remaining();
     if (complete && left > 0) {
       throw new ScenarioError(
-        `${title}: after ${stepsRun === 0 ? "setup" : `step ${stepsRun - 1}`}: ${left} scripted dice ${left === 1 ? "entry" : "entries"} unused`,
+        `${title}: after ${stepsRun === 0 ? "setup" : `step ${stepsRun - 1}`}, expect dice script exhausted: ${left} scripted dice ${left === 1 ? "entry" : "entries"} unused`,
       );
     }
+    options.onEnd?.(structuredClone(state.doc));
     return {
       title: scenario.title,
       complete,

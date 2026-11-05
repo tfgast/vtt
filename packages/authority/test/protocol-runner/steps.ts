@@ -5,7 +5,9 @@
  * - `set`, `override` → `transact [set_value]`; `clear_override` →
  *   `transact [clear_override]`; `move` → `transact [move]`; `spawn` →
  *   `transact [spawn]` with `as`, the `owned` bindings taken from the
- *   result's `copies`; `undo` → `undo {type:"latest"}`.
+ *   result's `copies`; `undo` → `undo {type:"latest"}`; `invoke` →
+ *   `invoke {object, action}` (vtt-1xv.13; PROTOCOL.md §4), labelled by the
+ *   authority with the action's name as the direct runner's executor does.
  * - The scenario errors of `set`, `override` and `clear_override` are
  *   decided from the GM view (PROTOCOL.md §7.2): `set` on a cell whose
  *   `kind` is `"formula"` (structural cells such as `position` included),
@@ -13,7 +15,7 @@
  *   one not `overridden`.
  * - A step's actor is the `actor` param (characters as `{type:"character",
  *   id}`, the GM by omission); `base_revision` is the client's revision;
- *   labels are the M2 runner's.
+ *   labels are the direct runner's.
  * - `bind` changes nothing: the contents of `in` (or `list_objects` with the
  *   tag filter) compared on GM views by FORMULAS §4 equality.
  */
@@ -23,6 +25,7 @@ import { equals } from "@vtt/formula";
 import type {
   Destination,
   InputCellContent,
+  InvokeResult,
   ObjectView,
   ProtocolRejection,
   TransactParams,
@@ -78,7 +81,7 @@ function bindName(state: ProtocolRunState, name: string, id: ObjectId): void {
   state.bindings.set(name, id);
 }
 
-const outcome = (r: TransactResult): WireStepOutcome =>
+const outcome = (r: TransactResult | InvokeResult): WireStepOutcome =>
   r.status === "committed" ? { type: "committed" } : { type: "refused", rejection: r.rejection };
 
 function transact(
@@ -94,7 +97,7 @@ function transact(
   });
 }
 
-/** Applies one step that is not `invoke`. */
+/** Applies one step. */
 export async function applyWireStep(state: ProtocolRunState, step: Step): Promise<WireStepOutcome> {
   const d = step.do;
   if (d.type === "bind") {
@@ -149,8 +152,17 @@ export async function applyWireStep(state: ProtocolRunState, step: Step): Promis
         throw new ScenarioError("an undo step by a character cannot be sent over the protocol");
       }
       return outcome(await state.client.request("undo", { target: { type: "latest" } }));
-    case "invoke":
-      throw new ScenarioError("invoke steps are not supported before M5");
+    case "invoke": {
+      const { id } = await liveObject(state, d.object);
+      return outcome(
+        await state.client.request("invoke", {
+          object: id,
+          action: d.action,
+          base_revision: state.client.revision,
+          ...(actor === undefined ? {} : { actor }),
+        }),
+      );
+    }
   }
 }
 

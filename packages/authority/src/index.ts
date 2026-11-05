@@ -10,6 +10,7 @@ export * from "./host/table-host";
 export * from "./mcp/discovery";
 export * from "./mcp/gate";
 export * from "./mcp/import-asset";
+export * from "./mcp/invoke-tool";
 export * from "./mcp/server";
 export * from "./mcp/subscriptions";
 export * from "./persist/index";
