@@ -147,3 +147,44 @@ test("the GM selection is kept while switching to view-as", async () => {
   await waitFor(() => expect(viewerKey(t.session)).toBe("character:aldric"));
   expect(t.ui.getState().selection).toEqual(["goblin"]);
 });
+
+test("a viewed character that becomes ineligible is shown only as a disabled placeholder", async () => {
+  const t = await setup();
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: "View as" }), "Aldric");
+  await waitFor(() => expect(viewerKey(t.session)).toBe("character:aldric"));
+  const select = () => screen.getByRole("combobox", { name: "View as" }) as HTMLSelectElement;
+  const enabled = () =>
+    within(select())
+      .getAllByRole("option")
+      .filter((o) => !(o as HTMLOptionElement).disabled)
+      .map((o) => (o as HTMLOptionElement).value);
+  const aldric = () =>
+    within(select())
+      .getAllByRole("option")
+      .filter((o) => (o as HTMLOptionElement).value === "character:aldric") as HTMLOptionElement[];
+
+  const steps: WireOp[][] = [
+    [{ type: "set_template_flag", object: "aldric", value: true }],
+    [
+      { type: "set_template_flag", object: "aldric", value: false },
+      { type: "set_character_flag", object: "aldric", value: false },
+    ],
+    [{ type: "remove", object: "aldric" }],
+  ];
+  for (const ops of steps) {
+    const before = t.session.getSnapshot().revision;
+    await t.other.transact(ops);
+    await waitFor(() => expect(t.session.getSnapshot().revision).toBeGreaterThan(before));
+    await waitFor(() => expect(enabled()).not.toContain("character:aldric"));
+    expect(enabled()).toEqual(["gm", "character:brena", "character:zed", "character:nameless"]);
+    // The current viewer stays the select's value, as one disabled option.
+    expect(aldric()).toHaveLength(1);
+    expect(aldric()[0]?.disabled).toBe(true);
+    expect(select().value).toBe("character:aldric");
+  }
+  // The viewer is not switched behind the GM's back; the banner still offers the way back.
+  expect(viewerKey(t.session)).toBe("character:aldric");
+  await userEvent.click(screen.getByRole("button", { name: "Back to GM" }));
+  await waitFor(() => expect(viewerKey(t.session)).toBe("gm"));
+  await waitFor(() => expect(aldric()).toHaveLength(0));
+});

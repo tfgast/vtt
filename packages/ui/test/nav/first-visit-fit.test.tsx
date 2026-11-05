@@ -176,6 +176,38 @@ describe("startFirstVisitFit", () => {
     stop();
   });
 
+  test("waits for a measured viewport, keeping the mark until it fits", () => {
+    const fake = fakeSession();
+    const ui = createUiStore({ session: fake.session as unknown as TableSession });
+    const marked = new Set(["b1"]);
+    const stop = startFirstVisitFit({
+      session: fake.session,
+      ui,
+      cameraStore: fakeCameraStore(marked),
+    });
+    const objects = new Map([
+      ["a", view("a", "b1", 4, 4)],
+      ["b", view("b", "b1", 8, 6)],
+    ]);
+    // The board view arrives before the canvas is measured (0x0).
+    fake.set({ view: { board: "b1", objects, covers: new Map(), revision: 1 } });
+    expect(ui.getState().camera).toEqual({ x: 0, y: 0, zoom: 1 });
+    expect(marked.has("b1")).toBe(true);
+    ui.setViewport({ width: 800, height: 0, dpr: 1 });
+    expect(marked.has("b1")).toBe(true);
+    // Measured: fitted at the real size.
+    ui.setViewport(VIEWPORT);
+    expect(ui.getState().camera).toEqual(
+      fitBounds({ minX: 4, minY: 4, maxX: 8, maxY: 6 }, VIEWPORT, FIT_MARGIN_PX),
+    );
+    expect(marked.has("b1")).toBe(false);
+    // Later resizes do not fit again.
+    ui.setCamera({ x: 1, y: 1, zoom: 2 });
+    ui.setViewport({ width: 400, height: 300, dpr: 1 });
+    expect(ui.getState().camera).toEqual({ x: 1, y: 1, zoom: 2 });
+    stop();
+  });
+
   test("a board that is not marked is left alone; stopping unsubscribes", () => {
     const fake = fakeSession();
     const ui = createUiStore({
