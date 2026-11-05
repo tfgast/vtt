@@ -268,7 +268,7 @@ describe("loadTable", () => {
 
   test("passes the parse warnings through", async () => {
     const snapshot = scene();
-    await writeFile(path, fileOf(snapshot, undefined, "sha256:edited"));
+    await writeFile(path, fileOf(snapshot, undefined, `sha256:${"0".repeat(64)}`));
     const loaded = await loadTable(path);
     expect(loaded.editedExternally).toBe(true);
     expect(loaded.warnings.map((w) => w.type)).toEqual(["edited_externally"]);

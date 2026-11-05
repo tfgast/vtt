@@ -6,11 +6,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  type DocumentStore as Store,
   DocumentStore,
   loadTable,
   move,
   remove,
+  type DocumentStore as Store,
   saveTable,
   setFormula,
   spawn,
@@ -42,7 +42,10 @@ function table(): Snapshot {
       contents: ["card_zone"],
       cells: { name: { content: text("Fireball") }, radius: lit(4) },
     }),
-    obj("card_zone", { is_zone: true, cells: { radius: { content: { type: "formula", source: "4" } } } }),
+    obj("card_zone", {
+      is_zone: true,
+      cells: { radius: { content: { type: "formula", source: "4" } } },
+    }),
   ];
   return {
     revision: 0,
