@@ -121,6 +121,7 @@ export const ActionSchema = z.strictObject({
 
 export const ObjectSchema = z.strictObject({
   id: NameSchema,
+  note: z.string().optional(),
   is_template: z.boolean().optional(),
   tag: z.array(z.string().min(1)).optional(),
   shape: ShapeSchema.optional(),
@@ -231,49 +232,59 @@ export const LogEffectSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+/** Optional prose on an expectation: the line of the doc that justifies it. */
+const note = { note: z.string().optional() };
+
 export const ExpectationSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("cell"),
     object: NameSchema,
     cell: CellNameSchema,
     value: ValueSchema,
+    ...note,
   }),
   z.strictObject({
     type: z.literal("cell_error"),
     object: NameSchema,
     cell: CellNameSchema,
     code: ErrorCodeSchema,
+    ...note,
   }),
   z.strictObject({
     type: z.literal("override"),
     object: NameSchema,
     cell: CellNameSchema,
     overridden: z.boolean(),
+    ...note,
   }),
   z.strictObject({
     type: z.literal("action"),
     object: NameSchema,
     action: z.string().min(1),
     enabled: z.boolean(),
+    ...note,
   }),
-  z.strictObject({ type: z.literal("rejected"), reason: RejectionReasonSchema }),
-  z.strictObject({ type: z.literal("exists"), object: NameSchema, exists: z.boolean() }),
+  z.strictObject({ type: z.literal("rejected"), reason: RejectionReasonSchema, ...note }),
+  z.strictObject({ type: z.literal("exists"), object: NameSchema, exists: z.boolean(), ...note }),
   z.strictObject({
     type: z.literal("container"),
     object: NameSchema,
     container: NameSchema,
     index: z.int().nonnegative(),
+    ...note,
   }),
   z.strictObject({
     type: z.literal("placement"),
     object: NameSchema,
     board: NameSchema,
     position: PointSchema,
+    ...note,
   }),
   z.strictObject({
     type: z.literal("contents"),
     object: NameSchema,
     contents: z.array(NameSchema),
+    ...note,
   }),
   z.strictObject({
     type: z.literal("cell_visible"),
@@ -281,15 +292,22 @@ export const ExpectationSchema = z.discriminatedUnion("type", [
     cell: CellNameSchema,
     viewer: ViewerSchema,
     visible: z.boolean(),
+    ...note,
   }),
   z.strictObject({
     type: z.literal("object_visible"),
     object: NameSchema,
     viewer: ViewerSchema,
     visible: z.boolean(),
+    ...note,
   }),
-  z.strictObject({ type: z.literal("log_groups"), count: z.int().nonnegative() }),
-  z.strictObject({ type: z.literal("log_includes"), group: z.int(), effect: LogEffectSchema }),
+  z.strictObject({ type: z.literal("log_groups"), count: z.int().nonnegative(), ...note }),
+  z.strictObject({
+    type: z.literal("log_includes"),
+    group: z.int(),
+    effect: LogEffectSchema,
+    ...note,
+  }),
 ]);
 
 export const StepSchema = z.strictObject({

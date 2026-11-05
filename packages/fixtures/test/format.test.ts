@@ -1,8 +1,12 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { FORMULAS_FIXTURES, loadScenario, parseScenario, ScenarioSchema } from "@vtt/fixtures";
 import { describe, expect, test } from "vitest";
 
 const samples = join(import.meta.dirname, "samples");
+// The samples are test-only and are deleted once production scenarios exist
+// (vtt-1me.9); the samples block then validates nothing and needs no edit.
+const sampleFiles = await readdir(samples).catch(() => [] as string[]);
 
 /** A small valid scenario; each malformed case below breaks exactly one thing. */
 function base(): Record<string, unknown> & {
@@ -71,7 +75,7 @@ function rejects(mutate: (s: ReturnType<typeof base>) => void, message: RegExp |
 }
 
 describe("samples", () => {
-  test.each(["hit-points.json", "die-with-modifier.json"])("%s validates", async (file) => {
+  test.each(sampleFiles.filter((f) => f.endsWith(".json")))("%s validates", async (file) => {
     const scenario = await loadScenario(join(samples, file));
     expect(FORMULAS_FIXTURES).toContain(scenario.source);
     expect(scenario.steps.length).toBeGreaterThan(0);
@@ -82,7 +86,7 @@ describe("samples", () => {
   });
 
   test("loadScenario names the file and every issue", async () => {
-    await expect(loadScenario(join(samples, "missing.json"))).rejects.toThrow();
+    await expect(loadScenario(join(import.meta.dirname, "missing.json"))).rejects.toThrow();
     expect(() => parseScenario({ title: "x" }, "x.json")).toThrow(
       /x\.json is not a valid scenario/,
     );
@@ -480,6 +484,14 @@ describe("expectations", () => {
       (s) => expectAfter(s, { type: "action", object: "aldric", action: "Fly", enabled: false }),
       /no action "Fly"/,
     ));
+  test("every expectation may carry a note quoting the prose", () => {
+    const s = base();
+    (s.steps[0] as { expect: Record<string, unknown>[] }).expect[0] = {
+      ...(s.steps[0] as { expect: Record<string, unknown>[] }).expect[0],
+      note: "hp = max_hp - damage_taken",
+    };
+    expect(issues(s)).toEqual([]);
+  });
   test("an unknown expectation type", () =>
     rejects((s) => expectAfter(s, { type: "vibes", object: "aldric" }), /./));
 });
