@@ -303,4 +303,27 @@ describe("persistence and replay", () => {
     expect(loaded.getBoard("shelf")).toEqual({ id: "shelf", name: "Shelf" });
     expect(must(loaded.getObject("goblin")).actions).toEqual([attack]);
   });
+
+  test("canonical JSON orders an actions field effect's ActionDefs as the snapshot does", () => {
+    const store = DocumentStore.fromSnapshot(table());
+    // Keys inserted out of order on purpose.
+    const scrambled = { steps: ["set(hp, max_hp)"], when: "hp < max_hp", name: "Heal" };
+    run(store, (tx) => setActions(tx, "goblin", [scrambled]));
+    run(store, (tx) => setActions(tx, "goblin", [{ steps: ["x"], when: "y", name: "Z" }]));
+
+    const text = canonicalJson(serializeTable(store, []));
+    const file = JSON.parse(text);
+    const order = ["name", "when", "steps"];
+    expect(Object.keys(file.snapshot.objects.goblin.actions[0])).toEqual(order);
+    for (const group of file.log.groups) {
+      for (const effect of group.effects) {
+        expect(Object.keys(effect)).toEqual(["type", "object", "field", "before", "after"]);
+        for (const a of [...effect.before, ...effect.after]) expect(Object.keys(a)).toEqual(order);
+      }
+    }
+    expect(file.log.groups[1].effects[0].before).toHaveLength(1);
+
+    const loaded = parseTable(text).store;
+    expect(canonicalJson(serializeTable(loaded, []))).toBe(text);
+  });
 });
