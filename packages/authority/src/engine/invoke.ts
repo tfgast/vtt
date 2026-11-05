@@ -43,6 +43,7 @@ import {
   type PathNode,
   parseStep,
   type Step,
+  validateRefs,
   withBudget,
 } from "@vtt/formula";
 import {
@@ -57,7 +58,7 @@ import {
   type RollValue,
   type Value,
 } from "@vtt/schema";
-import type { TransactResult } from "../store/document-store";
+import type { DocView, TransactResult } from "../store/document-store";
 import { setTag, writeValue } from "../store/edits";
 import type { FrozenGroup } from "../store/history";
 import { type Destination, move, remove, type SpawnResult, spawn } from "../store/structural";
@@ -190,8 +191,23 @@ class WriteLimitExceeded extends Error {
   }
 }
 
-/** An EvalEnv that charges `budget` as the engine's recording env does (FORMULAS §7). */
-function budgeted(env: EvalEnv, budget: Budget): EvalEnv {
+/**
+ * An EvalEnv that charges `budget` as the engine's recording env does
+ * (FORMULAS §7): 1 per read, 1 per existence check, 1 per id a query
+ * returns. A read of a literal (or an override, or a structural cell) also
+ * charges 1 per existence check its reference validation makes, up to the
+ * first dangling reference, exactly as the engine's `validateRefs` over a
+ * literal does; a formula cell without an override reads its memoized or
+ * `empty` value and charges no validation. The `ActionContext` has already
+ * validated the value; this replays the checks over the working copy's
+ * stored content only to charge them, so reads keep their snapshot and
+ * read-your-writes semantics.
+ */
+function budgeted(env: EvalEnv, budget: Budget, doc: DocView): EvalEnv {
+  const exists = (id: ObjectId) => {
+    budget.charge();
+    return env.exists(id);
+  };
   const enumerate = (ids: ObjectId[]) => {
     budget.charge(new Set(ids).size);
     return ids;
@@ -199,12 +215,16 @@ function budgeted(env: EvalEnv, budget: Budget): EvalEnv {
   return {
     read(id, cell) {
       budget.charge();
-      return env.read(id, cell);
+      const result = env.read(id, cell);
+      if (result === undefined) return result;
+      const stored = doc.getCell(id, cell);
+      if (stored !== undefined) {
+        const literal = stored.override ?? stored.content;
+        if (literal.type !== "formula") validateRefs(literal as Value, exists);
+      }
+      return result;
     },
-    exists(id) {
-      budget.charge();
-      return env.exists(id);
-    },
+    exists,
     objectsNamed: (name) => enumerate(env.objectsNamed(name)),
     allObjects: () => enumerate(env.allObjects()),
     objectsOnBoard: (board, near) => enumerate(env.objectsOnBoard(board, near)),
@@ -286,7 +306,7 @@ export function createExecutor(options: { handlers: StepHandlerEntry[] }): Execu
       const budget = new Budget(DEFAULT_BUDGET);
       const scope = it === undefined ? { thisId: inv.object } : { thisId: inv.object, it };
       return withBudget(
-        () => evaluate(expr, scope, budgeted(inv.env, budget)),
+        () => evaluate(expr, scope, budgeted(inv.env, budget, tx.doc)),
         () => limitError(DEFAULT_BUDGET),
       );
     };
