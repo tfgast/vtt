@@ -29,7 +29,14 @@
 import { parseArgs } from "node:util";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { type ClientState, enableRecovery, ProtocolClient } from "@vtt/protocol";
-import { createMcpServer, readSessionFile, sessionCredentials, subscriptionTools } from "../index";
+import {
+  ConnectionCredentials,
+  createMcpServer,
+  importAssetTool,
+  readSessionFile,
+  sessionCredentials,
+  subscriptionTools,
+} from "../index";
 
 const USAGE = "usage: vtt-mcp [--url u] [--token=t] [--name n]";
 
@@ -165,8 +172,16 @@ async function main(argv: string[]): Promise<void> {
     onWarning: (message) => log(`warning: ${message}`),
   });
 
-  // (2) The MCP server on stdio.
-  const server = createMcpServer({ client, extensions: [subscriptionTools()] });
+  // (2) The MCP server on stdio. `import_asset` (vtt-3l6.20) uploads with
+  // the connection's current credentials, tracked through discovery.
+  const credentialsInUse = new ConnectionCredentials(initial);
+  const server = createMcpServer({
+    client,
+    extensions: [
+      subscriptionTools(),
+      importAssetTool({ credentials: () => credentialsInUse.current() }),
+    ],
+  });
   mcpClientName = () => agentNameOf(server.server.getClientVersion()?.name);
 
   let stopRecovery: (() => void) | null = null;
@@ -185,7 +200,10 @@ async function main(argv: string[]): Promise<void> {
   server.server.oninitialized = () => {
     if (stopRecovery !== null || closing) return;
     log(discovery ? "connecting through the session file" : `connecting to ${initial.url}`);
-    stopRecovery = enableRecovery(client, discovery ? { credentials: sessionCredentials() } : {});
+    stopRecovery = enableRecovery(
+      client,
+      discovery ? { credentials: credentialsInUse.track(sessionCredentials()) } : {},
+    );
   };
   // stdin reached end-of-file (the transport closes itself) or the server was closed.
   server.server.onclose = () => {
