@@ -504,7 +504,8 @@
           "type": "log_groups",
           "count": 1,
           "note": "A spawn is one group (FIXTURES §8)."
-        }
+        },
+        { "type": "replay" }
       ]
     },
     {
@@ -1347,7 +1348,8 @@
           "type": "log_groups",
           "count": 10,
           "note": "One group for the action."
-        }
+        },
+        { "type": "replay" }
       ]
     }
   ]

@@ -349,7 +349,8 @@
           "type": "log_groups",
           "count": 7,
           "note": "FIXTURES §8: \"An `invoke` is one group for the whole action; `set`, `override`, `clear_override`, `move`, and `spawn` are one group each\": three spawns, three invokes, one set."
-        }
+        },
+        { "type": "replay" }
       ]
     }
   ]

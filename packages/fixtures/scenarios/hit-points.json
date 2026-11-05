@@ -211,7 +211,8 @@
           "type": "log_groups",
           "count": 5,
           "note": "FIXTURES §8: set, override, set, clear_override, undo; \"`undo` is one group, because undo is itself an operation\", and \"It does not delete that group\"."
-        }
+        },
+        { "type": "replay" }
       ]
     }
   ]
