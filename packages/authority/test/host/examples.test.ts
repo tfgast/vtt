@@ -108,7 +108,11 @@ function elements(src: string): FaceElement[] {
       const rect = rectSrc.split(",").map((n) => Number(n.trim())) as Rect;
       const opts = optSrc.trim();
       const sw = /sw="([^"]+)"/.exec(opts)?.[1];
-      const flags = opts.replace(/sw="[^"]+"/, "").trim().split(/\s+/).filter(Boolean);
+      const flags = opts
+        .replace(/sw="[^"]+"/, "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
       const min = flags.find((f) => f.startsWith("m="));
       const size = flags.includes("L") ? "large" : flags.includes("H") ? "huge" : undefined;
       const caption = flags.includes("C");

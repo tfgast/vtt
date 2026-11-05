@@ -177,7 +177,7 @@ async function busyPort(): Promise<number> {
 
 describe("vtt-serve start-up", () => {
   test("creates a missing file with the gm_board board, writes the session file and answers /healthz", async () => {
-    const p = serve([file, "--port", "0", "--print-session"]);
+    const p = serve([file, "--port", "0", "--print-session", "--empty"]);
     const s = await printed(p);
     expect(s.url).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/ws$/);
     expect(s.url).not.toBe("ws://127.0.0.1:0/ws");
@@ -282,7 +282,7 @@ describe("vtt-serve start-up", () => {
 
 describe("vtt-serve shutdown", () => {
   test("SIGTERM after a transact saves, removes the session and lock files, and exits 0", async () => {
-    const p = serve([file, "--port", "0", "--print-session"]);
+    const p = serve([file, "--port", "0", "--print-session", "--empty"]);
     const s = await printed(p);
     const client = await connect(s);
     await createOrc(client);
@@ -293,7 +293,7 @@ describe("vtt-serve shutdown", () => {
   });
 
   test("SIGINT shuts down the same way", async () => {
-    const p = serve([file, "--port", "0", "--print-session"]);
+    const p = serve([file, "--port", "0", "--print-session", "--empty"]);
     const s = await printed(p);
     await createOrc(await connect(s));
     expect(await stop(p, "SIGINT")).toEqual({ code: 0, signal: null });
@@ -303,7 +303,7 @@ describe("vtt-serve shutdown", () => {
   });
 
   test("with --no-autosave, a transact committed just before SIGTERM is in the file after exit", async () => {
-    const p = serve([file, "--port", "0", "--print-session", "--no-autosave"]);
+    const p = serve([file, "--port", "0", "--print-session", "--empty", "--no-autosave"]);
     const s = await printed(p);
     const client = await connect(s);
     await createOrc(client);
@@ -316,7 +316,7 @@ describe("vtt-serve shutdown", () => {
   });
 
   test("a second signal during shutdown is ignored", async () => {
-    const p = serve([file, "--port", "0", "--print-session", "--no-autosave"]);
+    const p = serve([file, "--port", "0", "--print-session", "--empty", "--no-autosave"]);
     const s = await printed(p);
     await createOrc(await connect(s));
     p.child.kill("SIGTERM");
