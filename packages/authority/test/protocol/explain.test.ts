@@ -7,6 +7,7 @@ import {
   explainAction,
   explainCell,
   explainGroup,
+  move,
   remove,
   setFormula,
   setTag,
@@ -23,7 +24,7 @@ import {
   LIMITS,
   ProtocolFailure,
 } from "@vtt/protocol";
-import { num, ref, text, type ViewersValue } from "@vtt/schema";
+import { list, num, ref, text, type ViewersValue } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { c, commit, f, gm, placed, snapshot } from "../engine/helpers";
 import { loadScenarioFile } from "../runner/load";
@@ -170,6 +171,19 @@ describe("explain_cell: dependencies", () => {
     expect(r.dependencies).toContainEqual({ type: "index" });
   });
 
+  test("fireball targets: no index node while the zone is inside the card, one on the board", async () => {
+    const t = await fixtureTable("fireball.json");
+    const inside = cell(t, { object: "fireball", cell: "targets" });
+    expect(inside.view.value).toEqual(list([]));
+    expect(inside.dependencies.length).toBeGreaterThan(0);
+    expect(inside.dependencies.some((n) => n.type === "index")).toBe(false);
+    commit(t, (tx) =>
+      move(tx, "fireball_zone", { type: "board", board: "map", position: [-100, -100] }),
+    );
+    const onBoard = cell(t, { object: "fireball", cell: "targets" });
+    expect(onBoard.dependencies).toContainEqual({ type: "index" });
+  });
+
   test("at most max_explain_nodes nodes, truncated when cut", () => {
     const n = LIMITS.max_explain_nodes + 50;
     const names = Array.from({ length: n }, (_, i) => `x${i}`);
@@ -243,23 +257,33 @@ describe("explain_cell: character viewer", () => {
       snapshot([
         character("aldric", 0),
         placed("secret", 5, 5, { cells: { visible_to: c(GM_ONLY), hp: c(num(8)) } }),
-        placed("pub", 6, 6, { cells: { peek: f("secret.hp + 1"), who: f("secret") } }),
+        placed("pub", 6, 6, { cells: { tgt: c(ref("secret")), peek: f("tgt.hp + 1") } }),
       ]),
     );
     const r = cell(t, { object: "pub", cell: "peek", viewer: ALDRIC });
     expect(r.view.value).toEqual(num(9));
-    const hidden = r.dependencies.filter((n) => n.type === "cell" || n.type === "exists");
+    expect(dep(r.dependencies, "pub", "tgt")).toEqual({
+      type: "cell",
+      object: "pub",
+      cell: "tgt",
+      value: { type: "redacted" },
+    });
+    const hidden = r.dependencies.filter(
+      (n) => (n.type === "cell" || n.type === "exists") && n.object !== "pub",
+    );
     expect(hidden.length).toBeGreaterThan(0);
     for (const n of hidden) {
-      expect(n.type === "cell" || n.type === "exists" ? n.object : "x").toBeNull();
+      expect(n).toHaveProperty("object", null);
       expect(n).not.toHaveProperty("value");
       expect(n).not.toHaveProperty("exists");
+      expect(n).not.toHaveProperty("hidden");
       expect(n).not.toHaveProperty("dependencies");
     }
-    // A redacted ref value for the character.
-    const who = cell(t, { object: "pub", cell: "who", viewer: ALDRIC });
-    expect(who.view.value).toEqual({ type: "redacted" });
-    expect(cell(t, { object: "pub", cell: "who" }).view.value).toEqual(ref("secret"));
+    expect(dep(r.dependencies, null, "hp")).toEqual({ type: "cell", object: null, cell: "hp" });
+    // The GM sees the object, the value and the ref.
+    const g = cell(t, { object: "pub", cell: "peek" });
+    expect(dep(g.dependencies, "secret", "hp")).toMatchObject({ value: num(8) });
+    expect(dep(g.dependencies, "pub", "tgt")).toMatchObject({ value: ref("secret") });
   });
 
   test("not_found is identical for a GM-only object, a GM-only cell and a nonexistent object", () => {
@@ -301,14 +325,19 @@ describe("explain_cell: error_chain", () => {
     const t = Table.fromSnapshot(
       snapshot([
         placed("doomed", 0, 0, { cells: { hp: c(num(5)) } }),
-        placed("o", 1, 1, { cells: { reader: f("doomed.hp"), a: f("reader + 1"), b: f("a * 2") } }),
+        placed("o", 1, 1, {
+          cells: { d: c(ref("doomed")), reader: f("d.hp"), a: f("reader + 1"), b: f("a * 2") },
+        }),
       ]),
     );
     commit(t, (tx) => remove(tx, "doomed"));
     const r = cell(t, { object: "o", cell: "b" });
     expect(r.view.value).toMatchObject({ type: "error", code: "#REF" });
     expect(r.error_chain?.[0]).toEqual({ object: "o", cell: "b", code: "#REF" });
-    expect(r.error_chain?.at(-1)).toEqual({ object: "o", cell: "reader", code: "#REF" });
+    expect(r.error_chain).toEqual([
+      { object: "o", cell: "b", code: "#REF" },
+      { object: "o", cell: "reader", code: "#REF" },
+    ]);
   });
 
   test("a #CYCLE chain terminates", () => {
@@ -329,23 +358,31 @@ describe("explain_cell: error_chain", () => {
         character("aldric", 0),
         placed("secret", 5, 5, { cells: { visible_to: c(GM_ONLY), bad: f("1 / 0") } }),
         placed("pub", 6, 6, {
-          cells: { mid: f("secret.bad + 1"), top: f("mid + 1"), hid: f("1 / 0"), via: f("hid") },
-          cell_visibility: { mid: GM_ONLY, hid: GM_ONLY },
+          cells: {
+            tgt: c(ref("secret")),
+            top: f("tgt.bad + 1"),
+            hid: f("1 / 0"),
+            via: f("hid"),
+          },
+          cell_visibility: { hid: GM_ONLY },
         }),
       ]),
     );
-    const gmChain = cell(t, { object: "pub", cell: "top" }).error_chain;
-    expect(gmChain?.[0]).toMatchObject({ object: "pub", cell: "top" });
+    expect(cell(t, { object: "pub", cell: "top" }).error_chain).toEqual([
+      { object: "pub", cell: "top", code: "#DIV0" },
+      { object: "secret", cell: "bad", code: "#DIV0" },
+    ]);
     const r = cell(t, { object: "pub", cell: "top", viewer: ALDRIC });
-    expect(r.error_chain?.length).toBe(gmChain?.length);
-    expect(r.error_chain?.[0]).toMatchObject({ object: "pub", cell: "top" });
-    for (const e of r.error_chain?.slice(1) ?? []) {
-      if (e.object === "pub") expect(e.cell).toBeNull();
-      else expect(e).toMatchObject({ object: null, cell: null });
-    }
-    expect(r.error_chain?.some((e) => e.object === null)).toBe(true);
+    expect(r.view.value).toEqual({ type: "error", code: "#DIV0" });
+    expect(r.error_chain).toEqual([
+      { object: "pub", cell: "top", code: "#DIV0" },
+      { object: null, cell: null, code: "#DIV0" },
+    ]);
     const via = cell(t, { object: "pub", cell: "via", viewer: ALDRIC });
-    expect(via.error_chain?.at(-1)).toMatchObject({ object: "pub", cell: null });
+    expect(via.error_chain).toEqual([
+      { object: "pub", cell: "via", code: "#DIV0" },
+      { object: "pub", cell: null, code: "#DIV0" },
+    ]);
   });
 });
 
