@@ -400,7 +400,7 @@ need it:
   index counts from the end (`-1` is the latest). Fireball needs an absolute
   index to show that an earlier Apply group is unchanged after a later edit.
 
-The hit points sample (`test/samples/hit-points.json`) ends with five groups:
+The hit points scenario (`scenarios/hit-points.json`) ends with five groups:
 set, override, set, clear_override, undo.
 
 ## 9. The §10 fixtures
