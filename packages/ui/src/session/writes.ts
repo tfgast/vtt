@@ -233,13 +233,15 @@ async function undoneLabel(session: TableSession, index: number): Promise<string
 }
 
 /**
- * Undoes the session's own latest group (`target: {type: "mine"}`), pushing
- * "Undid: <label>" or the refusal (`nothing_to_undo`, `undo_conflict`).
+ * Undoes the latest group by the GM or any character (`target: {type:
+ * "human"}`, M6-D2): a button pressed in view-as is undone, an agent's newer
+ * work is not. Pushes "Undid: <label>" or the refusal (`nothing_to_undo`,
+ * `undo_conflict`).
  */
 export async function undo(session: TableSession): Promise<WriteOutcome> {
   let result: TransactResult;
   try {
-    result = await session.client.request("undo", { target: { type: "mine" } });
+    result = await session.client.request("undo", { target: { type: "human" } });
   } catch (e) {
     return unsettled(session, e, { kind: "undo" });
   }
