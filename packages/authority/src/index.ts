@@ -22,6 +22,8 @@ export * from "./protocol/subscriptions";
 export * from "./protocol/views";
 export * from "./server/http-assets";
 export * from "./server/http-ui";
+export * from "./server/launcher";
+export * from "./server/open-browser";
 export * from "./server/server";
 export * from "./server/session-file";
 export * from "./spatial/index";
