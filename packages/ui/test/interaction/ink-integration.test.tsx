@@ -355,7 +355,9 @@ describe("ink tool", () => {
     );
     const transacts = request.mock.calls.filter(([m]) => m === "transact");
     expect(transacts).toHaveLength(1);
-    expect((transacts[0]?.[1] as { base_revision: number }).base_revision).toBeLessThan(revision);
+    expect(
+      ((transacts[0] as unknown[])[1] as { base_revision: number }).base_revision,
+    ).toBeLessThan(revision);
     expect(c.content("note", "ink")).toEqual(theirs);
   });
 });
@@ -379,6 +381,9 @@ describe("text tool", () => {
     const field = await screen.findByRole("textbox", { name: "Edit text" });
     await waitFor(() => expect(document.activeElement).toBe(field));
     // Typing commits with a base revision that includes the creation: no stale_write.
+    // An empty text cell is prefilled as its literal, `""` (vtt-3l6.13's input grammar).
+    expect((field as HTMLTextAreaElement).value).toBe('""');
+    await userEvent.clear(field);
     await userEvent.type(field, "trap on the third stair{Enter}");
     await until(
       () => (c.content(id, "text") as { value?: string } | undefined)?.value !== "",

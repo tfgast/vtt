@@ -235,7 +235,10 @@ describe("collecting points", () => {
     expect(strokes[0]).toHaveLength(INK_MAX_POINTS);
     // The kept points are the first 2,000: the stroke ends at x = 199.9.
     const anchor = op.to.type === "board" ? op.to.position : [0, 0];
-    expect((strokes[0]?.at(-1) as Point)[0] + anchor[0]).toBeCloseTo(199.9, 9);
+    expect(((strokes[0] as Point[]).at(-1) as Point)[0] + (anchor[0] as number)).toBeCloseTo(
+      199.9,
+      9,
+    );
   });
 
   test("a click (fewer than two points) writes nothing and clears the preview", () => {
@@ -275,7 +278,7 @@ describe("targets and the object-local frame", () => {
     const w = world([
       view("zone", { at: [0, 0], shape: rect(10, 10), zone: true }),
       view("low", { at: [0, 0], shape: rect(2, 2) }),
-      view("high", { at: [0.5, 0], shape: rect(2, 2) }),
+      view("high", { at: [0.5, 0], shape: rect(2, 2), cells: { z: num(1) } }),
     ]);
     const input = makeInput(w);
     expect(inkTarget(input, [0.2, 0])).toBe("high");
@@ -336,7 +339,7 @@ describe("targets and the object-local frame", () => {
   });
 
   test("an absent or empty ink cell becomes an ink value with the one stroke", () => {
-    for (const cells of [{}, { ink: { type: "empty" } as WireResult }]) {
+    for (const cells of [{}, { ink: { type: "empty" } }] as Record<string, WireResult>[]) {
       const note = view("note", { at: [0, 0], shape: rect(2, 2), cells });
       const { effects } = drive(
         createInkTool(),
