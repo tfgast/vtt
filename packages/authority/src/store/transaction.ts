@@ -84,6 +84,51 @@ export interface TransactionHost {
 
 export type TransactionState = "open" | "committed" | "aborted";
 
+/**
+ * A view of a transaction's live working copy whose record reads are
+ * copies, so mutating them cannot reach the working copy.
+ */
+function copyingView(doc: DocState): DocView {
+  const copy = structuredClone;
+  return {
+    get revision() {
+      return doc.revision;
+    },
+    get nextSeq() {
+      return doc.nextSeq;
+    },
+    toSnapshot: () => doc.toSnapshot(),
+    getObject: (id) => {
+      const o = doc.getObject(id);
+      return o === undefined ? undefined : copy(o);
+    },
+    hasObject: (id) => doc.hasObject(id),
+    objectIds: () => doc.objectIds(),
+    getBoard: (id) => {
+      const b = doc.getBoard(id);
+      return b === undefined ? undefined : copy(b);
+    },
+    boardIndex: (id) => doc.boardIndex(id),
+    boards: () => doc.boards(),
+    getCell: (id, cell) => {
+      const c = doc.getCell(id, cell);
+      return c === undefined ? undefined : copy(c);
+    },
+    getCellVisibility: (id, cell) => {
+      const v = doc.getCellVisibility(id, cell);
+      return v === undefined ? undefined : copy(v);
+    },
+    containerOf: (id) => doc.containerOf(id),
+    boardOf: (id) => doc.boardOf(id),
+    locationOf: (id) => doc.locationOf(id),
+    contentsOf: (id) => doc.contentsOf(id),
+    subtreeOf: (id) => doc.subtreeOf(id),
+    objectsOnBoard: (board) => doc.objectsOnBoard(board),
+    isReserved: (id) => doc.isReserved(id),
+    isRetired: (id) => doc.isRetired(id),
+  };
+}
+
 /** The name an object has in `state`: its `name` cell's text, or "" when it has none. */
 function nameIn(state: DocState, id: ObjectId): string {
   const content = state.getCell(id, "name")?.content;
@@ -128,6 +173,7 @@ export class Transaction {
   readonly meta: Readonly<TransactionMeta>;
   readonly #base: DocState;
   readonly #working: DocState;
+  readonly #view: DocView;
   readonly #host: TransactionHost;
   readonly #effects: Effect[] = [];
   readonly #inverses: HistoricalInverse[] = [];
@@ -151,6 +197,7 @@ export class Transaction {
     this.meta = structuredClone(meta);
     this.#base = base;
     this.#working = working;
+    this.#view = copyingView(working);
     this.#host = host;
   }
 
@@ -158,9 +205,9 @@ export class Transaction {
     return this.#state;
   }
 
-  /** The working copy, with every recorded effect applied. */
+  /** The working copy, with every recorded effect applied; record reads are copies. */
   get doc(): DocView {
-    return this.#working;
+    return this.#view;
   }
 
   /** The change summary of the effects recorded so far. */

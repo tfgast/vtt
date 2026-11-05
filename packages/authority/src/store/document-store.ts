@@ -7,11 +7,32 @@
  * The historical inverses of each group committed through the store are
  * computed while its effects are recorded and kept in memory (never
  * persisted), so `rewind` can use them; see replay.ts.
+ *
+ * The committed document is deep-frozen at `fromSnapshot` and at every
+ * commit point, so store reads and a commit payload's `before` cannot be
+ * mutated; `begin` works on a fresh deep copy.
+ *
+ * `transact`'s `onAbort` hook runs in try/catch: an error it throws never
+ * replaces the original outcome. It is recorded on `lastAbortHookError`,
+ * passed to `onAbortError` if given, and carried on a rejection result as
+ * `abortHookError`.
  */
-import { type Actor, type Snapshot, type Violation, validateSnapshot } from "@vtt/schema";
+import {
+  type Actor,
+  type Board,
+  type BoardId,
+  type Cell,
+  type Location,
+  type ObjectId,
+  type Snapshot,
+  type TableObject,
+  type ViewersValue,
+  type Violation,
+  validateSnapshot,
+} from "@vtt/schema";
 import { DocState } from "./doc";
 import type { HistoricalInverse } from "./effects";
-import { History } from "./history";
+import { type DeepReadonly, History } from "./history";
 import {
   type CommitListener,
   type CommitPayload,
@@ -21,31 +42,52 @@ import {
   type TransactionMeta,
 } from "./transaction";
 
-/** The read API of a document: DocState without its mutators. */
-export type DocView = Readonly<
-  Pick<
-    DocState,
-    | "revision"
-    | "nextSeq"
-    | "toSnapshot"
-    | "getObject"
-    | "hasObject"
-    | "objectIds"
-    | "getBoard"
-    | "boardIndex"
-    | "boards"
-    | "getCell"
-    | "getCellVisibility"
-    | "containerOf"
-    | "boardOf"
-    | "locationOf"
-    | "contentsOf"
-    | "subtreeOf"
-    | "objectsOnBoard"
-    | "isReserved"
-    | "isRetired"
-  >
->;
+/**
+ * The read API of a document: DocState's reads, without its mutators, and
+ * with every record readonly. The committed document behind the store and
+ * behind a commit payload's `before` is deep-frozen; a transaction's `doc`
+ * returns copies of the working copy's records.
+ */
+export interface DocView {
+  readonly revision: number;
+  readonly nextSeq: number;
+  toSnapshot(): Snapshot;
+  getObject(id: ObjectId): DeepReadonly<TableObject> | undefined;
+  hasObject(id: ObjectId): boolean;
+  objectIds(): ObjectId[];
+  getBoard(id: BoardId): DeepReadonly<Board> | undefined;
+  boardIndex(id: BoardId): number;
+  boards(): Board[];
+  getCell(id: ObjectId, cell: string): DeepReadonly<Cell> | undefined;
+  getCellVisibility(id: ObjectId, cell: string): DeepReadonly<ViewersValue> | undefined;
+  containerOf(id: ObjectId): ObjectId | null;
+  boardOf(id: ObjectId): BoardId | null;
+  locationOf(id: ObjectId): Location | null;
+  contentsOf(id: ObjectId): ObjectId[];
+  subtreeOf(id: ObjectId): ObjectId[];
+  objectsOnBoard(board: BoardId): ObjectId[];
+  isReserved(id: string): boolean;
+  isRetired(id: string): boolean;
+}
+
+/**
+ * Deep-freezes every record of `doc` and the instance itself, so neither its
+ * records nor its revision can change. Its mutators must never run again;
+ * a transaction works on a fresh copy.
+ */
+function freezeDoc(doc: DocState): DocState {
+  for (const id of doc.objectIds()) deepFreeze(doc.getObject(id));
+  for (const b of doc.boards()) deepFreeze(doc.getBoard(b.id));
+  Object.freeze(doc);
+  return doc;
+}
+
+function deepFreeze(x: unknown): void {
+  if (typeof x === "object" && x !== null && !Object.isFrozen(x)) {
+    Object.freeze(x);
+    for (const v of Object.values(x)) deepFreeze(v);
+  }
+}
 
 /** A snapshot that fails the document invariants. */
 export class InvalidSnapshotError extends Error {
@@ -85,23 +127,36 @@ export function canonicalSnapshot(s: Snapshot): Snapshot {
   };
 }
 
+/** Marks "no error" where any value, undefined included, may be thrown. */
+const NO_ERROR: unique symbol = Symbol("no error");
+
 /** What `transact` returns. */
 export type TransactResult =
   | ({ ok: true } & CommitResult)
-  | { ok: false; rejection: Rejected["rejection"] };
+  | {
+      ok: false;
+      rejection: Rejected["rejection"];
+      /** What `onAbort` threw, if it threw. The rejection still stands. */
+      abortHookError?: unknown;
+    };
 
 export interface TransactOptions {
   /**
    * Called after the transaction aborts before the commit point, on a
-   * rejection or any other error; never after a commit.
+   * rejection or any other error; never after a commit. If it throws, the
+   * original outcome stands (see `transact`).
    */
   onAbort?: () => void;
+  /** Receives what `onAbort` threw. An error it throws itself is ignored. */
+  onAbortError?: (error: unknown) => void;
 }
 
 export class DocumentStore implements DocView {
   #doc: DocState;
   readonly #history: History;
   #open: Transaction | null = null;
+  /** The last error an `onAbort` hook of `transact` threw, for diagnostics. */
+  lastAbortHookError: unknown = undefined;
   readonly #internal: CommitListener[] = [];
   readonly #public: CommitListener[] = [];
   /** Absolute group index → its historical inverses, for groups committed here. */
@@ -120,7 +175,7 @@ export class DocumentStore implements DocView {
   static fromSnapshot(snapshot: Snapshot, history: History = new History()): DocumentStore {
     const violations = validateSnapshot(snapshot);
     if (violations.length > 0) throw new InvalidSnapshotError(violations);
-    return new DocumentStore(DocState.fromSnapshot(snapshot), history);
+    return new DocumentStore(freezeDoc(DocState.fromSnapshot(snapshot)), history);
   }
 
   /** A deep copy of the committed document, in canonical order. */
@@ -183,7 +238,7 @@ export class DocumentStore implements DocView {
     const tx: Transaction = new Transaction(actor, meta, base, working, {
       publish: (doc, group, inverses) => {
         const appended = this.#history.append(group);
-        this.#doc = doc;
+        this.#doc = freezeDoc(doc);
         this.#open = null;
         this.#inverses.set(appended.index, inverses);
         for (const i of this.#inverses.keys()) {
@@ -206,6 +261,11 @@ export class DocumentStore implements DocView {
    * rethrown unchanged; either way the transaction aborts and `onAbort`
    * runs. An internal hook's error after the commit point propagates
    * without `onAbort`.
+   *
+   * An error thrown by `onAbort` never replaces the original outcome. It is
+   * recorded on `lastAbortHookError` and passed to `onAbortError` if given;
+   * a rejection result also carries it as `abortHookError`. A rethrown
+   * error is rethrown unchanged.
    */
   transact(
     actor: Actor,
@@ -221,9 +281,30 @@ export class DocumentStore implements DocView {
     } catch (err) {
       if (tx.state === "committed") throw err;
       tx.abort();
-      options.onAbort?.();
-      if (err instanceof Rejected) return { ok: false, rejection: err.rejection };
+      const hookError = this.#runAbortHook(options);
+      if (err instanceof Rejected) {
+        return hookError === NO_ERROR
+          ? { ok: false, rejection: err.rejection }
+          : { ok: false, rejection: err.rejection, abortHookError: hookError };
+      }
       throw err;
+    }
+  }
+
+  /** Runs `onAbort`; returns what it threw, or NO_ERROR. */
+  #runAbortHook({ onAbort, onAbortError }: TransactOptions): unknown {
+    if (onAbort === undefined) return NO_ERROR;
+    try {
+      onAbort();
+      return NO_ERROR;
+    } catch (hookError) {
+      this.lastAbortHookError = hookError;
+      try {
+        onAbortError?.(hookError);
+      } catch {
+        // Documented: an error from onAbortError is ignored.
+      }
+      return hookError;
     }
   }
 

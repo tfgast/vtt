@@ -435,6 +435,123 @@ describe("transact", () => {
   });
 });
 
+describe("immutability of reads", () => {
+  test("a store read cannot change the committed document", () => {
+    const store = DocumentStore.fromSnapshot(table());
+    const cell = must(store.getCell("goblin", "hp")) as unknown as { content: { value: number } };
+    expect(() => {
+      cell.content.value = 1;
+    }).toThrow(TypeError);
+    expect(store.getCell("goblin", "hp")).toEqual(lit(7));
+    commitAll(store, [write("goblin", "hp", 7, 5)]);
+    const goblin = must(store.getObject("goblin")) as unknown as { cells: Record<string, unknown> };
+    expect(() => {
+      goblin.cells.hp = lit(1);
+    }).toThrow(TypeError);
+    expect(store.getCell("goblin", "hp")).toEqual(lit(5));
+    expect(store.history.nextIndex).toBe(1);
+  });
+
+  test("mutating a record read from tx.doc commits nothing", () => {
+    const store = DocumentStore.fromSnapshot(table());
+    const tx = store.begin(gm, edit);
+    const goblin = must(tx.doc.getObject("goblin")) as unknown as {
+      cells: Record<string, unknown>;
+    };
+    goblin.cells.hp = lit(1);
+    const cell = must(tx.doc.getCell("goblin", "name")) as unknown as { content: unknown };
+    cell.content = named("Changed");
+    expect(tx.doc.getCell("goblin", "hp")).toEqual(lit(7));
+    const { group } = tx.commit();
+    expect(group.effects).toEqual([]);
+    expect(store.toSnapshot()).toEqual({ ...table(), revision: 4 });
+  });
+
+  test("an internal hook cannot mutate before", () => {
+    const store = DocumentStore.fromSnapshot(table());
+    let attempt: unknown;
+    let beforeHp: unknown;
+    store.onCommitInternal(({ before }) => {
+      const goblin = must(before.getObject("goblin")) as unknown as {
+        cells: Record<string, unknown>;
+      };
+      try {
+        goblin.cells.hp = lit(1);
+      } catch (e) {
+        attempt = e;
+      }
+      beforeHp = before.getCell("goblin", "hp");
+    });
+    commitAll(store, [write("goblin", "hp", 7, 5)]);
+    expect(attempt).toBeInstanceOf(TypeError);
+    expect(beforeHp).toEqual(lit(7));
+    expect(store.getCell("goblin", "hp")).toEqual(lit(5));
+  });
+});
+
+describe("transact with a throwing onAbort", () => {
+  const hookError = new Error("hook");
+  const onAbort = () => {
+    throw hookError;
+  };
+
+  test("keeps the rejection and reports the hook error", () => {
+    const store = DocumentStore.fromSnapshot(table());
+    const onAbortError = vi.fn();
+    const result = store.transact(
+      gm,
+      edit,
+      () => {
+        throw new Rejected({ type: "nothing_to_undo" });
+      },
+      { onAbort, onAbortError },
+    );
+    expect(result).toEqual({
+      ok: false,
+      rejection: { type: "nothing_to_undo" },
+      abortHookError: hookError,
+    });
+    expect(onAbortError).toHaveBeenCalledWith(hookError);
+    expect(store.lastAbortHookError).toBe(hookError);
+    expect(() => store.begin(gm, edit).abort()).not.toThrow();
+  });
+
+  test("rethrows the original error unchanged and reports the hook error", () => {
+    const store = DocumentStore.fromSnapshot(table());
+    const original = new Error("original");
+    const onAbortError = vi.fn();
+    expect(() =>
+      store.transact(
+        gm,
+        edit,
+        () => {
+          throw original;
+        },
+        { onAbort, onAbortError },
+      ),
+    ).toThrow(original);
+    expect(onAbortError).toHaveBeenCalledWith(hookError);
+    expect(store.lastAbortHookError).toBe(hookError);
+  });
+
+  test("without onAbortError, records the hook error and rethrows the original", () => {
+    const store = DocumentStore.fromSnapshot(table());
+    const original = new Error("original");
+    expect(() =>
+      store.transact(
+        gm,
+        edit,
+        () => {
+          throw original;
+        },
+        { onAbort },
+      ),
+    ).toThrow(original);
+    expect(store.lastAbortHookError).toBe(hookError);
+    expect(store.toSnapshot()).toEqual(table());
+  });
+});
+
 /** Replaces the coin record in a removal with one carrying `name`. */
 function withCoinName(name: string) {
   return (e: Effect): Effect =>
