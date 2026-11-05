@@ -301,7 +301,10 @@ accelerates and never decides.
 **Boards.** A table may have several boards: the shared one, a GM board,
 others as needed. Boards are navigation and organization (think tabs or named
 places), not a security mechanism. Objects can be moved between boards. For
-very large maps, boards also serve as named anchors to jump to.
+very large maps, boards also serve as named anchors to jump to. A board can be
+removed only when no object is directly on it; removal never cascades. Its id
+stays reserved for the document's lifetime (4.1): undo re-creates the board
+under the same id, and no new board may take it.
 
 ### 4.4 Visibility and hidden information
 
@@ -641,8 +644,9 @@ plus an ordered stream of committed operations** from the start:
 **Operation records.** A committed change is a **group**. A group holds:
 
 - its resolved effects, in order: cell states before and after, each with a
-  cause, `edit` or `roll`; per-cell visibility changes; field changes;
-  placements; creation and removal of whole subtrees; reorders; board changes;
+  cause, `edit` or `roll`; per-cell visibility changes; field changes
+  (`tag`, `shape`, `is_template`, `is_character`, and `actions`, an object's
+  whole action list before and after); placements; creation and removal of whole subtrees; reorders; board changes;
   id allocation; id retirement;
 - the actor; its kind, `edit`, `action`, or `undo`; a label; its origin; and,
   for an undo, `undoes`, the index of the group it reverses;
@@ -681,6 +685,8 @@ H is not undone, and the two share a touched key:
 
 - a cell write touches the cell's key, and so does a change to that cell's
   per-cell visibility;
+- replacing an object's action list touches its `actions:<object>` key, which
+  conflicts with itself and with creating or removing that object;
 - a move touches the `contents` key of the container at both ends;
 - creating or removing objects touches every key on those objects, and the
   `contents` key of the container they were created in or removed from;
@@ -1030,3 +1036,5 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | Set-on-formula, override-on-literal, and clear-without-override stay scenario errors in the format, while the engine's `writeValue` on a formula cell overrides and clearing a missing override is refused. Runners implement the rejection protocol for every step type they support (M2: set, override, clear_override, move, spawn, undo; M5 adds when_false, when_error, step_error). FIXTURES §6, §8. | Fixtures stay precise about intent while the engine follows hand-edit semantics. |
 | 2026-11-05 | `object_visible` includes cover; `cell_visible` holds only if `object_visible` holds; formula positions stay in `placement` in the format while canonically `position` is a cell present iff on a board. FIXTURES §7. | Aligns the expectations with DESIGN §4.4 and FORMULAS §3.1 without changing the format. |
 | 2026-11-05 | The fixture format gains a `replay` expectation (`ReplayExpectationSchema`, optional `note`), top level or step level: replaying every group's recorded effects onto the post-setup document reproduces the stored state (cells as stored, per-cell visibility, placement, contents order, structural fields, `retired_ids`, `next_seq`; never computed results or revision) and consumes no dice. Every scenario's last step and Fireball's first assert it. FIXTURES §7, §11. | DESIGN §7 promises replay never re-rolls; the M0 review deferred the expectation that tests it to M2. |
+| 2026-11-04 | Operation records gain a `field: "actions"` effect holding the object's whole action list before and after; `setActions` replaces the list in one such effect, refusing as `invalid` an unknown object, an empty name or one over 100 characters, a duplicate name (exact comparison), steps that are not a list of text, and what the file schema would reject (a blank `when` or step, an unknown key); `when` and steps are stored verbatim, unparsed. It touches the new undo conflict key `actions:<object>`, which conflicts with itself and with `obj:<object>` (creation or removal); it changes no readable cell, and the change summary lists the object once in `actionsChanged`. DESIGN §4.5, §5.2, §7; FORMULAS §8. | Defining actions (§5.2) needs an edit primitive; whole-list replacement keeps one effect per edit and an exact undo, and a separate key keeps action edits from conflicting with cell writes. |
+| 2026-11-04 | A board is removable only when no object is directly on it (no cascade); `removeBoard` records the board's removal and the retirement of its id. User undo re-creates the board (appended to the board order) and the id stays retired, so a later `addBoard` with it is refused. DESIGN §4.1, §4.3. | Cascading removal is a policy the UI can build from moves and removes; retiring the id keeps references and history unambiguous, as for objects. |

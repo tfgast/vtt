@@ -1,7 +1,8 @@
 /**
  * The change summary every commit carries (DESIGN.md §7): objects and boards
  * created and removed, cells written with their states, per-cell visibility
- * changes, moves with the cells each derives, and every changed cell.
+ * changes, moves with the cells each derives, every changed cell, and the
+ * objects whose action list changed.
  */
 import type { CellKey } from "@vtt/formula";
 import type { BoardId, CellState, Effect, Location, ObjectId } from "@vtt/schema";
@@ -42,6 +43,8 @@ export interface ChangeSummary {
   moved: MovedObject[];
   /** The union of every effect's `changedCells`, each once, in first-seen order. */
   changedCells: CellKey[];
+  /** Every object with a `field: "actions"` effect, each once, in first-seen order. */
+  actionsChanged: ObjectId[];
 }
 
 /** Builds a ChangeSummary one effect at a time, each against the state before it. */
@@ -55,6 +58,7 @@ export class SummaryBuilder {
     visibility: [],
     moved: [],
     changedCells: [],
+    actionsChanged: [],
   };
   readonly #changed = new Set<CellKey>();
 
@@ -99,6 +103,10 @@ export class SummaryBuilder {
         if (effect.after === null && effect.before !== null) s.boardsRemoved.push(effect.before.id);
         return;
       case "field":
+        if (effect.field === "actions" && !s.actionsChanged.includes(effect.object)) {
+          s.actionsChanged.push(effect.object);
+        }
+        return;
       case "reorder":
       case "allocate":
       case "retire":
