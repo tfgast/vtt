@@ -433,6 +433,30 @@ describe("drawItem hook, cullBounds and paintItem", () => {
     expect(drawn).toEqual(["strip"]);
   });
 
+  test("near the edge, default culling pads only for decorations", () => {
+    // View y starts at -4.6875; the label strip adds 18 px = 0.28125 units below.
+    const hanging = item("hang", { anchor: [0, -5.3], label: "Goblin" }); // maxY -4.8
+    const ctx = draw(scene({ items: [hanging] }));
+    expect(ctx.calls.some((c) => c.name === "fillText" && c.args[0] === "Goblin")).toBe(true);
+    const beyond = item("far", { anchor: [0, -5.5], label: "Goblin" }); // maxY -5, padded -4.71875
+    const empty = draw(scene()).calls.map((c) => c.name);
+    expect(draw(scene({ items: [beyond] })).calls.map((c) => c.name)).toEqual(empty);
+  });
+
+  test("near the edge, custom cull bounds are honoured exactly", () => {
+    const hanging = item("hang", { anchor: [0, -5.3], label: "Goblin" }); // maxY -4.8
+    const ctx = new RecordingContext();
+    const drawn: string[] = [];
+    const renderer = createCanvas2DRenderer(ctx, {
+      images: images(),
+      cullBounds: (it) => it.bounds,
+      drawItem: (_c, it) => drawn.push(it.id),
+    });
+    renderer.render(scene({ items: [hanging] }), [], CAMERA, VIEWPORT);
+    expect(drawn).toEqual([]);
+    expect(ctx.paints).toHaveLength(0);
+  });
+
   test("paintItem records the same calls render makes inside the item's transform", () => {
     const it = item("t", {
       anchor: [1, 1],

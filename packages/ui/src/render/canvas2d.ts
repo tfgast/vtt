@@ -93,7 +93,12 @@ export type DrawItemHook<S extends Scene = Scene> = (
 export interface Canvas2DRendererOptions<S extends Scene = Scene> {
   images: ImageCache;
   drawItem?: DrawItemHook<S>;
-  /** Board bounds an item is culled by; defaults to `item.bounds`. */
+  /**
+   * Board bounds an item is culled by, intersected exactly with the view (no
+   * padding). Without it, an item is culled by its bounds padded for what
+   * `paintItem` draws at a fixed screen size outside the footprint: the
+   * shapeless marker, the hidden badge and, when visible, the label strip.
+   */
   cullBounds?: (item: DrawItem, scene: S) => Bounds;
 }
 
@@ -575,8 +580,8 @@ export function createCanvas2DRenderer<S extends Scene = Scene>(
 
       // 1. Scene items, back to front.
       for (const item of scene.items) {
-        const bounds = cullBounds ? cullBounds(item, scene) : item.bounds;
-        if (!boundsIntersect(decorated(bounds, item, camera), view)) continue;
+        const bounds = cullBounds ? cullBounds(item, scene) : decorated(item.bounds, item, camera);
+        if (!boundsIntersect(bounds, view)) continue;
         ctx.save();
         ctx.translate(item.anchor[0], item.anchor[1]);
         ctx.rotate(radians(item.rotation));
