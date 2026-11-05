@@ -59,6 +59,17 @@ export interface ImportAssetToolOptions {
   credentials: () => AssetCredentials;
   /** The directory a relative `path` resolves against; default `process.cwd()`. */
   cwd?: string;
+  /** Reads a regular file's bytes; default: `fs` (a seam for tests). */
+  readFile?: (file: string) => Promise<Uint8Array<ArrayBuffer>>;
+}
+
+async function readWholeFile(file: string): Promise<Uint8Array<ArrayBuffer>> {
+  const handle = await open(file, "r");
+  try {
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
 }
 
 export const ImportAssetInputSchema = z.strictObject({
@@ -115,7 +126,10 @@ export function assetUploadUrl(wsUrl: string): string {
 type ReadOutcome = { bytes: Uint8Array<ArrayBuffer> } | { error: CallToolResult };
 
 /** Reads `file`, refusing a missing, unreadable, oversize or non-image file before sending anything. */
-async function readImage(file: string): Promise<ReadOutcome> {
+async function readImage(
+  file: string,
+  readFile: (file: string) => Promise<Uint8Array<ArrayBuffer>>,
+): Promise<ReadOutcome> {
   let size: number;
   try {
     const info = await stat(file);
@@ -131,12 +145,7 @@ async function readImage(file: string): Promise<ReadOutcome> {
   if (size > MAX_ASSET_BYTES) return { error: tooLarge(file, size) };
   let bytes: Uint8Array<ArrayBuffer>;
   try {
-    const handle = await open(file, "r");
-    try {
-      bytes = await handle.readFile();
-    } finally {
-      await handle.close();
-    }
+    bytes = await readFile(file);
   } catch (e) {
     return { error: fail("file_unreadable", `cannot read ${file}: ${(e as Error).message}`) };
   }
@@ -174,8 +183,12 @@ export function importAssetTool(options: ImportAssetToolOptions): McpExtension {
   return (server, client) => {
     const handler = async (input: ImportAssetToolInput): Promise<CallToolResult> => {
       const file = resolve(options.cwd ?? process.cwd(), input.path);
-      const read = await readImage(file);
+      const read = await readImage(file, options.readFile ?? readWholeFile);
       if ("error" in read) return read.error;
+      // The gate ran before the read; the connection may have dropped since.
+      // Recheck it immediately before sending (PROTOCOL.md §11: a gated call sends nothing).
+      const gate = client.connectionError();
+      if (gate !== null) return toolError({ code: gate.code, message: gate.message });
 
       const { url, token } = options.credentials();
       const headers: Record<string, string> = {
