@@ -16,6 +16,7 @@ export * from "./inspector/ViewersPicker";
 export * from "./interaction/contracts";
 export * from "./interaction/effects";
 export * from "./interaction/events";
+export * from "./interaction/handles";
 export * from "./interaction/keys";
 export * from "./interaction/machine";
 export * from "./interaction/overlays";
