@@ -93,7 +93,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const a of agents.splice(0)) {
     const pid = a.pid;
-    if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL");
+    if (pid > 0 && a.exit === null && alive(pid)) process.kill(pid, "SIGKILL");
     await a.client.close().catch(() => undefined);
   }
   await Promise.all(
@@ -237,29 +237,32 @@ async function agent(args: string[] = [], env: Record<string, string> = {}): Pro
     stderr: "pipe",
   });
   let stderr = "";
-  let spawned = 0;
+  let child: ChildProcess | undefined;
   let exit: Agent["exit"] = null;
-  let watched: ChildProcess | undefined;
   transport.stderr?.on("data", (chunk: Buffer | string) => {
     stderr += chunk.toString();
   });
+  // The transport keeps its child private and forgets it on close. Its
+  // `start()` spawns synchronously, so wrapping `start` on this instance
+  // captures the child and attaches the exit listener before control returns
+  // to the event loop: even a child that dies at once reports its status.
+  // (An instance property, not a subclass: the SDK only runs its disposable
+  // version-negotiation probe for the base class's own prototype.)
+  const start = transport.start.bind(transport);
+  transport.start = () => {
+    const started = start();
+    child = (transport as unknown as { _process?: ChildProcess })._process;
+    child?.once("exit", (code, signal) => {
+      exit = { code, signal };
+    });
+    return started;
+  };
   const client = new Client({ name: AGENT_NAME, version: "1.0.0" });
   const entry: Agent = {
     client,
     transport,
     get pid() {
-      const pid = transport.pid ?? 0;
-      if (pid > 0) spawned = pid;
-      // The transport keeps its child private and forgets it on close; hold
-      // on to it to report the exit status when the connection closes early.
-      const child = (transport as unknown as { _process?: ChildProcess })._process;
-      if (child !== undefined && child !== watched) {
-        watched = child;
-        child.once("exit", (code, signal) => {
-          exit = { code, signal };
-        });
-      }
-      return spawned;
+      return child?.pid ?? 0;
     },
     get stderr() {
       return stderr;
@@ -269,15 +272,7 @@ async function agent(args: string[] = [], env: Record<string, string> = {}): Pro
     },
   };
   agents.push(entry);
-  // Record the child's pid as soon as the transport spawns it, so cleanup can
-  // reach the child even when initialization fails (the transport forgets it on close).
-  const watch = setInterval(() => void entry.pid, 1);
-  try {
-    await diagnosed(entry, "connect", client.connect(transport));
-  } finally {
-    void entry.pid;
-    clearInterval(watch);
-  }
+  await diagnosed(entry, "connect", client.connect(transport));
   expect(entry.pid).toBeGreaterThan(0);
   return entry;
 }
@@ -294,7 +289,7 @@ async function diagnosed<T>(a: Agent, what: string, p: Promise<T>): Promise<T> {
     return await p;
   } catch (err) {
     // The transport reports a close on the child's `close` event, after
-    // `exit`; give a racing exit event a moment to land before reporting.
+    // `exit`; let the piped stderr drain before reporting.
     await sleep(50);
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`${what} failed: ${message}\n${diagnosis(a)}`, { cause: err });
@@ -691,6 +686,21 @@ describe("vtt-mcp process", () => {
       for (const line of p.stdout.split("\n").filter((l) => l !== "")) {
         expect(JSON.parse(line).jsonrpc).toBe("2.0");
       }
+    },
+    TEST_MS,
+  );
+
+  test(
+    "a child that fails at once: the connect failure reports its exit status and stderr",
+    async () => {
+      const failure = agent(["--bogus"]);
+      await expect(failure).rejects.toThrow(/^connect failed: /);
+      const message = await failure.then(
+        () => "",
+        (err: Error) => err.message,
+      );
+      expect(message).toMatch(/vtt-mcp pid [1-9]\d*, exit \{"code":1,"signal":null\}, stderr:\n/);
+      expect(message).toMatch(/\nvtt-mcp: .*'--bogus'.*; usage: vtt-mcp /);
     },
     TEST_MS,
   );
