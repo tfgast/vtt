@@ -4,7 +4,13 @@
  * connects with those explicit credentials.
  */
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
-import { type StartedApp, startApp } from "@vtt/ui";
+import {
+  createCanvas2DRenderer,
+  ImageCache,
+  RecordingContext,
+  type StartedApp,
+  startApp,
+} from "@vtt/ui";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanupAuthorities, NodeWebSocket, startAuthority } from "../support/authority";
 
@@ -53,7 +59,14 @@ test("with a bootstrap element the app connects and shows the GM board", async (
   element.textContent = JSON.stringify({ url: authority.url, token: authority.token });
   document.head.append(element);
 
-  started = startApp({ container, WebSocket: NodeWebSocket });
+  started = startApp({
+    container,
+    WebSocket: NodeWebSocket,
+    createRenderer: () =>
+      createCanvas2DRenderer(new RecordingContext(), {
+        images: new ImageCache({ resolve: (p) => p }),
+      }),
+  });
   expect(started.session).not.toBeNull();
   await within(container).findByRole("tab", { name: "GM" }, { timeout: 4000 });
   await waitFor(() => expect(started?.session?.getSnapshot().ready).toBe(true));

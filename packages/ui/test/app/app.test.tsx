@@ -159,7 +159,8 @@ describe("layout", () => {
     expect(screen.getByRole("combobox", { name: "View as" })).toBeDefined();
     const inspector = screen.getByRole("complementary", { name: "Inspector panel" });
     expect(within(inspector).getByText("Nothing selected")).toBeDefined();
-    expect(screen.getByRole("textbox", { name: /formula/i })).toBeDefined();
+    const bar = document.querySelector('[data-part="formula-bar"]');
+    expect(bar?.textContent).toContain("No cell focused");
   });
 
   test("the fog toggle edits the zone tools' options through the UI store", async () => {
