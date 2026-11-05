@@ -23,9 +23,9 @@ import {
   type Effect,
   fileStem,
   IMAGE_ACCEPT,
-  importLabel,
   type InteractionEvent,
   type InteractionStamp,
+  importLabel,
   initMachine,
   type Modifiers,
   polygonProblem,
@@ -949,11 +949,10 @@ describe("image", () => {
       { state: a.state, first: 2 },
     );
     const w = onlyWrite(b.effects);
-    expect(w.label.length).toBeLessThanOrEqual(200);
-    expect(w.label.startsWith("Import aaa")).toBe(true);
-    // No lone surrogate from cutting the emoji in half.
-    expect(w.label).toBe(w.label.normalize());
-    expect(/[\uD800-\uDFFF]/.test(w.label.replace(/\p{Extended_Pictographic}/gu, ""))).toBe(false);
+    expect(w.label).toBe(`Import ${"a".repeat(192)}…`);
+    expect(w.label.length).toBe(200);
+    // An emoji at the cut is dropped whole, never split into a lone surrogate.
+    expect(importLabel(`${"b".repeat(191)}😀x`)).toBe(`Import ${"b".repeat(191)}…`);
     expect(createOp(b.effects).init?.cells?.name).toEqual({ type: "text", value: stem });
     // A short stem is labelled in full.
     expect(importLabel("Crypt")).toBe("Import Crypt");

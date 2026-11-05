@@ -94,6 +94,25 @@ export function fileStem(name: string): string {
   return stem.trim() === "" ? "Image" : stem;
 }
 
+/** The longest transaction label the protocol accepts (PROTOCOL.md §4, `transact`). */
+export const MAX_LABEL_LENGTH = 200;
+
+/**
+ * The label of an image import: "Import <name>", shortened with an ellipsis
+ * (whole code points, never half a surrogate pair) to fit MAX_LABEL_LENGTH.
+ * The object's `name` keeps the full stem.
+ */
+export function importLabel(name: string): string {
+  const full = `Import ${name}`;
+  if (full.length <= MAX_LABEL_LENGTH) return full;
+  let label = "Import ";
+  for (const ch of name) {
+    if (label.length + ch.length + 1 > MAX_LABEL_LENGTH) break;
+    label += ch;
+  }
+  return `${label}…`;
+}
+
 const text = (value: string) => ({ type: "text" as const, value });
 
 /** The fog cells of a zone: opaque and visible to the GM only (DESIGN.md §4.4, §8.4 step 3). */
@@ -576,7 +595,7 @@ export function createImageTool(): Tool<ImagePhase, "image"> {
         };
         return {
           state: ended,
-          effects: [createWrite(entry, "image", entry.at, init, `Import ${entry.name}`)],
+          effects: [createWrite(entry, "image", entry.at, init, importLabel(entry.name))],
         };
       }
       case "upload_failed":
