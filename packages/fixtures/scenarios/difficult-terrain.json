@@ -1,0 +1,140 @@
+{
+  "title": "A token's speed halves inside difficult terrain",
+  "source": "Difficult terrain",
+  "description": "Three rect zones on one board. The swamp (tag difficult) is 6x4 at [10, 10]: x 7..13, y 8..12. The rubble (tag difficult) is 4x2 at [13, 9]: x 11..15, y 8..10, overlapping the swamp's east edge. The road (tag road) is 4x4 at [0, 10]: x -2..2, y 8..12. Aldric's token (base_speed 30) walks from open ground through the road, into the swamp, into the swamp/rubble overlap, and out. The road and the overlap are variants chosen by this transcription to show that the tag, not zone-ness, slows the token, and that overlapping difficult zones halve once.",
+  "setup": {
+    "boards": [{ "id": "table", "name": "Table" }],
+    "characters": ["aldric"],
+    "objects": [
+      {
+        "id": "swamp",
+        "is_zone": true,
+        "tag": ["difficult"],
+        "shape": { "type": "rect", "width": 6, "height": 4 },
+        "placement": { "board": "table", "position": [10, 10] },
+        "cells": { "name": { "type": "text", "value": "Swamp" } }
+      },
+      {
+        "id": "rubble",
+        "is_zone": true,
+        "tag": ["difficult"],
+        "shape": { "type": "rect", "width": 4, "height": 2 },
+        "placement": { "board": "table", "position": [13, 9] },
+        "cells": { "name": { "type": "text", "value": "Rubble" } }
+      },
+      {
+        "id": "road",
+        "is_zone": true,
+        "tag": ["road"],
+        "shape": { "type": "rect", "width": 4, "height": 4 },
+        "placement": { "board": "table", "position": [0, 10] },
+        "cells": { "name": { "type": "text", "value": "Road" } }
+      },
+      {
+        "id": "aldric",
+        "tag": ["pc"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [0, 0] },
+        "cells": {
+          "name": { "type": "text", "value": "Aldric" },
+          "base_speed": { "type": "number", "value": 30 },
+          "speed": {
+            "type": "formula",
+            "source": "base_speed / if(len(zones_containing(this).where(tag has \"difficult\")) > 0, 2, 1)"
+          }
+        }
+      }
+    ]
+  },
+  "dice": [],
+  "expect": [
+    {
+      "type": "cell",
+      "object": "aldric",
+      "cell": "speed",
+      "value": { "type": "number", "value": 30 },
+      "note": "\"speed = base_speed / if(len(zones_containing(this).where(tag has \"difficult\")) > 0, 2, 1)\": [0, 0] is in no zone, so 30 / 1."
+    }
+  ],
+  "steps": [
+    {
+      "actor": "gm",
+      "note": "Aldric walks onto the road.",
+      "do": {
+        "type": "move",
+        "object": "aldric",
+        "to": { "type": "board", "board": "table", "position": [0, 10] }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "speed",
+          "value": { "type": "number", "value": 30 },
+          "note": "\"speed = base_speed / if(len(zones_containing(this).where(tag has \"difficult\")) > 0, 2, 1)\": the road contains him but is not tagged difficult, so 30 / 1."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Aldric wades into the swamp.",
+      "do": {
+        "type": "move",
+        "object": "aldric",
+        "to": { "type": "board", "board": "table", "position": [10, 10] }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "speed",
+          "value": { "type": "number", "value": 15 },
+          "note": "\"move the token into the zone (speed 15)\" (FIXTURES §9): [10, 10] is in the swamp, 30 / 2."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Aldric reaches the part of the swamp covered by rubble.",
+      "do": {
+        "type": "move",
+        "object": "aldric",
+        "to": { "type": "board", "board": "table", "position": [12, 9] }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "speed",
+          "value": { "type": "number", "value": 15 },
+          "note": "\"speed = base_speed / if(len(zones_containing(this).where(tag has \"difficult\")) > 0, 2, 1)\": two difficult zones contain [12, 9], but the divisor is 2 whenever the count is > 0, so 15, not 7.5."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Aldric climbs out north of the swamp.",
+      "do": {
+        "type": "move",
+        "object": "aldric",
+        "to": { "type": "board", "board": "table", "position": [10, 14] }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "speed",
+          "value": { "type": "number", "value": 30 },
+          "note": "\"and out (30)\" (FIXTURES §9): y 14 is outside every zone."
+        },
+        {
+          "type": "placement",
+          "object": "aldric",
+          "board": "table",
+          "position": [10, 14],
+          "note": "The move's destination."
+        }
+      ]
+    }
+  ]
+}

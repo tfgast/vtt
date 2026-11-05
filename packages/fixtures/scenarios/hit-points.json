@@ -1,0 +1,206 @@
+{
+  "title": "Hit points follow damage until overridden",
+  "source": "Hit points",
+  "description": "hp is a formula over max_hp and damage_taken. A hand override freezes it and marks it; clearing the override makes it follow its inputs again. Undo reverses the clear. The damage amounts (5, then 10) and the override value (30) are chosen by this transcription; the prose fixes only max_hp 27 and damage_taken 0.",
+  "setup": {
+    "boards": [{ "id": "table", "name": "Table" }],
+    "characters": ["aldric"],
+    "objects": [
+      {
+        "id": "aldric",
+        "tag": ["pc"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [3, 4] },
+        "cells": {
+          "name": { "type": "text", "value": "Aldric" },
+          "max_hp": { "type": "number", "value": 27 },
+          "damage_taken": { "type": "number", "value": 0 },
+          "hp": { "type": "formula", "source": "max_hp - damage_taken" }
+        }
+      }
+    ]
+  },
+  "dice": [],
+  "expect": [
+    {
+      "type": "cell",
+      "object": "aldric",
+      "cell": "hp",
+      "value": { "type": "number", "value": 27 },
+      "note": "\"max_hp: 27\", \"damage_taken: 0\", \"hp = max_hp - damage_taken\": 27 - 0 = 27."
+    },
+    {
+      "type": "override",
+      "object": "aldric",
+      "cell": "hp",
+      "overridden": false,
+      "note": "\"hp = max_hp - damage_taken\" is a formula and nobody has typed over it yet."
+    },
+    { "type": "log_groups", "count": 0, "note": "Nothing has happened yet; the log is empty." }
+  ],
+  "steps": [
+    {
+      "actor": "gm",
+      "note": "Aldric takes 5 damage (amount chosen by the transcription).",
+      "do": {
+        "type": "set",
+        "object": "aldric",
+        "cell": "damage_taken",
+        "value": { "type": "number", "value": 5 }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "hp",
+          "value": { "type": "number", "value": 22 },
+          "note": "\"hp = max_hp - damage_taken\": 27 - 5 = 22; the formula follows its input."
+        },
+        {
+          "type": "override",
+          "object": "aldric",
+          "cell": "hp",
+          "overridden": false,
+          "note": "Changing an input is not an override of hp."
+        },
+        { "type": "log_groups", "count": 1, "note": "FIXTURES §8: a set is one group." },
+        {
+          "type": "log_includes",
+          "group": -1,
+          "effect": {
+            "type": "write",
+            "object": "aldric",
+            "cell": "damage_taken",
+            "value": { "type": "number", "value": 5 }
+          },
+          "note": "FIXTURES §7: the set is recorded as a write of the value."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "The GM types 30 over the hp formula (value chosen by the transcription).",
+      "do": {
+        "type": "override",
+        "object": "aldric",
+        "cell": "hp",
+        "value": { "type": "number", "value": 30 }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "hp",
+          "value": { "type": "number", "value": 30 },
+          "note": "\"Overriding `hp` by hand freezes it until the override is cleared; the inspector marks it.\" The override's value replaces the formula's 22."
+        },
+        {
+          "type": "override",
+          "object": "aldric",
+          "cell": "hp",
+          "overridden": true,
+          "note": "\"Overriding `hp` by hand freezes it until the override is cleared; the inspector marks it.\" The inspector's marker is on."
+        },
+        { "type": "log_groups", "count": 2, "note": "FIXTURES §8: an override is one group." },
+        {
+          "type": "log_includes",
+          "group": -1,
+          "effect": {
+            "type": "write",
+            "object": "aldric",
+            "cell": "hp",
+            "value": { "type": "number", "value": 30 }
+          },
+          "note": "FIXTURES §7: for an override, the write is the overriding value."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Further damage does not show while hp is overridden.",
+      "do": {
+        "type": "set",
+        "object": "aldric",
+        "cell": "damage_taken",
+        "value": { "type": "number", "value": 10 }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "hp",
+          "value": { "type": "number", "value": 30 },
+          "note": "\"Overriding `hp` by hand freezes it until the override is cleared; the inspector marks it.\" hp stays 30 although 27 - 10 would be 17."
+        },
+        {
+          "type": "override",
+          "object": "aldric",
+          "cell": "hp",
+          "overridden": true,
+          "note": "\"Overriding `hp` by hand freezes it until the override is cleared; the inspector marks it.\" Still marked."
+        },
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "damage_taken",
+          "value": { "type": "number", "value": 10 },
+          "note": "The input itself did change; only hp is frozen."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Clearing the override makes hp follow its inputs again.",
+      "do": { "type": "clear_override", "object": "aldric", "cell": "hp" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "hp",
+          "value": { "type": "number", "value": 17 },
+          "note": "\"... freezes it until the override is cleared\": cleared, so \"hp = max_hp - damage_taken\" = 27 - 10 = 17."
+        },
+        {
+          "type": "override",
+          "object": "aldric",
+          "cell": "hp",
+          "overridden": false,
+          "note": "\"the inspector marks it\": with the override cleared the marker is gone."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Undo reverses the clear; the override and its marker come back.",
+      "do": { "type": "undo" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "hp",
+          "value": { "type": "number", "value": 30 },
+          "note": "FIXTURES §8: undo reverses the most recent group, the clear, so the override of 30 is back."
+        },
+        {
+          "type": "override",
+          "object": "aldric",
+          "cell": "hp",
+          "overridden": true,
+          "note": "\"the inspector marks it\": the restored override is marked again."
+        },
+        {
+          "type": "cell",
+          "object": "aldric",
+          "cell": "damage_taken",
+          "value": { "type": "number", "value": 10 },
+          "note": "Undo reversed only the clear; the earlier damage write stands."
+        },
+        {
+          "type": "log_groups",
+          "count": 5,
+          "note": "FIXTURES §8: set, override, set, clear_override, undo; undo is itself a group and deletes nothing."
+        }
+      ]
+    }
+  ]
+}

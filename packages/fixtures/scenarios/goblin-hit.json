@@ -1,0 +1,265 @@
+{
+  "title": "A goblin shows HIT to the player when a die on it beats its hidden AC",
+  "source": "A goblin that shows HIT when a die on it beats its AC",
+  "description": "The goblin (circle radius 0.5 at [5, 5], so x 4.5..5.5) has ac 13 visible to the GM only and the hit formula. Aldric's d20 (a 1x1 rect) starts in a dice bag, so nothing is on the goblin; it is moved beside the goblin at [7, 5] (x 6.5..7.5, no overlap), then on top at [5.25, 5] (x 4.75..5.75, overlapping). After each board move its z is set to 1, above the goblin's 0, rather than relying on a default (FIXTURES §9). Unrolled, its total is 0 and hit stays false; a scripted 15 makes hit true. Moving the goblin away leaves the die behind and clears hit. Aldric can see hit but never ac.",
+  "setup": {
+    "boards": [{ "id": "table", "name": "Table" }],
+    "characters": ["aldric"],
+    "objects": [
+      {
+        "id": "aldric",
+        "tag": ["pc"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [0, 0] },
+        "cells": {
+          "name": { "type": "text", "value": "Aldric" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] }
+        }
+      },
+      {
+        "id": "goblin1",
+        "tag": ["creature", "goblin"],
+        "shape": { "type": "circle", "radius": 0.5 },
+        "placement": { "board": "table", "position": [5, 5] },
+        "cells": {
+          "name": { "type": "text", "value": "Goblin" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] },
+          "z": { "type": "number", "value": 0 },
+          "ac": { "type": "number", "value": 13 },
+          "hit": { "type": "formula", "source": "any(on(this).where(tag has \"d20\").total >= ac)" }
+        },
+        "cell_visibility": { "ac": { "type": "viewers", "viewers": ["gm"] } }
+      },
+      {
+        "id": "dice_bag",
+        "tag": ["bag"],
+        "placement": { "board": "table", "position": [12, 0] },
+        "contents": ["die1"],
+        "cells": {
+          "name": { "type": "text", "value": "Dice bag" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] }
+        }
+      },
+      {
+        "id": "die1",
+        "tag": ["die", "d20"],
+        "shape": { "type": "rect", "width": 1, "height": 1 },
+        "cells": {
+          "name": { "type": "text", "value": "Aldric's d20" },
+          "visible_to": { "type": "viewers", "viewers": ["all"] },
+          "owner": { "type": "ref", "object": "aldric" },
+          "sides": { "type": "number", "value": 20 },
+          "modifier": { "type": "empty" },
+          "value": { "type": "empty" },
+          "total": { "type": "formula", "source": "value + modifier" }
+        },
+        "actions": [{ "name": "Roll", "steps": ["roll(1d20) -> value"] }]
+      }
+    ]
+  },
+  "dice": [{ "type": "roll", "expr": "1d20", "dice": [15], "dropped": [], "total": 15 }],
+  "expect": [
+    {
+      "type": "cell",
+      "object": "goblin1",
+      "cell": "hit",
+      "value": { "type": "boolean", "value": false },
+      "note": "\"hit is false with no die on the goblin\" (FIXTURES §9): the die is in the bag, so on(this) is [] and any([]) is false (§6)."
+    },
+    {
+      "type": "cell_visible",
+      "object": "goblin1",
+      "cell": "ac",
+      "viewer": "aldric",
+      "visible": false,
+      "note": "\"ac: 13 (cell visible_to: gm)\". The viewer sees `hit`, not `ac`."
+    },
+    {
+      "type": "cell_visible",
+      "object": "goblin1",
+      "cell": "hit",
+      "viewer": "aldric",
+      "visible": true,
+      "note": "\"The viewer sees `hit`, not `ac`.\" hit has no cell visibility of its own, so it follows the goblin's visible_to: all."
+    },
+    {
+      "type": "cell_visible",
+      "object": "goblin1",
+      "cell": "ac",
+      "viewer": "gm",
+      "visible": true,
+      "note": "DESIGN §4.4: the GM always sees everything."
+    },
+    {
+      "type": "object_visible",
+      "object": "goblin1",
+      "viewer": "aldric",
+      "visible": true,
+      "note": "A public goblin with a GM-only AC (DESIGN §4.4)."
+    }
+  ],
+  "steps": [
+    {
+      "actor": "gm",
+      "note": "The die comes out of the bag and lands beside the goblin.",
+      "do": {
+        "type": "move",
+        "object": "die1",
+        "to": { "type": "board", "board": "table", "position": [7, 5] }
+      },
+      "expect": [
+        {
+          "type": "placement",
+          "object": "die1",
+          "board": "table",
+          "position": [7, 5],
+          "note": "The move's destination; footprint x 6.5..7.5 does not reach the goblin's 4.5..5.5."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Set the die's z above the goblin's rather than relying on a default (FIXTURES §9).",
+      "do": {
+        "type": "set",
+        "object": "die1",
+        "cell": "z",
+        "value": { "type": "number", "value": 1 }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "hit",
+          "value": { "type": "boolean", "value": false },
+          "note": "\"hit is false ... with a die beside it\" (FIXTURES §9). `on(obj)`: Objects whose footprint overlaps `obj` and that are above it in `z` (§6). The footprints do not overlap."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "The die is dragged onto the goblin.",
+      "do": {
+        "type": "move",
+        "object": "die1",
+        "to": { "type": "board", "board": "table", "position": [5.25, 5] }
+      },
+      "expect": [
+        {
+          "type": "placement",
+          "object": "die1",
+          "board": "table",
+          "position": [5.25, 5],
+          "note": "Footprint x 4.75..5.75 overlaps the goblin's circle."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "Set z again after the move: the docs do not say what z a moved object gets (FIXTURES §9).",
+      "do": {
+        "type": "set",
+        "object": "die1",
+        "cell": "z",
+        "value": { "type": "number", "value": 1 }
+      },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "die1",
+          "cell": "total",
+          "value": { "type": "number", "value": 0 },
+          "note": "total = value + modifier with both empty is 0 (§2.1)."
+        },
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "hit",
+          "value": { "type": "boolean", "value": false },
+          "note": "\"hit = any(on(this).where(tag has \"d20\").total >= ac)\": the die is on the goblin but its total 0 is not >= 13."
+        }
+      ]
+    },
+    {
+      "actor": "aldric",
+      "note": "Aldric rolls the die on the goblin (scripted 15).",
+      "do": { "type": "invoke", "object": "die1", "action": "Roll" },
+      "expect": [
+        {
+          "type": "cell",
+          "object": "die1",
+          "cell": "total",
+          "value": { "type": "number", "value": 15 },
+          "note": "total = value + modifier: 15 + empty."
+        },
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "hit",
+          "value": { "type": "boolean", "value": true },
+          "note": "\"true after a scripted roll of 15 on a die on top\" (FIXTURES §9): [15] >= 13 is [true]; any is true."
+        },
+        {
+          "type": "cell_visible",
+          "object": "goblin1",
+          "cell": "hit",
+          "viewer": "aldric",
+          "visible": true,
+          "note": "\"The viewer sees `hit`, not `ac`.\""
+        },
+        {
+          "type": "cell_visible",
+          "object": "goblin1",
+          "cell": "ac",
+          "viewer": "aldric",
+          "visible": false,
+          "note": "\"The viewer sees `hit`, not `ac`.\" Seeing the result does not reveal ac (§9: the formula still computes and the viewer sees the result)."
+        },
+        {
+          "type": "log_includes",
+          "group": -1,
+          "effect": {
+            "type": "roll",
+            "object": "die1",
+            "cell": "value",
+            "value": { "type": "roll", "expr": "1d20", "dice": [15], "dropped": [], "total": 15 }
+          },
+          "note": "§8.1: the roll is logged."
+        }
+      ]
+    },
+    {
+      "actor": "gm",
+      "note": "The goblin moves away; the die stays where it was.",
+      "do": {
+        "type": "move",
+        "object": "goblin1",
+        "to": { "type": "board", "board": "table", "position": [10, 10] }
+      },
+      "expect": [
+        {
+          "type": "placement",
+          "object": "die1",
+          "board": "table",
+          "position": [5.25, 5],
+          "note": "DESIGN §4.3: stacking is not a container relationship; moving a token does not carry the die sitting on it."
+        },
+        {
+          "type": "cell",
+          "object": "goblin1",
+          "cell": "hit",
+          "value": { "type": "boolean", "value": false },
+          "note": "\"hit = any(on(this).where(tag has \"d20\").total >= ac)\": nothing overlaps the goblin at [10, 10], so on(this) is empty."
+        },
+        {
+          "type": "cell_visible",
+          "object": "goblin1",
+          "cell": "ac",
+          "viewer": "aldric",
+          "visible": false,
+          "note": "\"ac: 13 (cell visible_to: gm)\" regardless of where the goblin is."
+        }
+      ]
+    }
+  ]
+}
