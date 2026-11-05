@@ -125,7 +125,10 @@ function distance(env: EvalEnv, args: readonly Result[]): Result {
   const [pa, pb] = placements;
   if (!placedBoth || pa === undefined || pb === undefined) return EMPTY;
   if (pa.board !== pb.board) return err("#TYPE", "distance across boards");
-  return num(anchorDistance(pa.anchor, pb.anchor));
+  const d = anchorDistance(pa.anchor, pb.anchor);
+  // FORMULAS §4: a non-finite arithmetic result is #TYPE.
+  if (!Number.isFinite(d)) return err("#TYPE", "result is not a finite number");
+  return num(d);
 }
 
 /**

@@ -35,6 +35,16 @@ describe("distance(a, b)", () => {
     expect(run("distance(c, e)", cells())).toEqual(EMPTY);
   });
 
+  test("a non-finite distance is #TYPE", () => {
+    const env = new FakeEnv({
+      table: {},
+      self: { a: ref("west"), b: ref("east") },
+      west: placed("table", [-1e308, 0]),
+      east: placed("table", [1e308, 0]),
+    });
+    expect(run("distance(a, b)", env)).toMatchObject({ code: "#TYPE" });
+  });
+
   test("is #TYPE across boards", () => {
     expect(run("distance(a, e)", cells())).toMatchObject({ code: "#TYPE" });
   });
