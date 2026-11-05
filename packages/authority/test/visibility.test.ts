@@ -26,7 +26,10 @@ import {
 } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 
-const viewers = (...entries: ViewerEntry[]): ViewersValue => ({ type: "viewers", viewers: entries });
+const viewers = (...entries: ViewerEntry[]): ViewersValue => ({
+  type: "viewers",
+  viewers: entries,
+});
 const c = (content: Cell["content"]): Cell => ({ content });
 const ALL = viewers("all");
 const GM_ONLY = viewers("gm");
@@ -150,14 +153,21 @@ describe("drawing a card: container visibility", () => {
   });
 
   test("`owner` whose owner cell is not a ref to a character admits nobody", () => {
-    const owned = (owner: Cell) =>
-      world([
-        obj("box", { board: "table", cells: { visible_to: c(viewers("owner")), owner } }),
-      ]);
-    expect(owned(c(EMPTY)).canSeeObject(ALDRIC, "box")).toBe(false);
-    expect(owned(c(ref("statue"))).canSeeObject(ALDRIC, "box")).toBe(false);
-    expect(owned(c(num(1))).canSeeObject(ALDRIC, "box")).toBe(false);
-    expect(owned(c(ref("aldric"))).canSeeObject(ALDRIC, "box")).toBe(true);
+    const owned = (owner: Result) =>
+      world(
+        [
+          obj("box", {
+            board: "table",
+            cells: { position: at(1, 1), visible_to: c(viewers("owner")) },
+          }),
+        ],
+        { box: { owner } },
+      );
+    expect(owned(EMPTY).canSeeObject(ALDRIC, "box")).toBe(false);
+    expect(owned(ref("statue")).canSeeObject(ALDRIC, "box")).toBe(false);
+    expect(owned(num(1)).canSeeObject(ALDRIC, "box")).toBe(false);
+    expect(owned(err("#REF")).canSeeObject(ALDRIC, "box")).toBe(false);
+    expect(owned(ref("aldric")).canSeeObject(ALDRIC, "box")).toBe(true);
   });
 });
 
@@ -234,7 +244,8 @@ describe("face down", () => {
     for (const cell of FACE_DOWN_EXEMPT) expect(v.canSeeCell(BRYN, "card", cell)).toBe(true);
     for (const cell of ["rank", "visible_to", "owner", "tag", "contents", "id", "nonesuch"])
       expect(v.canSeeCell(BRYN, "card", cell)).toBe(false);
-    for (const cell of ["rank", "owner", "name"]) expect(v.canSeeCell(ALDRIC, "card", cell)).toBe(true);
+    for (const cell of ["rank", "owner", "name"])
+      expect(v.canSeeCell(ALDRIC, "card", cell)).toBe(true);
     expect(v.canSeeCell(GM, "card", "rank")).toBe(true);
   });
 
@@ -275,7 +286,12 @@ describe("opaque cover", () => {
       board: "table",
       is_zone: true,
       shape: { type: "rect", width: 10, height: 10 },
-      cells: { position: at(10, 10), z: c(num(0)), opaque: c(bool(true)), visible_to: c(visibleTo) },
+      cells: {
+        position: at(10, 10),
+        z: c(num(0)),
+        opaque: c(bool(true)),
+        visible_to: c(visibleTo),
+      },
     });
   const goblin = obj("goblin", {
     board: "table",
@@ -327,9 +343,13 @@ describe("opaque cover", () => {
 
   test("a hidden zone listed as undetermined covers", () => {
     // opaque evaluating to an error, or geometry unreadable: the cover stub reports it.
-    const v = world([zone(GM_ONLY), goblin], { room: { opaque: err("#TYPE") } }, {
-      goblin: { undetermined: ["room"] },
-    });
+    const v = world(
+      [zone(GM_ONLY), goblin],
+      { room: { opaque: err("#TYPE") } },
+      {
+        goblin: { undetermined: ["room"] },
+      },
+    );
     expect(v.canSeeObject(ALDRIC, "goblin")).toBe(false);
     expect(v.canSeeObject(GM, "goblin")).toBe(true);
     const shown = world([zone(ALL), goblin], {}, { goblin: { undetermined: ["room"] } });
@@ -337,7 +357,11 @@ describe("opaque cover", () => {
   });
 
   test("a zone never covers itself", () => {
-    const v = world([zone(viewers(ref("aldric")))], {}, { room: { covering: ["room"], undetermined: ["room"] } });
+    const v = world(
+      [zone(viewers(ref("aldric")))],
+      {},
+      { room: { covering: ["room"], undetermined: ["room"] } },
+    );
     expect(v.isCovered(BRYN, "room")).toBe(false);
     expect(v.canSeeObject(ALDRIC, "room")).toBe(true);
     expect(v.canSeeObject(BRYN, "room")).toBe(false);
@@ -412,7 +436,9 @@ describe("visible_to values", () => {
 
 describe("non-character viewers", () => {
   test("a viewer that is not a character sees nothing", () => {
-    const v = world([obj("thing", { board: "table", cells: { position: at(1, 1), visible_to: c(ALL) } })]);
+    const v = world([
+      obj("thing", { board: "table", cells: { position: at(1, 1), visible_to: c(ALL) } }),
+    ]);
     expect(v.canSeeObject(STATUE, "thing")).toBe(false);
     expect(v.canSeeCell(STATUE, "thing", "name")).toBe(false);
     expect(v.isEffectivelyVisible(STATUE, "thing")).toBe(false);
