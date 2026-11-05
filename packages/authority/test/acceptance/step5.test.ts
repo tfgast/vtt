@@ -326,8 +326,8 @@ describe("§8.4 step 5 through vtt-serve and vtt-mcp", () => {
           MCP_BIN,
           "--url",
           session.url,
-          "--token",
-          session.token,
+          // `--token=<t>`: a generated token may start with "-" (vtt-qf5.32).
+          `--token=${session.token}`,
           "--name",
           AGENT_NAME,
         ],
@@ -647,7 +647,7 @@ describe("§8.4 step 5 through vtt-serve and vtt-mcp", () => {
       expect(await within(first.exited, "vtt-serve to exit")).toEqual({ code: 0, signal: null });
 
       const port = new URL(session.url).port;
-      const second = await printed(serve(["--port", port, "--token", session.token]));
+      const second = await printed(serve(["--port", port, `--token=${session.token}`]));
       expect(second.url).toBe(session.url);
       expect(second.session).not.toBe(session.session);
 
