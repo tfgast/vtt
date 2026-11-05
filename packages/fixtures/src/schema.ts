@@ -108,9 +108,10 @@ export const ShapeSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("polygon"), points: z.array(PointSchema).min(3) }),
 ]);
 
+/** Board placement. `position` is the anchor, or a formula (FORMULAS §3.1). */
 export const PlacementSchema = z.strictObject({
   board: NameSchema,
-  position: PointSchema,
+  position: z.union([PointSchema, FormulaSchema]),
 });
 
 export const ActionSchema = z.strictObject({
@@ -123,6 +124,7 @@ export const ObjectSchema = z.strictObject({
   id: NameSchema,
   note: z.string().optional(),
   is_template: z.boolean().optional(),
+  is_zone: z.boolean().optional(),
   tag: z.array(z.string().min(1)).optional(),
   shape: ShapeSchema.optional(),
   placement: PlacementSchema.optional(),
@@ -331,5 +333,35 @@ const ScenarioShapeSchema = z.strictObject({
 
 export type ScenarioShape = z.infer<typeof ScenarioShapeSchema>;
 
+/**
+ * zod's records silently drop an own `__proto__` key (JSON.parse creates one),
+ * which would lose a cell without a word. Reject it anywhere in the input.
+ */
+function rejectProtoKeys(input: unknown, ctx: z.RefinementCtx): void {
+  const walk = (v: unknown, path: (string | number)[]) => {
+    if (Array.isArray(v)) {
+      v.forEach((item, i) => {
+        walk(item, [...path, i]);
+      });
+    } else if (typeof v === "object" && v !== null) {
+      for (const key of Object.keys(v)) {
+        if (key === "__proto__") {
+          ctx.addIssue({
+            code: "custom",
+            path: [...path, key],
+            message: '"__proto__" is not allowed as a key',
+          });
+        } else {
+          walk((v as Record<string, unknown>)[key], [...path, key]);
+        }
+      }
+    }
+  };
+  walk(input, []);
+}
+
 /** The validator: structural shape plus cross-reference checks. */
-export const ScenarioSchema = ScenarioShapeSchema.superRefine(checkScenario);
+export const ScenarioSchema = z
+  .unknown()
+  .superRefine(rejectProtoKeys)
+  .pipe(ScenarioShapeSchema.superRefine(checkScenario));

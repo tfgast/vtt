@@ -42,7 +42,9 @@ Every tagged form discriminates on a field named **`type`**, everywhere: values,
 formulas, shapes, destinations, steps, expectations, rejection reasons, log
 effects, dice script entries. Every object is strict: an unknown key is a
 validation error, so a misspelled `"expcet"` fails rather than silently
-asserting nothing. Steps, objects and expectations take an optional `note`, a
+asserting nothing. `__proto__` is rejected as a key anywhere, including as a
+cell name (zod's records would otherwise drop it without a word); names like
+`constructor` or `toString` are ordinary. Steps, objects and expectations take an optional `note`, a
 free-text comment; transcriptions use it to quote the line of prose that
 justifies an expectation.
 
@@ -130,6 +132,7 @@ An object:
   "id": "goblin1",
   "note": "optional",
   "is_template": false,
+  "is_zone": false,
   "tag": ["creature", "goblin"],
   "shape": { "type": "circle", "radius": 0.5 },
   "placement": { "board": "table", "position": [3, 4] },
@@ -154,14 +157,16 @@ An object:
 | `container` | never written; derived from `contents` |
 | `board`, `position` | the object's `placement` |
 | `shape` | the object's `shape` |
+| zone marker | the object's `is_zone` (see **Zones** below) |
 | `name`, `visible_to`, `owner`, `template`, `face_up`, `opaque`, `rotation`, `z` | ordinary entries in `cells` |
 
 Writing `id`, `tag`, `contents`, `container`, `board`, `position`, or `shape`
 in `cells` is a validation error. The cells that may appear in `cells` are
 type-checked when literal: `name` text; `visible_to` viewers; `owner` a
 reference or empty; `template` a reference or empty; `face_up` and `opaque`
-booleans; `rotation` and `z` numbers or empty. All but `template` may instead
-hold a formula (a room's `visible_to` is one, §10). The format assigns no
+booleans; `rotation` and `z` numbers or empty. `opaque` is valid only on an
+object with `"is_zone": true` (in setup, and in spawn `cells` when the
+template is known). All but `template` may instead hold a formula (a room's `visible_to` is one, §10). The format assigns no
 defaults: a fixture writes every structural cell whose value it depends on,
 and defaults for the rest are the engine's to define (M2).
 
@@ -172,7 +177,12 @@ cycle, and contents naming an unknown object.
 **Placement.** Every object is either in exactly one container or placed on a
 board, never both and never neither (DESIGN §4.1). `placement` is
 `{board, position}`; `position` is the object's anchor `[x, y]` in board
-units. Objects in a container have no placement. There are no stacking or
+units, or a formula (FORMULAS §3.1: "a token that follows another"):
+`{"board":"table","position":{"type":"formula","source":"leader.position"}}`.
+`placement` is the only place `position` lives; it is rejected in `cells`.
+Destinations and the `placement` expectation always use numeric `[x, y]`; for
+a formula position the expectation asserts the evaluated coordinates.
+Objects in a container have no placement. There are no stacking or
 z-order fields: a stack is an ordered container, and `z` is an ordinary cell
 (see the goblin fixture).
 
@@ -185,6 +195,13 @@ still has its region, and keeps it when dragged onto a board. Fixtures that
 depend on footprints (`on`) or regions (`contents(zone)`, `zones_containing`)
 give shapes explicitly.
 
+**Zones.** An object is a zone when it has `"is_zone": true` (default false).
+`contents(zone)` and `zones_containing(obj)` consider only `is_zone` objects
+as zones; shape kind and tags never make an object a zone. An `is_zone` object's `shape` is its
+region; anyone else's is its outline. A spawned copy keeps its template's
+`is_zone`. (The name of the structural cell this field maps to in the document
+is pending; see the decision note in the vtt-1me.8 report.)
+
 **References** are `ref` values in ordinary cells (`target`, `owner`,
 `zone`). They are non-owning; only `contents` owns. A reference in setup must
 name a setup object or board.
@@ -194,7 +211,10 @@ else (usually inside a binder). Instances are made by a `spawn` step. A
 template's subtree is its `contents`, transitively.
 
 **Per-cell visibility** (DESIGN §4.4) is `cell_visibility`: cell name to a
-viewer set, for cells listed in `cells`. Object visibility is the
+viewer set. The target is a cell listed in `cells` or any structural cell of
+FORMULAS §3.1 (`tag`, `position`, `contents`, ...), even though those are set
+through their own fields; `cell_visible` may name the same cells. Object
+visibility is the
 `visible_to` cell. Effective visibility is composed by the engine and asserted
 with expectations; the setup states only what is stored.
 
@@ -318,7 +338,7 @@ step. One discriminated union on `type`:
 | `rejected` | `reason` | This step was refused for this reason, and the document and log are unchanged. Step-level only; at most one per step. |
 | `exists` | `object, exists` | The object exists, or has been removed. |
 | `container` | `object, container, index` | The object is at that index of that container's contents. |
-| `placement` | `object, board, position` | The object is on that board at that anchor. |
+| `placement` | `object, board, position` | The object is on that board at that anchor: numeric `[x, y]`, the evaluated coordinates if the position is a formula. |
 | `contents` | `object, contents` | The object's contents are exactly these, in order. |
 | `cell_visible` | `object, cell, viewer, visible` | The viewer can (or cannot) see the cell's value. |
 | `object_visible` | `object, viewer, visible` | The viewer can (or cannot) see the object. |
@@ -451,7 +471,7 @@ Scenario: (pending, vtt-1me.9)
 
 ### A dice tray that totals itself
 
-Zone variant: a `tray` with a `rect` shape on the board and
+Zone variant: a `tray` with `"is_zone": true` and a `rect` shape on the board and
 `tray_total = sum(contents(this).where(tag has "die").value)`. Dice are
 `move`d to board positions inside and outside the rectangle (a point on the
 boundary is inside, §6); `tray_total` follows. A non-die object inside does not
@@ -467,7 +487,7 @@ Scenario: (pending, vtt-1me.9)
 
 ### Difficult terrain
 
-A zone tagged `difficult` with a shape; a token with `base_speed: 30` and the
+An `is_zone` object tagged `difficult` with a shape; a token with `base_speed: 30` and the
 `speed` formula. `move` the token into the zone (`speed` 15) and out (30).
 Nothing new is needed; `rotation` of the zone, if a variant wants it, is an
 ordinary cell.
@@ -510,7 +530,7 @@ The densest fixture. Setup:
   `save_row: {"type":"ref","object":"save_row_t"}` cell. The prose calls
   `spawn(save_row, this, ...)` but does not list that cell; `save_row` must be
   a reference to the row template.
-- The zone template `fireball_zone`: a `circle` shape, no placement (it is in
+- The zone template `fireball_zone`: `"is_zone": true`, a `circle` shape, no placement (it is in
   the card's contents).
 - The row template `save_row_t` (tag `save_row`) **outside** the card's
   subtree, for example beside it in the binder. If it were inside, it would be
@@ -585,7 +605,7 @@ Scenario: (pending, vtt-1me.10)
 
 ### Re-hiding a room when the party leaves (phase 1 vision, optional)
 
-A room zone with a `rect` shape and cells `opaque: true` and
+A room with `"is_zone": true`, a `rect` shape, and cells `opaque: true` and
 `visible_to = if(len(contents(this).where(tag has "pc")) > 0, all, gm)` as a
 formula. A goblin marked `all` stands inside.
 

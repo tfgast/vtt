@@ -259,6 +259,214 @@ describe("table setup", () => {
     }, /./));
 });
 
+describe("zones", () => {
+  test("is_zone with opaque is accepted", () => {
+    const s = base();
+    s.setup.objects.push({
+      id: "room",
+      is_zone: true,
+      shape: { type: "rect", width: 4, height: 3 },
+      placement: { board: "table", position: [5, 5] },
+      cells: { opaque: { type: "boolean", value: true } },
+    });
+    expect(issues(s)).toEqual([]);
+  });
+  test("opaque on an object that is not a zone", () =>
+    rejects((s) => {
+      s.setup.objects.push({
+        id: "rug",
+        placement: { board: "table", position: [5, 5] },
+        cells: { opaque: { type: "boolean", value: true } },
+      });
+    }, /"opaque" is for zones only/));
+  test("a cell named zone is ordinary (Fireball's reference to its zone)", () => {
+    const s = base();
+    (s.setup.objects[2] as { cells: Record<string, unknown> }).cells.zone = {
+      type: "ref",
+      object: "inner_t",
+    };
+    expect(issues(s)).toEqual([]);
+  });
+  test("opaque at spawn of a template that is not a zone", () =>
+    rejects((s) => {
+      s.steps.push({
+        actor: "gm",
+        do: {
+          type: "spawn",
+          template: "card_t",
+          to: { type: "board", board: "table", position: [0, 0] },
+          cells: { opaque: { type: "boolean", value: true } },
+          as: "c",
+        },
+      });
+    }, /"opaque" is for zones only/));
+});
+
+describe("positions", () => {
+  test("a placement position may be a formula", () => {
+    const s = base();
+    s.setup.objects.push({
+      id: "follower",
+      placement: {
+        board: "table",
+        position: { type: "formula", source: 'obj("aldric").position' },
+      },
+    });
+    expect(issues(s)).toEqual([]);
+  });
+  test("a placement position is a pair or a formula, nothing else", () =>
+    rejects((s) => {
+      s.setup.objects.push({
+        id: "follower",
+        placement: { board: "table", position: { type: "text", value: "near" } },
+      });
+    }, /./));
+  test("position stays out of cells", () =>
+    rejects((s) => {
+      (s.setup.objects[0] as { cells: Record<string, unknown> }).cells.position = {
+        type: "formula",
+        source: "[0, 0]",
+      };
+    }, /structural/));
+  test("the placement expectation asserts numeric coordinates", () =>
+    rejects((s) => {
+      (s.steps[0] as { expect: unknown[] }).expect.push({
+        type: "placement",
+        object: "aldric",
+        board: "table",
+        position: { type: "formula", source: "[0, 0]" },
+      });
+    }, /./));
+});
+
+describe("structural cell visibility", () => {
+  test("structural cells may carry their own visibility", () => {
+    const s = base();
+    s.setup.objects[1] = {
+      ...s.setup.objects[1],
+      cell_visibility: {
+        tag: { type: "viewers", viewers: ["gm"] },
+        position: { type: "viewers", viewers: ["gm"] },
+        contents: { type: "viewers", viewers: [{ type: "ref", object: "aldric" }] },
+      },
+    };
+    (s.steps[0] as { expect: unknown[] }).expect.push(
+      { type: "cell_visible", object: "bag", cell: "contents", viewer: "aldric", visible: true },
+      { type: "cell_visible", object: "bag", cell: "tag", viewer: "aldric", visible: false },
+    );
+    expect(issues(s)).toEqual([]);
+  });
+});
+
+describe("prototype-named keys", () => {
+  const protoNames = ["constructor", "toString", "hasOwnProperty"];
+
+  test("__proto__ as a cell name is rejected rather than silently dropped", () => {
+    const parsed = JSON.parse(
+      JSON.stringify(base()).replace(
+        '"max_hp":',
+        '"__proto__":{"type":"number","value":1},"max_hp":',
+      ),
+    );
+    expect(issues(parsed).join("\n")).toMatch(/"__proto__" is not allowed/);
+  });
+
+  test("__proto__ as a cell_visibility or owned key is rejected", () => {
+    const s = base();
+    s.setup.objects[0] = { ...s.setup.objects[0], cell_visibility: {} };
+    const text = JSON.stringify(s).replace(
+      '"cell_visibility":{}',
+      '"cell_visibility":{"__proto__":{"type":"viewers","viewers":["gm"]}}',
+    );
+    expect(issues(JSON.parse(text)).join("\n")).toMatch(/"__proto__" is not allowed/);
+  });
+
+  test.each(protoNames)("cell name %s validates without crashing", (name) => {
+    const s = base();
+    const parsed = JSON.parse(
+      JSON.stringify(s).replace('"max_hp":', `"${name}":{"type":"number","value":1},"max_hp":`),
+    );
+    expect(() => issues(parsed)).not.toThrow();
+    expect(issues(parsed)).toEqual([]);
+  });
+
+  test.each(protoNames)("cell_visibility on unknown cell %s is rejected, not crashed", (name) => {
+    const s = base();
+    const parsed = JSON.parse(
+      JSON.stringify({
+        ...s,
+        setup: {
+          ...s.setup,
+          objects: [{ ...s.setup.objects[0], cell_visibility: {} }, ...s.setup.objects.slice(1)],
+        },
+      }).replace(
+        '"cell_visibility":{}',
+        `"cell_visibility":{"${name}":{"type":"viewers","viewers":["gm"]}}`,
+      ),
+    );
+    expect(issues(parsed).join("\n")).toMatch(/unknown cell/);
+  });
+
+  test.each(["constructor", "toString", "hasOwnProperty"])("object id %s", (id) => {
+    const s = base();
+    s.setup.objects.push({ id, placement: { board: "table", position: [0, 0] } });
+    s.steps.push({
+      actor: "gm",
+      do: { type: "set", object: id, cell: "x", value: { type: "number", value: 1 } },
+    });
+    expect(issues(s)).toEqual([]);
+    s.steps.push({ actor: "gm", do: { type: "invoke", object: id, action: "Fly" } });
+    expect(issues(s).join("\n")).toMatch(/no action "Fly"/);
+  });
+
+  test("an unbound prototype name is unknown", () =>
+    rejects((s) => {
+      s.steps.push({ actor: "gm", do: { type: "undo" }, expect: [] });
+      s.steps.push({
+        actor: "gm",
+        do: { type: "invoke", object: "constructor", action: "Use" },
+      });
+    }, /unknown object or binding "constructor"/));
+
+  test.each(["constructor", "toString", "valueOf"])("binding name %s", (name) => {
+    const s = base();
+    s.steps.push({
+      actor: "gm",
+      do: {
+        type: "spawn",
+        template: "card_t",
+        to: { type: "board", board: "table", position: [0, 0] },
+        as: name,
+        owned: { inner_t: `${name}_inner` },
+      },
+    });
+    s.steps.push({ actor: "gm", do: { type: "invoke", object: name, action: "Use" } });
+    s.steps.push({ do: { type: "bind", as: `${name}2`, tag: "x" } });
+    expect(issues(s)).toEqual([]);
+  });
+
+  test("owned keyed by a prototype name is rejected, not crashed", () => {
+    const s = base();
+    const step = {
+      actor: "gm",
+      do: {
+        type: "spawn",
+        template: "card_t",
+        to: { type: "board", board: "table", position: [0, 0] },
+        as: "c1",
+        owned: {},
+      },
+    };
+    const parsed = JSON.parse(
+      JSON.stringify({ ...s, steps: [...s.steps, step] }).replace(
+        '"owned":{}',
+        '"owned":{"constructor":"c2","toString":"c3"}',
+      ),
+    );
+    expect(issues(parsed).join("\n")).toMatch(/"constructor" is not in the contents/);
+  });
+});
+
 describe("dice script", () => {
   test("a permutation must be one", () =>
     rejects((s) => {

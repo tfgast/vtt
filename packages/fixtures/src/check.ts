@@ -30,17 +30,38 @@ export const NON_CELL_STRUCTURAL: readonly string[] = [
   "shape",
 ];
 
+/** Every structural cell of FORMULAS §3.1; any of them may carry its own visibility. */
+export const STRUCTURAL_CELLS: ReadonlySet<string> = new Set([
+  "id",
+  "name",
+  "tag",
+  "visible_to",
+  "owner",
+  "template",
+  "contents",
+  "container",
+  "board",
+  "position",
+  "rotation",
+  "z",
+  "face_up",
+  "shape",
+  "opaque",
+]);
+
 /** Allowed literal value types for structural cells that may appear in `cells`. */
-const STRUCTURAL_CELL_TYPES: Record<string, readonly string[]> = {
-  name: ["text", "formula"],
-  visible_to: ["viewers", "formula"],
-  owner: ["ref", "empty", "formula"],
-  template: ["ref", "empty"],
-  face_up: ["boolean", "formula"],
-  opaque: ["boolean", "formula"],
-  rotation: ["number", "empty", "formula"],
-  z: ["number", "empty", "formula"],
-};
+// A Map, not an object literal: cell names are user-supplied, and a lookup
+// like `table["constructor"]` would hit Object.prototype.
+const STRUCTURAL_CELL_TYPES: ReadonlyMap<string, readonly string[]> = new Map([
+  ["name", ["text", "formula"]],
+  ["visible_to", ["viewers", "formula"]],
+  ["owner", ["ref", "empty", "formula"]],
+  ["template", ["ref", "empty"]],
+  ["face_up", ["boolean", "formula"]],
+  ["opaque", ["boolean", "formula"]],
+  ["rotation", ["number", "empty", "formula"]],
+  ["z", ["number", "empty", "formula"]],
+]);
 
 interface Value {
   type: string;
@@ -109,15 +130,20 @@ export function checkScenario(scenario: ScenarioShape, ctx: Ctx): void {
         issue(path, `"${cell}" is structural; set it through the object's own field, not cells`);
         continue;
       }
-      const allowed = STRUCTURAL_CELL_TYPES[cell];
+      const allowed = STRUCTURAL_CELL_TYPES.get(cell);
       if (allowed && !allowed.includes(content.type)) {
         issue(path, `"${cell}" cannot hold a ${content.type}; allowed: ${allowed.join(", ")}`);
+      }
+      if (cell === "opaque" && o.is_zone !== true) {
+        issue(path, `"opaque" is for zones only; "${o.id}" is not is_zone`);
       }
       if (content.type !== "formula") checkValue(content, path, knownInSetup);
     }
     for (const [cell, viewers] of Object.entries(o.cell_visibility ?? {})) {
       const path = [...base, "cell_visibility", cell];
-      if (!(cell in (o.cells ?? {}))) issue(path, `cell_visibility names unknown cell "${cell}"`);
+      if (!Object.hasOwn(o.cells ?? {}, cell) && !STRUCTURAL_CELLS.has(cell)) {
+        issue(path, `cell_visibility names unknown cell "${cell}"`);
+      }
       checkValue(viewers, path, knownInSetup);
     }
     const actionNames = new Set<string>();
@@ -312,6 +338,11 @@ export function checkScenario(scenario: ScenarioShape, ctx: Ctx): void {
         for (const [cell, content] of Object.entries(d.cells ?? {})) {
           if (NON_CELL_STRUCTURAL.includes(cell)) {
             issue([...at, "cells", cell], `"${cell}" is structural and cannot be set at spawn`);
+          } else if (cell === "opaque" && template && template.is_zone !== true) {
+            issue(
+              [...at, "cells", cell],
+              `"opaque" is for zones only; "${d.template}" is not is_zone`,
+            );
           } else if (content.type !== "formula") {
             checkValue(content, [...at, "cells", cell], knownName);
           }
