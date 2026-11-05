@@ -230,7 +230,7 @@ describe("Draw (FORMULAS §10)", () => {
 describe("container destinations", () => {
   test("empty is #REF and a list is #TYPE", () => {
     const extra = [placed("bag", 5, 0), placed("t", 2, 0)];
-    expectStepError(go(tableWith(["move(t, nothing)"], { t: c(ref("t")) }, extra)), 0, "#REF");
+    expectStepError(go(tableWith(["move(t, empty)"], { t: c(ref("t")) }, extra)), 0, "#REF");
     expectStepError(
       go(tableWith(["move(t, [bag])"], { t: c(ref("t")), bag: c(ref("bag")) }, extra)),
       0,
@@ -245,9 +245,8 @@ describe("container destinations", () => {
     ]);
     expectOk(go(table));
     expect(contents(table, "bag")).toEqual(["t"]);
-    for (const cell of ["position", "rotation", "z"]) {
-      expect(table.store.getCell("t", cell)).toBeUndefined();
-    }
+    expect(Object.keys(table.store.getObject("t")?.cells ?? {})).toEqual([]);
+    expect(table.value("t", "position")).toEqual(EMPTY);
   });
 
   test("a move into its own descendant is containment_cycle with the step index", () => {
@@ -270,36 +269,36 @@ describe("container destinations", () => {
 describe("board(b, p)", () => {
   const extra = () => [
     placed("token", 2, 0),
-    obj("a", { board: "gm", cells: { position: at(0, 0), z: c(num(5)) } }),
-    obj("b", { board: "gm", cells: { position: at(1, 0), z: c(num(2)) } }),
+    obj("a", { board: "gm_map", cells: { position: at(0, 0), z: c(num(5)) } }),
+    obj("b", { board: "gm_map", cells: { position: at(1, 0), z: c(num(2)) } }),
   ];
 
   test("board(gm_board, [3, 4]) places on top of that board (landing rule z)", () => {
     const table = tableWith(
       ["move(token, board(gm_board, [3, 4]))"],
-      { token: c(ref("token")), gm_board: c(ref("gm")) },
+      { token: c(ref("token")), gm_board: c(ref("gm_map")) },
       extra(),
-      ["table", "gm"],
+      ["table", "gm_map"],
     );
     expectOk(go(table));
-    expect(table.store.boardOf("token")).toBe("gm");
+    expect(table.store.boardOf("token")).toBe("gm_map");
     expect(position(table, "token")).toEqual(list([num(3), num(4)]));
     expect(table.value("token", "z")).toEqual(num(6));
-    expect(table.value("token", "board")).toEqual(ref("gm"));
+    expect(table.value("token", "board")).toEqual(ref("gm_map"));
   });
 
   test("a board read from another object's board cell works; a spawn lands on top too", () => {
     const table = tableWith(
-      ["spawn(token, board(a.board, [1, 1]))"],
+      ['spawn(token, board(obj("a").board, [1, 1]))'],
       { token: c(ref("token")) },
       extra(),
-      ["table", "gm"],
+      ["table", "gm_map"],
     );
     const outcome = go(table);
     expectOk(outcome);
     const [copy] = outcome.created;
     expect(copy).toMatch(/^token_\d+$/);
-    expect(table.store.boardOf(copy as string)).toBe("gm");
+    expect(table.store.boardOf(copy as string)).toBe("gm_map");
     expect(position(table, copy as string)).toEqual(list([num(1), num(1)]));
     expect(table.value(copy as string, "z")).toEqual(num(6));
   });
@@ -307,9 +306,9 @@ describe("board(b, p)", () => {
   test("an object reference, empty or a missing board is #REF", () => {
     const cells = { token: c(ref("token")), goblin1: c(ref("goblin1")) };
     const more = [...extra(), placed("goblin1", 4, 0)];
-    for (const dest of ["board(goblin1, [0, 0])", "board(nothing, [0, 0])", "board(3, [0, 0])"]) {
+    for (const dest of ["board(goblin1, [0, 0])", "board(empty, [0, 0])", "board(3, [0, 0])"]) {
       expectStepError(
-        go(tableWith([`move(token, ${dest})`], cells, more, ["table", "gm"])),
+        go(tableWith([`move(token, ${dest})`], cells, more, ["table", "gm_map"])),
         0,
         "#REF",
       );
@@ -317,10 +316,10 @@ describe("board(b, p)", () => {
   });
 
   test("a position that is not two finite numbers is #TYPE", () => {
-    const cells = { token: c(ref("token")), gm_board: c(ref("gm")) };
+    const cells = { token: c(ref("token")), gm_board: c(ref("gm_map")) };
     for (const p of ["[1]", '[1, "a"]', "[1, 2, 3]", "5", "empty"]) {
       expectStepError(
-        go(tableWith([`move(token, board(gm_board, ${p}))`], cells, extra(), ["table", "gm"])),
+        go(tableWith([`move(token, board(gm_board, ${p}))`], cells, extra(), ["table", "gm_map"])),
         0,
         "#TYPE",
       );
@@ -328,14 +327,19 @@ describe("board(b, p)", () => {
   });
 
   test("an error in either argument refuses with its code", () => {
-    const cells = { token: c(ref("token")), gm_board: c(ref("gm")) };
+    const cells = { token: c(ref("token")), gm_board: c(ref("gm_map")) };
     expectStepError(
-      go(tableWith(["move(token, board(1 / 0, [0, 0]))"], cells, extra(), ["table", "gm"])),
+      go(tableWith(["move(token, board(1 / 0, [0, 0]))"], cells, extra(), ["table", "gm_map"])),
       0,
       "#DIV0",
     );
     expectStepError(
-      go(tableWith(["move(token, board(gm_board, [1 / 0, 0]))"], cells, extra(), ["table", "gm"])),
+      go(
+        tableWith(["move(token, board(gm_board, [1 / 0, 0]))"], cells, extra(), [
+          "table",
+          "gm_map",
+        ]),
+      ),
       0,
       "#DIV0",
     );
@@ -436,7 +440,7 @@ describe("beside(r)", () => {
   test("beside(empty) is #REF and an error refuses with its code", () => {
     const extra = [placed("die", 0, 9)];
     expectStepError(
-      go(tableWith(["move(die, beside(nothing))"], { die: c(ref("die")) }, extra)),
+      go(tableWith(["move(die, beside(empty))"], { die: c(ref("die")) }, extra)),
       0,
       "#REF",
     );
@@ -451,16 +455,16 @@ describe("beside(r)", () => {
 describe("table", () => {
   const extra = () => [
     placed("token", 2, 0),
-    obj("a", { board: "gm", cells: { position: at(0, 0) } }),
+    obj("a", { board: "gm_map", cells: { position: at(0, 0) } }),
   ];
 
   test("resolves to the invoker's board and viewport centre", () => {
     const table = tableWith(["move(token, table)"], { token: c(ref("token")) }, extra(), [
       "table",
-      "gm",
+      "gm_map",
     ]);
-    expectOk(go(table, { board: "gm", position: [7, -2] }));
-    expect(table.store.boardOf("token")).toBe("gm");
+    expectOk(go(table, { board: "gm_map", position: [7, -2] }));
+    expect(table.store.boardOf("token")).toBe("gm_map");
     expect(position(table, "token")).toEqual(list([num(7), num(-2)]));
     expect(table.value("token", "z")).toEqual(num(1));
   });
@@ -470,7 +474,7 @@ describe("table", () => {
       ["set(x, 1)", "spawn(token, table)"],
       { token: c(ref("token")) },
       extra(),
-      ["table", "gm"],
+      ["table", "gm_map"],
     );
     const outcome = go(table);
     expectStepError(outcome, 1, undefined);
@@ -486,7 +490,7 @@ describe("table", () => {
       ["move(token, this.table)"],
       { token: c(ref("token")), table: c(ref("bag")) },
       [...extra(), placed("bag", 5, 5)],
-      ["table", "gm"],
+      ["table", "gm_map"],
     );
     expectOk(go(table));
     expect(contents(table, "bag")).toEqual(["token"]);
@@ -559,7 +563,7 @@ describe("spawn", () => {
 
   test("the template must be one reference to an existing object", () => {
     const cells = { bag: c(ref("bag")) };
-    expectStepError(go(tableWith(["spawn(nothing, bag)"], cells, extra())), 0, "#REF");
+    expectStepError(go(tableWith(["spawn(empty, bag)"], cells, extra())), 0, "#REF");
     expectStepError(go(tableWith(["spawn([bag], bag)"], cells, extra())), 0, "#TYPE");
   });
 });
@@ -585,7 +589,7 @@ describe("remove", () => {
   });
 
   test("remove(empty) is #REF", () => {
-    expectStepError(go(tableWith(["remove(nothing)"])), 0, "#REF");
+    expectStepError(go(tableWith(["remove(empty)"])), 0, "#REF");
   });
 });
 
