@@ -7,7 +7,8 @@ document is the contract every implementation follows. Decisions are cited
 as D1–D33; each is the DESIGN.md §10 decision-log row that starts `M3-D<n>.`
 (D13, D20 and D31 have no row of their own: D13 is the face-down exemption
 set of §7.4, already stated in DESIGN.md §4.4; D20 and D31 are the
-`setActions` and `removeBoard` primitives, logged with M2).
+`setActions` and `removeBoard` primitives, logged with M2). M4's additions
+cite their rows in full, `M4-D<n>`.
 
 **Conventions.** Types are written in TypeScript notation. `ObjectId`,
 `BoardId`, `Shape`, `ErrorCode`, `ActionDef`, `Actor`, `Board`, `Snapshot`,
@@ -36,7 +37,7 @@ Contents:
 
 ## 1. Transport, framing, envelope, close codes
 
-Decisions: D1, D3.
+Decisions: D1, D3; M4-D1, M4-D3.
 
 - One WebSocket per client at `ws://127.0.0.1:<port>/ws`. JSON text frames,
   one message per frame. Every message has a `type`.
@@ -48,12 +49,42 @@ Decisions: D1, D3.
   const CLOSE_CODES = { protocol: 4400, unauthorized: 4401, hello_timeout: 4408, slow_consumer: 4429, shutdown: 1001 };
   ```
 
-- The HTTP server answers `GET /healthz` with `200 {"ok":true,"revision":n}`
-  and 404 for every other path. WebSocket upgrades are accepted only on `/ws`.
+- WebSocket upgrades are accepted only on `/ws` (their `Origin` check is in
+  §2).
+
+**HTTP routes** (M4-D1, M4-D3). Beside `/ws` the HTTP server answers:
+
+| Route | Answer |
+|---|---|
+| `GET /healthz` | `200 {"ok":true,"revision":n}` |
+| `GET /` (also `/index.html`) | the built UI's `index.html` with exactly one injected session element (§2), `Cache-Control: no-store`; the build itself contains none. Without a build, a short page saying how to build it; with `vtt-serve --no-ui`, 404. |
+| `GET /ui-assets/<path>` | the static UI bundles of the build (never under `/assets/`); the resolved path stays inside the bundle directory, dotfiles are refused, content type by extension, `X-Content-Type-Options: nosniff` |
+| `GET /assets/<path>` | a table image asset: only a path listed in the table file's `assets` (normalized, no traversal), its bytes with the content type by extension and `Cache-Control: no-store`; any other path 404 |
+| `POST /assets` | uploads an image asset (below) |
+| anything else | 404 |
+
+- **`Host` check.** Every non-upgrade request except `GET /healthz` must
+  carry `Host: 127.0.0.1:<port>` or `Host: localhost:<port>`; any other
+  `Host` is answered 421 before routing. This closes DNS rebinding, as the
+  `Origin` check does for `/ws`.
+- **`POST /assets`.** `Authorization: Bearer <token>` (the session token,
+  compared in constant time); the body is the raw file bytes; `X-Filename`
+  and optional `X-Slug` headers (URL-encoded) name it. Accepted types are
+  PNG, JPEG, WebP and GIF, recognised by their magic bytes (no SVG); at most
+  50 MiB. The file is stored as `<table basename>.assets/<slug>-<hash8>.<ext>`
+  relative to the table's directory (slug: `X-Slug`, else the file stem,
+  lowercased, characters outside `[a-z0-9_-]` replaced by `-`, at most 40
+  characters; `hash8`: the first 8 hex digits of the bytes' SHA-256), added to
+  the table's asset list for the next save (DESIGN.md §7, **Revisions and assets**), and
+  answered `201 {"path": <that relative path>}`; the same bytes and slug give
+  the same path without rewriting. Errors: 401 bad token, 413 too large, 415
+  unsupported type, 409 for an in-memory table. The UI and `import_asset`
+  (§11) both use this route; the path goes into an object's `image` cell
+  (DESIGN.md §4.6, **Appearance cells**).
 
 ## 2. Handshake, authentication, origin, discovery, new table
 
-Decisions: D4, D5, D8, D25, D33.
+Decisions: D4, D5, D8, D25, D33; M4-D1.
 
 ```ts
 { type: "hello"; protocol: 1; token: string;
@@ -79,6 +110,20 @@ Decisions: D4, D5, D8, D25, D33.
 - `table.name` is the table file's basename, `table.path` its absolute real
   path, and `table.id` the content of `<file>.table-id`. `path` and `id` are
   both null for an in-memory table.
+
+**Session bootstrap (M4-D1).** The page served at `GET /` (§1) carries the
+connection credentials in exactly one element in its `<head>`:
+
+```html
+<script id="vtt-session" type="application/json">{"url": "ws://127.0.0.1:<port>/ws", "token": "<token>"}</script>
+```
+
+The JSON has `<` escaped as `\u003c`, so a token can never close the
+element. The UI reads it and connects with these explicit credentials
+(`client.kind: "ui"`); an authority restart rotates the token, so the page
+must be reloaded to get the new one. The built UI contains no such element;
+only the serving authority (or the development server, from
+`VTT_URL`/`VTT_TOKEN` or the discovery file) injects it.
 
 **Authentication and origin.**
 
@@ -226,7 +271,7 @@ Method rules:
 
 ## 5. Ops, bindings, input values
 
-Decisions: D6; D20 and D31 (the `set_actions` and `remove_board` primitives come from vtt-75c.18).
+Decisions: D6; D20 and D31 (the `set_actions` and `remove_board` primitives come from vtt-75c.18); M4-D12, M4-D17.
 
 ```ts
 type InputValue = NumberValue | TextValue | BooleanValue | EmptyValue | DiceValue | RollValue | InkValue | ShapeValue
@@ -249,7 +294,7 @@ destination.
 
 | Op | Fields | Primitive | Declared keys |
 |---|---|---|---|
-| set_value | object, cell, value: InputValue | writeValue | `cell:<object>/<cell>` |
+| set_value | object, cell, value: InputValue, replace?: true | writeValue; with `replace`, replaceFormula | `cell:<object>/<cell>` |
 | set_formula | object, cell, source | setFormula | `cell:<object>/<cell>` |
 | clear_override | object, cell | clearOverride | `cell:<object>/<cell>` |
 | delete_cell | object, cell | deleteCell | `cell:<object>/<cell>` |
@@ -264,10 +309,27 @@ destination.
 | add_board | id, name? | addBoard | `board:<id>` |
 | rename_board | id, name | renameBoard | `board:<id>` |
 | remove_board | id | removeBoard | `board:<id>` |
-| create_object | id?, as?: BindingName, to: Destination, init?: ObjectInit | createObject | `obj:<id>` when `id` is given; destination key |
+| create_object | id?, id_base?: string, as?: BindingName, to: Destination, init?: ObjectInit | createObject | `obj:<id>` when `id` is given; destination key |
 | spawn | template, to: Destination, cells?: Record<string, InputCellContent>, as?: BindingName, owned?: Record<ObjectId, BindingName> | spawn | `obj:<template>`; destination key |
 | move | object, to: Destination | move | `cell:<object>/board`, `cell:<object>/position`; destination key |
 | remove | object | remove | `obj:<object>` |
+
+**`create_object` ids (M4-D12).** With `id`, the object gets that id (it
+must be valid and not reserved). Without it, the authority allocates
+`<id_base>_<n>` exactly as spawn allocates copies (DESIGN.md §4.1: `n` from
+`next_seq`, skipping reserved ids), with `id_base` defaulting to `obj`.
+`id_base` must have id syntax. `id` and `id_base` are exclusive: both, or an
+invalid `id_base`, is rejected `invalid`. A bound `as` binds the allocated id.
+
+**`set_value` and formulas (M4-D17).** Without `replace`, `set_value` on a
+cell holding a formula writes an override (M2 `writeValue`). With
+`replace: true` it replaces the stored formula, and any override, by the
+literal in one cell effect, which one undo reverses exactly; on a literal or
+absent cell it behaves as without it. The guards and type checks are
+`writeValue`'s, so it is valid on structural cells such as `visible_to`,
+`position` or `rotation`, while protected cells (`id`, `contents`,
+`container`, `board`, `is_zone`) stay refused. This is the UI's "Replace
+formula with value" (DESIGN.md §4.6, **Typing into a cell**).
 
 **Bindings.**
 
@@ -370,7 +432,7 @@ different selected target (or none) is rejected
 
 ## 7. Views, values, redaction, covers, group views
 
-Decisions: D11, D12, D13 (face-down, referenced), D14, D15.
+Decisions: D11, D12, D13 (face-down, referenced), D14, D15; M4-D12.
 
 ### 7.1 Values
 
@@ -390,7 +452,8 @@ type CellView = { value: WireResult; kind: "literal" | "formula" | "structural";
                   source?: string; overridden?: boolean; visibility?: WireViewers };
 type ActionView = { name: string; when?: string; steps?: string[] };
 type ObjectView = { id: ObjectId; is_template: boolean; is_character: boolean;
-                    cells: Record<string, CellView>; actions: ActionView[] };
+                    cells: Record<string, CellView>; actions: ActionView[];
+                    absent_cell_visibility?: Record<string, WireViewers> };   // GM views only (M4-D12)
 type BoardView = { id: BoardId; name?: string };
 ```
 
@@ -403,10 +466,15 @@ type BoardView = { id: BoardId; name?: string };
 - GM view: every stored user cell plus every readable structural cell except
   `id`, defaults included (`STRUCTURAL_VIEW_CELLS`); `source` and `overridden`
   on formula cells; `visibility` when the object has a `cell_visibility` entry
-  for that cell; actions with `when` and `steps`.
+  for that cell; actions with `when` and `steps`; and
+  `absent_cell_visibility`, the object's per-cell visibility entries for cell
+  names not in the view's `cells`, present whenever there is at least one
+  (DESIGN.md §4.4: an entry is valid for an absent cell). Once a cell of that
+  name is in `cells`, its entry is that cell's `visibility` instead.
 - Character view: the object only when the viewer can effectively see it
   (DESIGN.md §4.4, cover included); a cell only when the viewer can see it; no
-  `source`, no `visibility`; actions with `name` only.
+  `source`, no `visibility`, never `absent_cell_visibility`; actions with
+  `name` only.
 - `cells: "structural"` restricts a view to `STRUCTURAL_VIEW_CELLS`; a list
   restricts it to those names.
 
@@ -775,13 +843,13 @@ Formula cost stays under the engine budget (FORMULAS.md §7).
 
 ## 11. MCP
 
-Decisions: D1, D17, D18, D19.
+Decisions: D1, D17, D18, D19; M4-D3.
 
 `vtt-mcp` is a separate stdio process launched by the agent host. It attaches
 to the running authority as a protocol client with `client.kind: "agent"`
 (D1).
 
-**Tools (17).**
+**Tools (18).**
 
 | Tool | Behaviour |
 |---|---|
@@ -794,6 +862,7 @@ to the running authority as a protocol client with `client.kind: "agent"`
 | subscribe | `subscribe` (scopes `board`, `objects`, `all`; GM viewer); returns `{subscription: <handle>, revision, objects: <count>}` |
 | poll_changes | `{subscription: <handle>, wait_ms?: 0..30000 (default 0)}` → `{subscription, revision, changes: ChangeRecord[], overflowed: boolean}`; returns and clears the buffer, waiting up to `wait_ms` for the first record |
 | unsubscribe | `unsubscribe`; drops the buffer and the handle |
+| import_asset | `{path: string, slug?: string}` → `{path}`: uploads a local image file with `POST /assets` (§1), below |
 
 `invoke` has no tool until M5 adds one together with the UI's buttons (D19);
 `document` has no tool (D30).
@@ -809,6 +878,21 @@ to the running authority as a protocol client with `client.kind: "agent"`
 - Results are `structuredContent` plus one JSON text block.
 - A `ProtocolError` → `isError: true` with `{code, message}`.
 - `status: "rejected"` → `isError: true` with the rejection and `op_index`.
+
+**`import_asset` (M4-D3).** The input schema is strict and is not derived
+from a protocol method (asset upload is HTTP, §1). The MCP process reads the
+local file at `path` (absolute, or relative to its working directory),
+checks it with the rules of `POST /assets` (PNG, JPEG, WebP or GIF by magic
+bytes, at most 50 MiB) before sending, and POSTs it to `/assets` at the
+authority's HTTP origin (the connection's WebSocket URL with `http:`, same
+host and port) with `Authorization: Bearer <token>` (the connection's current
+credentials, also after a discovery refresh) and `X-Filename`/`X-Slug`. It
+returns `{path}` as `structuredContent` plus a text block; the agent then
+writes that path into an object's `image` cell with `transact` (DESIGN.md
+§4.6, **Appearance cells**), which the tool description says. A missing or
+unreadable file, an unsupported type, an oversize file, and HTTP 401, 409,
+413 or 415 are `isError: true` with a message; the connection gate below
+applies, and a gated call sends nothing.
 
 **Handles.** `"m"` followed by a counter, owned by the MCP process. A handle
 stays valid across reconnects while the protocol subscription id behind it
@@ -880,7 +964,10 @@ Decision: D32.
 
 Protocol v1 grows only additively: new optional fields, new methods, new ops,
 new event kinds. M5 adds `invoke` behaviour, its MCP tool, and face-layout
-fields on views this way. A change that breaks a v1 client bumps `protocol`.
+fields on views this way. M4 added `create_object.id_base`,
+`set_value.replace`, `ObjectView.absent_cell_visibility`, the HTTP routes of
+§1 and the MCP tool `import_asset` this way. A change that breaks a v1 client
+bumps `protocol`.
 
 **Compatibility policy (D32).**
 

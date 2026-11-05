@@ -43,6 +43,18 @@ shared by tests and review). See `docs/PROTOCOL.md` for the wire contract.
   by name (`"@vtt/<pkg>"`), which resolves through the `exports` self-reference
   with no alias or tsconfig `paths`.
 - New runtime dependencies are pinned exactly and recorded in the decision log.
+- UI tests (`@vtt/ui`, DESIGN.md M4-D13, M4-D14) come in four kinds. Pure
+  logic (values, camera, scene, hit testing, interaction reducers, handles,
+  polygons) runs in Vitest's node environment (a
+  `// @vitest-environment node` docblock, since the package default is
+  jsdom). The Canvas2D renderer is tested against a recording 2D context
+  (`RecordingContext`), never a native canvas or a canvas mock. React
+  components run in jsdom with Testing Library and
+  `@testing-library/user-event` 14.6.8 (a dev dependency of `@vtt/ui`), with
+  an injected renderer, since jsdom has no 2D context. Integration tests run
+  against a real in-process authority (`startServer` on port 0) through
+  `packages/ui/test/support/authority.ts`. No browser automation in v1's
+  test suite.
 - Every package must have at least one test file. Vitest only fails an
   entirely empty run, so an inline reporter in the root config fails
   `pnpm test` when any selected project globs zero test files (path filters
