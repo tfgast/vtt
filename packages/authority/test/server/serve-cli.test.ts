@@ -336,7 +336,8 @@ describe("vtt-serve shutdown", () => {
     expect(await stop(p)).toEqual({ code: 1, signal: null });
     expect(p.stderr).toMatch(/save/i);
     expect(p.stderr).toMatch(/revision 1/);
-    expect(p.stderr).toMatch(/before_replace/);
+    // Stage before_replace: the old file (here, the directory) is left in place.
+    expect(p.stderr).toMatch(/not replaced/);
     expect(existsSync(`${file}.lock`)).toBe(false);
     expect(existsSync(sessionPath())).toBe(false);
   });
