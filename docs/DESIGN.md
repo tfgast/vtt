@@ -927,7 +927,7 @@ a separate player window, shipped game-system content.
   live? Probably the GM binder plus a "give a copy to each character" action,
   or a table-level binder everyone can read.
 - **Edit-template UI.** Gear icon, right-click, or a mode. Not committed.
-- **Rendering stack and platform.** Decided (section 7). Still open within it: UI framework, parser approach, Node versus Bun, desktop shell.
+- **Rendering stack and platform.** Decided (section 7 and CLAUDE.md: React, a hand-written Pratt parser, Node). Still open within it: desktop shell.
 
 ## 10. Decision log
 
