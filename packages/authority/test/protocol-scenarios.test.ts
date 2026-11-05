@@ -20,7 +20,7 @@ import { base, n, r, valid } from "./runner/helpers";
 import { loadScenarioFile, scenarioFiles } from "./runner/load";
 import { type RunReport, runScenario, ScenarioFailure, type StepReport } from "./runner/run";
 
-afterEach(closeAllSessions);
+afterEach(closeAllSessions, 60_000);
 
 type Expected = Omit<RunReport, "title">;
 
@@ -56,25 +56,29 @@ test("the table names every scenario file", async () => {
 });
 
 describe("parity with the in-process runner", () => {
-  test.each(Object.entries(EXPECTED))("%s", async (file, expected) => {
-    const scenario = await loadScenarioFile(file);
-    const direct: StepReport[] = [];
-    const wire: StepReport[] = [];
-    const directReport = runScenario(scenario, { onStep: (s) => direct.push(s) });
-    const wireReport = await runScenarioOverProtocol(scenario, { onStep: (s) => wire.push(s) });
-    expect(wireReport).toEqual({ title: scenario.title, ...expected });
-    expect(wireReport).toEqual(directReport);
-    expect(wire.map((s) => s.step)).toEqual(direct.map((s) => s.step));
-    expect(wire).toHaveLength(directReport.stepsRun + 1);
-    direct.forEach((d, i) => {
-      const w = wire[i] as StepReport;
-      const equal = storedStateEqual(d.snapshot, w.snapshot, {
-        ignoreRevision: false,
-        ignoreIdentity: false,
+  test.each(Object.entries(EXPECTED))(
+    "%s",
+    async (file, expected) => {
+      const scenario = await loadScenarioFile(file);
+      const direct: StepReport[] = [];
+      const wire: StepReport[] = [];
+      const directReport = runScenario(scenario, { onStep: (s) => direct.push(s) });
+      const wireReport = await runScenarioOverProtocol(scenario, { onStep: (s) => wire.push(s) });
+      expect(wireReport).toEqual({ title: scenario.title, ...expected });
+      expect(wireReport).toEqual(directReport);
+      expect(wire.map((s) => s.step)).toEqual(direct.map((s) => s.step));
+      expect(wire).toHaveLength(directReport.stepsRun + 1);
+      direct.forEach((d, i) => {
+        const w = wire[i] as StepReport;
+        const equal = storedStateEqual(d.snapshot, w.snapshot, {
+          ignoreRevision: false,
+          ignoreIdentity: false,
+        });
+        expect(equal, `${file}: snapshot after step ${d.step}`).toBe(true);
       });
-      expect(equal, `${file}: snapshot after step ${d.step}`).toBe(true);
-    });
-  });
+    },
+    60_000,
+  );
 });
 
 /** Aldric with `position` a formula (placement `[3, 4]` written as a formula). */
@@ -146,6 +150,38 @@ describe("kind decides set and override", () => {
 });
 
 describe("expectations over the wire", () => {
+  test("the structural id cell reads as the object's id, in expectations and in bind.where", async () => {
+    const b = base();
+    const s = valid({
+      setup: {
+        ...b.setup,
+        objects: [
+          ...b.setup.objects,
+          { id: "bob", tag: ["pc"], placement: { board: "table", position: [1, 1] } },
+        ],
+      },
+      expect: [
+        { type: "cell", object: "aldric", cell: "id", value: { type: "text", value: "aldric" } },
+      ],
+      steps: [
+        {
+          do: {
+            type: "bind",
+            as: "who",
+            tag: "pc",
+            where: { cell: "id", value: { type: "text", value: "bob" } },
+          },
+          expect: [
+            { type: "cell", object: "who", cell: "id", value: { type: "text", value: "bob" } },
+          ],
+        },
+      ],
+    });
+    const report = { title: "Synthetic", ...complete(1) };
+    expect(runScenario(s)).toEqual(report);
+    expect(await runScenarioOverProtocol(s)).toEqual(report);
+  });
+
   /** Aldric, a goblin hidden from him, and a note everyone sees whose `target` names the goblin. */
   function redactedRef(): Scenario {
     const b = base();

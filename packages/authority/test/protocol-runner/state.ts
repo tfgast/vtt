@@ -115,9 +115,12 @@ export async function liveObject(
 /**
  * A cell's value in a GM view. A GM view holds every stored cell and every
  * readable structural cell (PROTOCOL.md §7.2), so a cell it lacks is no cell
- * of the object: `#NAME`, as the engine reads it (FORMULAS.md §2.1).
+ * of the object: `#NAME`, as the engine reads it (FORMULAS.md §2.1). The
+ * structural `id` cell is the exception: a view carries identity as
+ * `ObjectView.id`, outside `cells` (§7.2), and the cell reads as that text.
  */
 export function cellValue(view: ObjectView, cell: string): Result {
+  if (cell === "id") return { type: "text", value: view.id };
   const held = view.cells[cell];
   if (held !== undefined) return held.value as Result;
   return { type: "error", code: "#NAME", message: `no cell ${cell} on ${view.id}` };

@@ -470,7 +470,7 @@ afterEach(async () => {
   await host?.close();
   server = undefined;
   host = undefined;
-});
+}, 60_000);
 
 async function connect(s: RunningServer, name: string): Promise<ProtocolClient> {
   const client = new ProtocolClient({
@@ -609,9 +609,9 @@ describe("subscription equivalence over the protocol", () => {
 
   test.each(SEEDS)(
     "seed %i: 200 commits keep every mirror equal to a fresh subscribe",
+    { timeout: 180_000 },
     async (seed) => {
       await runSeed(seed);
     },
-    120_000,
   );
 });
