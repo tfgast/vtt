@@ -226,9 +226,16 @@ describe("subscribe, poll_changes, unsubscribe", () => {
     const h = await start();
     const ids = ["goblin", "bag", "coin"];
     const handle = await subscribe(h, { type: "objects", ids });
-    const gm = await h.gm();
-    let revision = 0;
-    for (let i = 0; i < 1001; i++) revision = await write(gm, [setHp(i)]);
+    // Eight connections in turn: each stays under the per-connection request rate (§10).
+    const gms = await Promise.all(Array.from({ length: 8 }, () => h.gm()));
+    const gm = gms[0] as ProtocolClient;
+    let revision = 3;
+    for (let i = 0; i < 1001; i++) {
+      const writer = gms[i % gms.length] as ProtocolClient;
+      const result = await writer.transact([setHp(i)], { base_revision: revision });
+      expect(result.status).toBe("committed");
+      revision = (result as { revision: number }).revision;
+    }
     await seen(h, revision);
     const resource = await readSub(h, handle);
     expect(resource).toMatchObject({
@@ -403,7 +410,11 @@ describe("reconnection (PROTOCOL.md §8, §11)", () => {
     await until(() => during.length === 2, 3000, "recovering");
     off();
     for (const result of await Promise.all(during)) {
-      expect(failed(result)).toEqual({ code: "disconnected", message: expect.any(String) });
+      // The recovering connection error's message (vtt-5su.19), not the plain drop's.
+      expect(failed(result)).toEqual({
+        code: "disconnected",
+        message: "reconnected; resubscribing",
+      });
     }
     await h.ready();
     expect(ok(await h.call("poll_changes", { subscription: handle })).changes).toEqual([

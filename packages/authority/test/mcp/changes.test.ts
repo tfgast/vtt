@@ -148,13 +148,14 @@ describe("commitRecord (PROTOCOL.md §11)", () => {
     );
     expect(record.created).toEqual(["orc"]);
     expect(record.removed).toEqual(["coin"]);
+    // Objects in the delta's order: upserted views, then removed ids.
     expect(record.cells).toEqual([
-      { object: "coin", cell: "value", before: num(1) },
       { object: "orc", cell: "hp", after: num(7) },
+      { object: "coin", cell: "value", before: num(1) },
     ]);
     expect(record.objects).toEqual([
-      { object: "coin", before: { is_template: false, is_character: false, actions: [] } },
       { object: "orc", after: { is_template: true, is_character: false, actions: [] } },
+      { object: "coin", before: { is_template: false, is_character: false, actions: [] } },
     ]);
   });
 
