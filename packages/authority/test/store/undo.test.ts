@@ -3,12 +3,12 @@ import {
   DocumentStore,
   findUndoTarget,
   History,
-  undo,
   type UndoSelector,
+  undo,
   undoConflicts,
   writeValue,
 } from "@vtt/authority";
-import { type Actor, num, type Rejection, type Snapshot } from "@vtt/schema";
+import { type Actor, type Effect, num, type Rejection, type Snapshot } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { at, lit, must, named, obj } from "./helpers";
 import { formula } from "./structural-helpers";
@@ -334,5 +334,69 @@ describe("conflicts", () => {
       ],
     });
     expect(group.label).toContain("GM damages goblin");
+  });
+});
+
+describe("an inverse that does not hold", () => {
+  /** A store over `snapshot` whose loaded history holds one group with `effects`. */
+  function loaded(effects: Effect[]): DocumentStore {
+    const s = { ...scene(), revision: 1 };
+    const history = new History();
+    history.restore(
+      {
+        first_index: 0,
+        undo_barrier: 0,
+        groups: [
+          {
+            index: 0,
+            base_revision: 0,
+            revision: 1,
+            actor: gm,
+            kind: "edit",
+            label: "loaded",
+            names: {},
+            effects,
+          },
+        ],
+      },
+      1,
+      { editedExternally: false },
+    );
+    return DocumentStore.fromSnapshot(s, history);
+  }
+
+  test("an inverse that does not apply is refused as undo_conflict", () => {
+    const store = loaded([
+      {
+        type: "create",
+        objects: [obj("lantern")],
+        location: { type: "board", board: "table" },
+      },
+    ]);
+    const rejection = expectUndoRefused(store, gm, undefined, {
+      type: "undo_conflict",
+      target: 0,
+      conflicting: [],
+    });
+    expect("message" in rejection && rejection.message).toContain("lantern");
+  });
+
+  test("an inverse that fails the document invariants on commit is refused as undo_conflict", () => {
+    const store = loaded([
+      {
+        type: "cell",
+        object: "goblin1",
+        cell: "position",
+        cause: "edit",
+        before: named("nowhere"),
+        after: at(1, 1),
+      },
+    ]);
+    const rejection = expectUndoRefused(store, gm, undefined, {
+      type: "undo_conflict",
+      target: 0,
+      conflicting: [],
+    });
+    expect("message" in rejection && rejection.message).toContain("position");
   });
 });

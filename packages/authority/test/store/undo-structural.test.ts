@@ -192,7 +192,11 @@ describe("structural conflicts", () => {
     const store = DocumentStore.fromSnapshot(table());
     spawned(store, "chest", onMap);
     run(store, (tx) => reorder(tx, "pouch_6", [0]));
-    expectUndoRefused(store, { type: "undo_conflict", conflicting: [1] }, { type: "group", index: 0 });
+    expectUndoRefused(
+      store,
+      { type: "undo_conflict", conflicting: [1] },
+      { type: "group", index: 0 },
+    );
   });
 });
 
@@ -256,7 +260,11 @@ describe("identity", () => {
         tx.record({ type: "board", before: { ...b }, after: { ...b, name } });
       });
     rename("Pit");
-    expectUndoRefused(store, { type: "undo_conflict", conflicting: [1] }, { type: "group", index: 0 });
+    expectUndoRefused(
+      store,
+      { type: "undo_conflict", conflicting: [1] },
+      { type: "group", index: 0 },
+    );
     undone(store);
     expect(store.getBoard("arena")).toEqual({ id: "arena", name: "Arena" });
     // The rename is undone and its undo never conflicts.
