@@ -530,6 +530,122 @@ describe("close", () => {
   });
 });
 
+describe("close is terminal through the seam", () => {
+  const seamCalls: [string, (client: ProtocolClient) => void][] = [
+    ["setState idle", (c) => c.setState("idle")],
+    ["setState connecting", (c) => c.setState("connecting")],
+    ["setState open", (c) => c.setState("open")],
+    ["setState reconnecting", (c) => c.setState("reconnecting")],
+    ["setState recovering", (c) => c.setState("recovering")],
+    ["setState closed", (c) => c.setState("closed")],
+    ["setConnectionError null", (c) => c.setConnectionError(null)],
+    ["abortSocket", (c) => c.abortSocket("x")],
+  ];
+
+  for (const [name, call] of seamCalls) {
+    test(`after close(), ${name} then connect() and reopen() construct no socket`, async () => {
+      const { server, client } = await connected();
+      client.close();
+      call(client);
+      expect(client.state).toBe("closed");
+      for (const attempt of [
+        client.connect(),
+        client.reopen(),
+        client.reopen({ url: "ws://127.0.0.1:1/ws", token: "t" }),
+        client.requestDuringRecovery("log", {}),
+        client.request("log", {}),
+      ]) {
+        expect(await failure(attempt)).toMatchObject({
+          code: "disconnected",
+          details: { sent: false },
+        });
+      }
+      await flush();
+      expect(server.peers).toHaveLength(1);
+      expect(server.received.filter((f) => f.message.type === "hello")).toHaveLength(1);
+      expect(client.state).toBe("closed");
+    });
+  }
+
+  test("a never-connected client closed stays closed through the seam", async () => {
+    const { server, client } = setup();
+    client.close();
+    client.setState("idle");
+    expect(client.state).toBe("closed");
+    expect((await failure(client.connect())).details).toEqual({ sent: false });
+    expect((await failure(client.reopen())).details).toEqual({ sent: false });
+    await flush();
+    expect(server.peers).toHaveLength(0);
+  });
+});
+
+describe("goodbye refuses the handshake", () => {
+  test("goodbye without a close rejects at once; the client closes the socket later", async () => {
+    vi.useFakeTimers();
+    const { server, client } = setup();
+    server.onHello = () => undefined;
+    const closed: SocketClosedInfo[] = [];
+    client.on("socket_closed", (info) => closed.push(info));
+    const pending = client.connect();
+    await flush();
+    server.peer.send({ type: "goodbye", reason: "unauthorized" });
+    expect(await failure(pending)).toMatchObject({ code: "unauthorized" });
+    expect(client.connectionError()?.code).toBe("unauthorized");
+    expect(client.state).toBe("idle");
+    expect(server.peer.closedByClient).toBeNull();
+    vi.advanceTimersByTime(1000);
+    expect(server.peer.closedByClient?.code).toBe(1000);
+    await flush();
+    expect(closed).toEqual([]);
+    // The refused socket does not block a new attempt.
+    server.onHello = () => ({ welcome: server.welcome() });
+    await client.reopen();
+    expect(server.peers).toHaveLength(2);
+  });
+
+  test("goodbye then welcome: the welcome is ignored", async () => {
+    const { server, client } = setup();
+    server.onHello = () => undefined;
+    const pending = client.connect();
+    await flush();
+    const refused = server.peer;
+    refused.send({ type: "goodbye", reason: "protocol 2 is not supported" });
+    refused.send(server.welcome());
+    expect((await failure(pending)).code).toBe("protocol_version");
+    expect(client.session).toBeNull();
+    expect(client.state).toBe("idle");
+    expect(client.connectionError()?.code).toBe("disconnected");
+    refused.close(4400, "protocol");
+    expect(client.connectionError()?.code).toBe("disconnected");
+    expect(client.state).toBe("idle");
+  });
+
+  test("a goodbye during reopen rejects reopen and leaves state and error alone", async () => {
+    const { server, client } = await connected();
+    server.peer.drop();
+    server.onHello = () => undefined;
+    const pending = client.reopen();
+    await flush();
+    server.peer.send({ type: "goodbye", reason: "invalid token" });
+    expect((await failure(pending)).code).toBe("unauthorized");
+    expect(client.connectionError()?.code).toBe("disconnected");
+    server.peer.close(4401, "unauthorized");
+    expect(client.connectionError()?.code).toBe("disconnected");
+  });
+
+  test("the close code that follows a goodbye is authoritative for connectionError", async () => {
+    const { server, client } = setup();
+    server.onHello = () => undefined;
+    const pending = client.connect();
+    await flush();
+    server.peer.send({ type: "goodbye", reason: "go away" });
+    expect((await failure(pending)).code).toBe("disconnected");
+    expect(client.connectionError()?.code).toBe("disconnected");
+    server.peer.close(4401, "unauthorized");
+    expect(client.connectionError()?.code).toBe("unauthorized");
+  });
+});
+
 describe("close during connect", () => {
   test("close() while connecting rejects connect with disconnected", async () => {
     const { server, client } = setup();

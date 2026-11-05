@@ -194,6 +194,28 @@ type Attempt = {
 
 type CloseMode = "drop" | "abort" | "close";
 
+/** How long a socket refused by `goodbye` may stay open before the client closes it. */
+const GOODBYE_CLOSE_MS = 1000;
+
+/**
+ * The error a `goodbye` during the handshake refuses it with (PROTOCOL.md §2:
+ * 4401 for a wrong token, 4400 for another protocol). The wire fixes no
+ * reason strings, so this reads the reason; the close code, when it
+ * follows, is authoritative for `connectionError()`.
+ */
+function goodbyeFailure(reason: string): ProtocolFailure {
+  if (/unauthori[sz]ed|token/i.test(reason)) {
+    return new ProtocolFailure("unauthorized", `the authority refused the token: ${reason}`);
+  }
+  if (/protocol|version/i.test(reason)) {
+    return new ProtocolFailure("protocol_version", `the authority refused the protocol: ${reason}`);
+  }
+  return new ProtocolFailure("disconnected", `the authority refused the connection: ${reason}`);
+}
+
+const terminalFailure = () =>
+  new ProtocolFailure("disconnected", "the client is closed", { sent: false });
+
 const defaultTimers: Timers = {
   setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
   clearTimeout: (handle) =>
@@ -348,6 +370,13 @@ export class ProtocolClient {
   #welcomed = false;
   #attempt: Attempt | null = null;
   #goodbye: string | null = null;
+  /** Set by `close()`; nothing opens, sends or changes state afterwards. */
+  #terminal = false;
+  /** Sockets refused by `goodbye`, detached, waiting for their close. */
+  readonly #refused = new Map<
+    WebSocketLike,
+    { kind: Attempt["kind"]; reason: string; timer: unknown }
+  >();
 
   #nextId = 1;
   readonly #pending = new Map<string, Pending>();
@@ -484,7 +513,7 @@ export class ProtocolClient {
    * state nor connection error and emits no `socket_closed`.
    */
   reopen(creds?: { url: string; token: string }): Promise<Welcome> {
-    if (creds && this.#state !== "closed" && this.#socket === null) {
+    if (creds && !this.#terminal && this.#socket === null) {
       this.#url = creds.url;
       this.#token = creds.token;
     }
@@ -498,7 +527,13 @@ export class ProtocolClient {
    * `disconnected` unless it already holds an error.
    */
   close(): void {
-    if (this.#state === "closed") return;
+    if (this.#terminal) return;
+    this.#terminal = true;
+    for (const [socket, { timer }] of this.#refused) {
+      this.#timers.clearTimeout(timer);
+      this.#closeSocket(socket, 1000, "client closed");
+    }
+    this.#refused.clear();
     for (const sub of this.#subs) sub.closeLocally();
     this.#subs.clear();
     this.#bound.clear();
@@ -511,8 +546,12 @@ export class ProtocolClient {
     }
   }
 
-  /** Recovery seam: sets the state; `"closed"` is `close()` keeping the connection error. */
+  /**
+   * Recovery seam: sets the state; `"closed"` is `close()` keeping the
+   * connection error. A no-op once the client is closed.
+   */
   setState(state: ClientState): void {
+    if (this.#terminal) return;
     if (state === "closed") this.close();
     else this.#set(state, this.#connectionError);
   }
@@ -535,7 +574,7 @@ export class ProtocolClient {
    * terminal; does nothing after `close()`.
    */
   abortSocket(reason: string): void {
-    if (this.#state === "closed") return;
+    if (this.#terminal) return;
     const socket = this.#socket;
     if (!socket) {
       this.#set("idle", this.#connectionError);
@@ -629,9 +668,7 @@ export class ProtocolClient {
   }
 
   #open(kind: Attempt["kind"]): Promise<Welcome> {
-    if (this.#state === "closed") {
-      return Promise.reject(new ProtocolFailure("disconnected", "the client is closed"));
-    }
+    if (this.#terminal) return Promise.reject(terminalFailure());
     if (this.#socket !== null) {
       return Promise.reject(new Error("ProtocolClient: a connection is already open or opening"));
     }
@@ -660,9 +697,10 @@ export class ProtocolClient {
     socket.addEventListener("message", (event: { data: unknown }) =>
       this.#onFrame(socket, event.data),
     );
-    socket.addEventListener("close", (event: { code?: number; reason?: string }) =>
-      this.#socketClosed(socket, event.code ?? 1006, event.reason ?? "", "drop"),
-    );
+    socket.addEventListener("close", (event: { code?: number; reason?: string }) => {
+      if (this.#refused.has(socket)) this.#refusedClosed(socket, event.code ?? 1006);
+      else this.#socketClosed(socket, event.code ?? 1006, event.reason ?? "", "drop");
+    });
     // A failed socket also fires `close`, which settles everything.
     socket.addEventListener("error", () => {});
     return promise;
@@ -730,7 +768,7 @@ export class ProtocolClient {
         this.#onWelcome(message);
         return;
       case "goodbye":
-        this.#goodbye = message.reason;
+        this.#onGoodbye(socket, message.reason);
         return;
       case "response":
         this.#onResponse(message);
@@ -739,6 +777,47 @@ export class ProtocolClient {
         if (message.event === "commit") this.#onCommit(message);
         else this.#emit("save", message);
         return;
+    }
+  }
+
+  /**
+   * A `goodbye` during the handshake refuses it at once: the attempt rejects,
+   * the socket is detached (a later `welcome` on it is ignored), and the
+   * client closes it unless the server does within `GOODBYE_CLOSE_MS`. On an
+   * established connection it only records the reason for the close.
+   */
+  #onGoodbye(socket: WebSocketLike, reason: string): void {
+    this.#goodbye = reason;
+    const attempt = this.#attempt;
+    if (this.#welcomed || !attempt) return;
+    const failure = goodbyeFailure(reason);
+    const code =
+      failure.error.code === "unauthorized"
+        ? CLOSE_CODES.unauthorized
+        : failure.error.code === "protocol_version"
+          ? CLOSE_CODES.protocol
+          : 1000;
+    this.#socketClosed(socket, code, reason, "drop", failure);
+    const timer = this.#timers.setTimeout(() => {
+      if (!this.#refused.delete(socket)) return;
+      this.#closeSocket(socket, 1000, "goodbye");
+    }, GOODBYE_CLOSE_MS);
+    this.#refused.set(socket, { kind: attempt.kind, reason, timer });
+  }
+
+  /** The close of a socket refused by `goodbye`: the close code is authoritative. */
+  #refusedClosed(socket: WebSocketLike, code: number): void {
+    const refused = this.#refused.get(socket);
+    if (!refused) return;
+    this.#refused.delete(socket);
+    this.#timers.clearTimeout(refused.timer);
+    // Only a refused `connect` owns the connection error, and only while no newer socket exists.
+    if (this.#terminal || refused.kind !== "connect" || this.#socket !== null) return;
+    const current = this.#connectionError;
+    if (code === CLOSE_CODES.unauthorized && current?.code !== "unauthorized") {
+      this.#set(this.#state, { code: "unauthorized", message: refused.reason });
+    } else if (code !== CLOSE_CODES.unauthorized && current?.code === "unauthorized") {
+      this.#set(this.#state, disconnectedError(`the connection closed (${code})`));
     }
   }
 
@@ -818,7 +897,7 @@ export class ProtocolClient {
   ): Promise<T> {
     const socket = this.#socket;
     const allowed = duringRecovery ? this.#state !== "closed" : this.#state === "open";
-    if (socket === null || !this.#welcomed || !allowed) {
+    if (this.#terminal || socket === null || !this.#welcomed || !allowed) {
       return Promise.reject(
         new ProtocolFailure("disconnected", `cannot send ${method}: not connected`, {
           sent: false,
