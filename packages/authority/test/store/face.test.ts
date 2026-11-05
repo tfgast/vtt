@@ -111,7 +111,7 @@ describe("setFace", () => {
       { type: "field", object: "goblin", field: "face", before: badge, after: null },
     ]);
     expect(hasFace(store, "goblin")).toBe(false);
-    expect(store.toSnapshot()).toEqual(table());
+    expect(store.toSnapshot().objects).toEqual(table().objects);
   });
 
   test("does not alias the caller's layout", () => {

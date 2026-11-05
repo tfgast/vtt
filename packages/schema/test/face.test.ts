@@ -124,7 +124,10 @@ describe("faceProblem", () => {
   const problems: [string, FaceLayout][] = [
     ["an empty cell name", { elements: [value("")] }],
     ["a __proto__ cell name", { elements: [value("__proto__")] }],
-    ["an empty cell name in an editor", { elements: [{ ...value(""), type: "editor" }] }],
+    [
+      "an empty cell name in an editor",
+      { elements: [{ type: "editor", cell: "", rect: [0, 0, 1, 1] }] },
+    ],
     ["an empty action name", { elements: [button("")] }],
     ["an action name of 101 characters", { elements: [button("x".repeat(101))] }],
     ["an empty default_action", { elements: [], default_action: "" }],

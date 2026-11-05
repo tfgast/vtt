@@ -55,6 +55,7 @@ const OPS = [
   "set_template_flag",
   "set_character_flag",
   "set_actions",
+  "set_face",
   "reorder",
   "add_board",
   "rename_board",
@@ -86,7 +87,7 @@ const METHOD_KINDS: Record<string, string> = {
 };
 
 describe("JSON Schema export", () => {
-  test("WireOp exports and lists the 19 op type constants", () => {
+  test("WireOp exports and lists the 20 op type constants", () => {
     const json = z.toJSONSchema(WireOpSchema) as Record<string, unknown>;
     expect(optionTypeConsts(json).sort()).toEqual([...OPS].sort());
   });
@@ -133,8 +134,8 @@ describe("tables and constants", () => {
     }
   });
 
-  test("WIRE_OP_TYPES has exactly the 19 ops", () => {
-    expect(WIRE_OP_TYPES).toHaveLength(19);
+  test("WIRE_OP_TYPES has exactly the 20 ops", () => {
+    expect(WIRE_OP_TYPES).toHaveLength(20);
     expect([...WIRE_OP_TYPES].sort()).toEqual([...OPS].sort());
   });
 
