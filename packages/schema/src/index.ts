@@ -1,4 +1,5 @@
 export const PACKAGE = "@vtt/schema";
+export * from "./action-limits";
 export * from "./cell";
 export * from "./document";
 export * from "./file";

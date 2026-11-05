@@ -64,6 +64,22 @@ export const ProtocolRejectionSchema = looseNoProto(
       expected: z.string(),
     }),
     z.object({ type: z.literal("invalid"), message: z.string() }),
+    z.object({ type: z.literal("when_false"), object: Id, action: z.string() }),
+    z.object({
+      type: z.literal("when_error"),
+      object: Id,
+      action: z.string(),
+      code: z.enum(ERROR_CODES),
+      message: z.string().optional(),
+    }),
+    z.object({
+      type: z.literal("step_error"),
+      object: Id,
+      action: z.string(),
+      step: Count,
+      code: z.enum(ERROR_CODES).optional(),
+      message: z.string(),
+    }),
     z.object({
       type: z.literal("stale_write"),
       base_revision: Count,

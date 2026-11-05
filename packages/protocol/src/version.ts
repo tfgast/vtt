@@ -1,12 +1,14 @@
 /** Protocol version, default port, limits and close codes (PROTOCOL.md §1, §2, §10). */
 
+import { MAX_ACTION_WRITES, MAX_EACH_ITEMS, MAX_FACE_ELEMENTS } from "@vtt/schema";
+
 /** The `protocol` number of `hello` and `welcome`; v1 grows only additively (§12). */
 export const PROTOCOL_VERSION = 1;
 
 /** The authority's default port (§2, D25). */
 export const DEFAULT_PORT = 4747;
 
-/** The limits of PROTOCOL.md §10 (D21), as sent in `welcome.limits`. */
+/** The limits of PROTOCOL.md §10 (D21, M5-D5), as sent in `welcome.limits`. */
 export type Limits = {
   max_message_bytes: 1048576;
   max_ops: 1000;
@@ -21,6 +23,9 @@ export type Limits = {
   max_txn_ids_per_client: 1000;
   max_requests_per_second: 200;
   max_buffered_bytes: 67108864;
+  max_each_items: typeof MAX_EACH_ITEMS;
+  max_action_writes: typeof MAX_ACTION_WRITES;
+  max_face_elements: typeof MAX_FACE_ELEMENTS;
 };
 
 export const LIMITS: Readonly<Limits> = Object.freeze({
@@ -37,6 +42,9 @@ export const LIMITS: Readonly<Limits> = Object.freeze({
   max_txn_ids_per_client: 1000,
   max_requests_per_second: 200,
   max_buffered_bytes: 67108864,
+  max_each_items: MAX_EACH_ITEMS,
+  max_action_writes: MAX_ACTION_WRITES,
+  max_face_elements: MAX_FACE_ELEMENTS,
 });
 
 /** WebSocket close codes (§1). */
