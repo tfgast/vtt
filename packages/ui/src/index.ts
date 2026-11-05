@@ -1,4 +1,5 @@
 export { App } from "./App";
+export * from "./assets/upload";
 export * from "./interaction/contracts";
 export * from "./interaction/effects";
 export * from "./interaction/events";
