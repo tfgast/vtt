@@ -1,4 +1,9 @@
 export { App } from "./App";
+export * from "./scene/appearance";
+export * from "./scene/camera";
+export * from "./scene/hit-test";
+export * from "./scene/polygon";
+export * from "./scene/scene";
 export * from "./values/format";
 export * from "./values/input";
 export * from "./values/ops";

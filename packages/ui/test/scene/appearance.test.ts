@@ -1,11 +1,11 @@
 // @vitest-environment node
-import type { CellView, ObjectView, WireResult } from "@vtt/protocol";
+import type { CellView, ObjectView, WireResult, WireValue } from "@vtt/protocol";
 import { type Appearance, readAppearance } from "@vtt/ui";
 import { describe, expect, test } from "vitest";
 
-const text = (value: string): WireResult => ({ type: "text", value });
-const num = (value: number): WireResult => ({ type: "number", value });
-const bool = (value: boolean): WireResult => ({ type: "boolean", value });
+const text = (value: string): WireValue => ({ type: "text", value });
+const num = (value: number): WireValue => ({ type: "number", value });
+const bool = (value: boolean): WireValue => ({ type: "boolean", value });
 const error: WireResult = { type: "error", code: "#TYPE" };
 
 function view(cells: Record<string, WireResult>): ObjectView {

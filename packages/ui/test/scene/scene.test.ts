@@ -1,5 +1,5 @@
 // @vitest-environment node
-import type { CellView, Cover, ObjectView, Viewer, WireResult } from "@vtt/protocol";
+import type { CellView, Cover, ObjectView, Viewer, WireResult, WireValue } from "@vtt/protocol";
 import type { Shape } from "@vtt/schema";
 import {
   buildScene,
@@ -19,14 +19,14 @@ const BOARD = "main";
 const GM: Viewer = { type: "gm" };
 const ALDRIC: Viewer = { type: "character", id: "aldric" };
 
-const text = (value: string): WireResult => ({ type: "text", value });
-const num = (value: number): WireResult => ({ type: "number", value });
-const bool = (value: boolean): WireResult => ({ type: "boolean", value });
-const ref = (object: string): WireResult => ({ type: "ref", object });
+const text = (value: string): WireValue => ({ type: "text", value });
+const num = (value: number): WireValue => ({ type: "number", value });
+const bool = (value: boolean): WireValue => ({ type: "boolean", value });
+const ref = (object: string): WireValue => ({ type: "ref", object });
 const EMPTY: WireResult = { type: "empty" };
 const ERROR: WireResult = { type: "error", code: "#TYPE" };
 const viewers = (...v: ("all" | "gm")[]): WireResult => ({ type: "viewers", viewers: v });
-const pos = (x: number, y: number): WireResult => ({ type: "list", items: [num(x), num(y)] });
+const pos = (x: number, y: number): WireValue => ({ type: "list", items: [num(x), num(y)] });
 
 interface Spec {
   at?: [number, number];

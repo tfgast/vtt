@@ -1,5 +1,5 @@
 // @vitest-environment node
-import type { CellView, Cover, ObjectView, Viewer, WireResult } from "@vtt/protocol";
+import type { CellView, Cover, ObjectView, Viewer, WireResult, WireValue } from "@vtt/protocol";
 import type { Point, Shape } from "@vtt/schema";
 import {
   buildScene,
@@ -17,7 +17,7 @@ const GM: Viewer = { type: "gm" };
 const ALDRIC: Viewer = { type: "character", id: "aldric" };
 const CAMERA: Camera = { x: 0, y: 0, zoom: 1 };
 
-const num = (value: number): WireResult => ({ type: "number", value });
+const num = (value: number): WireValue => ({ type: "number", value });
 
 function obj(
   id: string,
