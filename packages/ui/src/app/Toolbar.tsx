@@ -1,6 +1,7 @@
 /**
  * The toolbar (vtt-3l6.17; DESIGN.md §7 Platform, §8.1): the registered
- * tools (vtt-3l6.22's `ToolRegistry`), the fog toggle of the zone tools, the
+ * tools (vtt-3l6.22's `ToolRegistry`; M5 adds ink, text and layout,
+ * vtt-1xv.23), the fog toggle of the zone tools, the
  * view-as menu (vtt-3l6.10), Undo and Save (vtt-3l6.21).
  *
  * Fog is one preference shared by the three zone tools: toggling it sets the
@@ -35,6 +36,9 @@ export const TOOL_LABELS: Readonly<Partial<Record<ToolId, string>>> = {
   "zone-circle": "Circle zone",
   "zone-polygon": "Polygon zone",
   image: "Image",
+  ink: "Ink",
+  text: "Text",
+  layout: "Layout",
 };
 
 const fogPreference = new WeakMap<UiStore, boolean>();
