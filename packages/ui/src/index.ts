@@ -12,6 +12,7 @@ export * from "./inspector/Inspector";
 export * from "./inspector/ObjectHeader";
 export * from "./inspector/ObjectList";
 export * from "./inspector/ShapeControl";
+export * from "./inspector/tracing";
 export * from "./inspector/ViewersPicker";
 export * from "./interaction/contracts";
 export * from "./interaction/effects";

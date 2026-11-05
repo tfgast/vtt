@@ -124,7 +124,7 @@ function setup() {
 const highlight = (ui: UiStore) => ui.getState().highlight;
 
 describe("hovered cell", () => {
-  test("explains with depth 1 and the viewer, highlighting other objects of cell and exists nodes", async () => {
+  test("explains with depth 1 and the viewer, highlighting other non-board objects of cell and exists nodes", async () => {
     const { ui, calls } = setup();
     ui.setHoveredCell({ object: "goblin", cell: "hit" });
     expect(calls).toHaveLength(1);
@@ -138,6 +138,8 @@ describe("hovered cell", () => {
     calls[0]?.resolve(
       explained("goblin", "hit", [
         cellNode("goblin", "ac"),
+        // The board (a dependency of `on`) is not drawn on the canvas.
+        { type: "exists", object: "gm_board", exists: true },
         { type: "exists", object: "die", exists: true },
         cellNode("die", "total", [cellNode("die2", "value")]),
         cellNode(null, "secret"),
@@ -260,7 +262,9 @@ describe("viewer switch", () => {
   test("at an unchanged revision, a hovered cell is explained again for the new viewer", async () => {
     const { ui, calls, set } = setup();
     ui.setHoveredCell({ object: "goblin", cell: "hit" });
-    calls[0]?.resolve(explained("goblin", "hit", [cellNode("die", "total"), cellNode("trap", "z")]));
+    calls[0]?.resolve(
+      explained("goblin", "hit", [cellNode("die", "total"), cellNode("trap", "z")]),
+    );
     await flush();
     expect(highlight(ui)).toEqual(["die", "trap"]);
     set({ viewer: ALDRIC });

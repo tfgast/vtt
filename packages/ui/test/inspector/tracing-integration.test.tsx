@@ -34,7 +34,6 @@ afterEach(async () => {
 const text = (value: string) => ({ type: "text" as const, value });
 const num = (value: number) => ({ type: "number" as const, value });
 const formula = (source: string) => ({ type: "formula" as const, source });
-const tags = (...values: string[]) => ({ type: "list" as const, items: values.map(text) });
 const at = (x: number, y: number) => ({
   type: "board" as const,
   board: "gm_board",
@@ -73,7 +72,7 @@ const SEED: WireOp[] = [
     type: "create_object",
     id: "die",
     to: at(1, 1),
-    init: { cells: { name: text("Die"), tag: tags("d20"), total: num(15) } },
+    init: { tag: ["d20"], cells: { name: text("Die"), total: num(15) } },
   },
   {
     type: "create_object",
@@ -125,7 +124,15 @@ const SEED: WireOp[] = [
   ).map(([object, z]): WireOp => ({ type: "set_value", object, cell: "z", value: num(z) })),
 ];
 
-function Harness({ session, ui, object }: { session: TableSession; ui: UiStore; object: ObjectId }) {
+function Harness({
+  session,
+  ui,
+  object,
+}: {
+  session: TableSession;
+  ui: UiStore;
+  object: ObjectId;
+}) {
   useSession((s) => s.viewVersion);
   const view = session.objectView(object);
   const readOnly = session.getSnapshot().viewer.type !== "gm";
@@ -149,7 +156,7 @@ interface Held {
 async function setup(object: ObjectId, options: { hold?: boolean } = {}) {
   const authority = await startAuthority();
   const seed = await authority.client("seed");
-  await seed.transact(SEED, { label: "Seed" });
+  expect(await seed.transact(SEED, { label: "Seed" })).toMatchObject({ status: "committed" });
   const session = authority.session();
   await whenReady(session);
   await session.whenRevision(1);
@@ -162,10 +169,10 @@ async function setup(object: ObjectId, options: { hold?: boolean } = {}) {
   request.mockImplementation(((method: string, params: unknown) => {
     const answer = (original as (m: string, p: unknown) => Promise<unknown>)(method, params);
     if (!options.hold || (method !== "explain_cell" && method !== "zones")) return answer;
-    return new Promise((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       held.push({ method, release: () => answer.then(resolve, reject) });
     });
-  }) as typeof session.client.request);
+  }) as unknown as typeof session.client.request);
   stops.push(startTracing({ session, ui }));
   render(
     <TableProvider session={session} ui={ui}>
