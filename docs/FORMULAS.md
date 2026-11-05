@@ -187,7 +187,7 @@ they carry the invariants of the table.
 | `position` | list of two numbers `[x, y]` | `empty` in a container | Present exactly when the object is on a board. Board units, x to the right, y down. May hold a formula (a token that follows another); a cycle through geometry yields `#CYCLE` like any other. |
 | `rotation`, `z` | numbers | `empty` | `rotation` is degrees clockwise on screen about the anchor. Geometry and query order read an empty `rotation` or `z` as 0. Absent when inside a container. May hold formulas, like `position`. |
 | `face_up` | boolean | `true` | |
-| `shape` | shape | `empty` | For zones: the region. For others: the outline. Not writable by actions or cell writes: `set` on `shape` is refused. It changes only through the `setShape` edit primitive the UI and the agent use. |
+| `shape` | shape | `empty` | For zones: the region. For others: the outline. Not writable by actions or cell writes: `set` on `shape` is refused. It changes only through the `setShape` edit primitive the UI and the agent use, which stores a literal shape value: `shape` is literal only, like `name` and `tag`. |
 | `opaque` | boolean | `false` | Zones only. See DESIGN.md 4.4. |
 | `is_zone` | boolean | `false` | *Protected.* True for zones: `shape` is then a region and spatial queries apply. |
 
@@ -197,14 +197,16 @@ object, false by default, and formulas do not read them (DESIGN.md 4.1).
 
 **Writing structural cells.** `tag` is literal only (above); `set(tag, list)`
 is allowed and writes a literal list. `shape` is written only through
-`setShape`; the value it reads as in a formula is the shape value of 2.
+`setShape`, which stores a literal; the value it reads as in a formula is the
+shape value of 2.
 `template` is set on every spawned copy and is never a formula. That `name`
 is literal only is stated above and in 3.
 
 **Landing on a board.** Every `move` or `spawn` onto a board, including a move
 within the same board, puts the object on top: its `z` becomes 1 + the
 largest literal `z` among the other objects on that board (an absent or empty
-`z` counts as 0), unless the object's `z` holds a formula, which is left
+`z` counts as 0, and an overridden formula `z` counts as literal, as in the
+candidate set of 6), unless the object's `z` holds a formula, which is left
 alone. `position` is written as a hand edit writes it, so a formula
 `position` gets an override. A move from one board to another keeps
 `rotation`. Entering a container deletes `position`, `rotation`, and `z`; the
@@ -383,7 +385,8 @@ index is only a way of computing that set.
 **The geometry.** The schema geometry above is one pure module,
 `packages/schema/src/geometry/`, shared by the evaluator, the authority's
 spatial index (which computes exactly the candidate set above), and the
-opaque-cover test (DESIGN.md 4.3, 4.4):
+opaque-cover test (DESIGN.md 4.3, 4.4). (`shape` is literal only, 3.1, so the
+candidate set's formula-valued `shape` case never arises.) Its rules:
 
 - Point membership is boundary inclusive within 1e-9 board units, for every
   shape. For a circle the test is distance-based:

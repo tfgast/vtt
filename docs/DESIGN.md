@@ -767,7 +767,7 @@ image cell names an asset is M4's decision.
   protection of FORMULAS.md 3.1: it changes order, not membership.
 
 **Platform.** TypeScript end to end. The **authority** is a local process
-(Node or Bun, undecided) that owns the document file, evaluates formulas,
+(Node) that owns the document file, evaluates formulas,
 hosts the MCP server, and serves the UI over localhost with the op stream
 over a WebSocket. The UI is a browser tab in v1; a desktop shell (Tauri or
 Electron) can wrap the same process later. Formulas evaluate only in the
@@ -784,8 +784,8 @@ show-when zoom thresholds already accommodate. Very large map images are a
 tiling problem and stay in Later.
 
 Left open on purpose: UI framework for the chrome (React is the default
-because of the editor and panel ecosystem), formula parser approach, Node
-versus Bun, and the desktop shell.
+because of the editor and panel ecosystem), formula parser approach, and the
+desktop shell. The authority runs on Node.
 
 ## 8. Scope
 
@@ -1004,8 +1004,8 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | Removing an object removes its contents recursively; references elsewhere dangle and read as `#REF`; undo restores the subtree under the same ids. DESIGN §4.1. | Cascade follows the containment tree; leaving references in place lets undo heal them. |
 | 2026-11-05 | Structural cells have defaults: `name` empty, `tag` [], `visible_to` all, `owner` and `template` empty, `contents` [], `container` empty, `board` and `position` empty in a container, `rotation` and `z` empty (read as 0), `face_up` true, `opaque` false, `is_zone` false, `shape` empty; `is_template` and `is_character` false. FORMULAS §3.1. | FIXTURES §3 left defaults to M2; every object needs a defined starting state. |
 | 2026-11-05 | `position` is `[x, y]`, present exactly when the object is on a board; board units, x right, y down; `rotation` is degrees clockwise on screen about the anchor; empty `rotation` and `z` read as 0. FORMULAS §3.1. | Geometry, rendering, and fixtures must agree on axes and units. |
-| 2026-11-05 | Landing rule: every move or spawn onto a board, including within one board, sets `z` to 1 + the largest literal `z` of the other objects there (absent or empty as 0) unless `z` is a formula; `position` is written as a hand edit (a formula gets an override); board-to-board moves keep `rotation`; entering a container deletes `position`, `rotation`, `z`, recorded so undo restores formulas; after a move to a board `container` is empty. FORMULAS §3.1. | A dropped object should land on top, as at a physical table; reading only literal `z` keeps the move independent of evaluation. |
-| 2026-11-05 | `tag` is literal only and `set(tag, list)` is allowed. `shape` cannot be written by actions or cell writes; it changes only through the `setShape` edit primitive. `template` is set on every spawned copy and is never a formula. FORMULAS §3.1. | Tags and shapes feed the spatial and tag index; keeping their writes literal and explicit keeps the index independent of evaluation. |
+| 2026-11-05 | Landing rule: every move or spawn onto a board, including within one board, sets `z` to 1 + the largest literal `z` of the other objects there (absent or empty as 0; an overridden formula `z` counts as literal) unless `z` is a formula; `position` is written as a hand edit (a formula gets an override); board-to-board moves keep `rotation`; entering a container deletes `position`, `rotation`, `z`, recorded so undo restores formulas; after a move to a board `container` is empty. FORMULAS §3.1. | A dropped object should land on top, as at a physical table; reading only literal `z` keeps the move independent of evaluation. |
+| 2026-11-05 | `tag` is literal only and `set(tag, list)` is allowed. `shape` cannot be written by actions or cell writes; it changes only through the `setShape` edit primitive, which stores a literal shape value, so `shape` is literal only like `name` and `tag`. `template` is set on every spawned copy and is never a formula. FORMULAS §3.1. | Tags and shapes feed the spatial and tag index; keeping their writes literal and explicit keeps the index independent of evaluation. |
 | 2026-11-05 | Exact spatial semantics live in one pure module, `packages/schema/src/geometry/`. The host returns the literal-geometry candidate set; the authority's spatial index computes exactly that set; the evaluator computes membership, overlap, and distance; the opaque-cover test uses the same geometry. DESIGN §4.3; FORMULAS §6. | One implementation of geometry means queries, index, and cover can never disagree. |
 | 2026-11-05 | Point membership is boundary inclusive within 1e-9 board units for every shape; for circles the test is `sqrt(dx²+dy²) <= r + 1e-9`. DESIGN §4.3; FORMULAS §6. | A tolerance on `r²` would vary with radius; a distance-based one means the same 1e-9 everywhere. |
 | 2026-11-05 | Overlap is positive-area intersection; touching or near-tangent (penetration at most 1e-9) is not overlap. Exception: a point footprint overlaps a shape when inside its region, boundary inclusive; two points never overlap. Zones are never in `on()`. Polygons must be simple. DESIGN §4.3; FORMULAS §6. | Stacking must not be triggered by adjacent tokens; the point exception keeps shapeless tokens stackable; a zone is a region, not something stacked. |

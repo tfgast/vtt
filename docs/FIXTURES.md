@@ -492,9 +492,9 @@ Scenario: [`die-with-modifier.json`](../packages/fixtures/scenarios/die-with-mod
 `on(this)` needs footprints and z-order: the goblin and die have `shape`s, the
 die is moved to a `position` whose footprint overlaps the goblin's, and its
 `z` cell is set above the goblin's. `z` is an ordinary §3.1 cell, not a
-placement field; since the docs do not say what `z` an object gets when it
-lands on a board, a fixture sets it with a `set` step after the `move` rather
-than relying on a default. `hit` is `false` with no die on the goblin and with
+placement field; the fixture sets it with a `set` step after the `move`
+rather than relying on the landing rule of FORMULAS §3.1, which puts a moved
+object on top. `hit` is `false` with no die on the goblin and with
 a die beside it, `true` after a scripted roll of 15 on a die on top.
 
 The visibility subtlety is asserted directly:
