@@ -306,6 +306,44 @@ describe("reconnection and resubscription", () => {
     expect(client.ready).toBe(true);
   });
 
+  test.each([
+    ["disconnected", { code: "disconnected", message: "server says disconnected" }],
+    ["disconnected (sent: true)", { code: "disconnected", message: "x", details: { sent: true } }],
+    [
+      "disconnected (sent: false)",
+      { code: "disconnected", message: "x", details: { sent: false } },
+    ],
+    ["timeout", { code: "timeout", message: "server says timeout" }],
+    [
+      "timeout (client-like)",
+      {
+        code: "timeout",
+        message: "subscribe: no response within 1000 ms",
+        details: { sent: true },
+      },
+    ],
+  ] as const)(
+    "a server error response coded %s fails the subscription terminally",
+    async (_n, error) => {
+      const { server, client } = await connected();
+      const sub = await subscribe(client, "a");
+      const errors: ProtocolError[] = [];
+      sub.on("error", (_s, e) => errors.push(e));
+      server.handle("subscribe", () => ({ error: { ...error } }));
+      server.peer.drop();
+      await advance(250);
+      const peer = server.peer;
+      expect(sub.state).toBe("failed");
+      expect(errors).toEqual([error]);
+      expect(sub.mirror.objects.size).toBe(0);
+      expect(peer.closedByClient).toBeNull();
+      expect(client.ready).toBe(true);
+      expect(client.connectionError()).toBeNull();
+      await advance(10000);
+      expect(server.peers).toHaveLength(2);
+    },
+  );
+
   test("a resubscribe timing out with the socket open aborts it and rebinds on a new connection", async () => {
     const { server, client } = await connected();
     const subs = [await subscribe(client, "a"), await subscribe(client, "b")];
@@ -556,6 +594,30 @@ describe("transactWithRetry", () => {
     expect(methods).toEqual(["subscribe", "transact"]);
   });
 
+  test("the resend uses a snapshot of the params; caller mutations do not leak", async () => {
+    const { server, client } = await connected();
+    script(server, () => ({ result: COMMITTED }));
+    const ops: { type: "remove"; object: string }[] = [{ type: "remove", object: "a" }];
+    const actor = { type: "character" as const, id: "hero" };
+    const write = track(
+      transactWithRetry(client, ops, { txn_id: "t1", actor, retry: { timeoutMs: 5000 } }),
+    );
+    await flush();
+    const original = server.peer.lastRequest("transact").params;
+    server.peer.drop();
+    (ops[0] as { object: string }).object = "b";
+    ops.push({ type: "remove", object: "c" });
+    actor.id = "villain";
+    await advance(250);
+    expect(write.value).toEqual(COMMITTED);
+    const resend = transacts(server)[1]?.params;
+    expect(resend).toEqual({ ...original, retry: true });
+    expect(resend).toMatchObject({
+      ops: [{ type: "remove", object: "a" }],
+      actor: { type: "character", id: "hero" },
+    });
+  });
+
   test("a rejected resend result is returned", async () => {
     const { server, client } = await connected();
     const rejected = { status: "rejected", rejection: { type: "nothing_to_undo" } };
@@ -760,6 +822,28 @@ describe("lifecycle", () => {
     stop();
     await advance(10000);
     expect(server.peers).toHaveLength(2);
+  });
+
+  test("a protocol_version handshake refusal on a reconnect ends recovery", async () => {
+    const { server, client } = await connected();
+    server.onHello = () => ({ goodbye: "protocol 1 is not supported", close: 4400 });
+    server.peer.drop();
+    await advance(250);
+    expect(server.peers).toHaveLength(2);
+    expect(client.state).toBe("closed");
+    expect(client.connectionError()?.code).toBe("disconnected");
+    await advance(10000);
+    expect(server.peers).toHaveLength(2);
+  });
+
+  test("a protocol_version handshake refusal on the first connection ends recovery", async () => {
+    const { server, client } = setup();
+    server.onHello = () => ({ goodbye: "protocol 1 is not supported", close: 4400 });
+    enableRecovery(client);
+    await flush();
+    expect(client.state).toBe("closed");
+    await advance(10000);
+    expect(server.peers).toHaveLength(1);
   });
 
   test("a 4400 close (protocol violation) ends recovery", async () => {

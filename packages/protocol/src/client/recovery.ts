@@ -255,6 +255,12 @@ class Recovery {
         this.stop();
         return;
       }
+      if (codeOf(e) === "protocol_version") {
+        // A handshake refused for the protocol version (goodbye, 4400): retrying would repeat it.
+        this.stop();
+        client.setState("closed");
+        return;
+      }
       if (codeOf(e) === "unauthorized" && !this.#credentials) {
         this.#terminal("unauthorized", "the authority refused the token (4401)");
         return;
@@ -314,6 +320,7 @@ class Recovery {
       return;
     }
     for (const sub of subs) {
+      const sentAt = Date.now();
       client.requestDuringRecovery("subscribe", sub.params).then(
         (result) => {
           if (this.#stale(epoch)) sub.markRecovering();
@@ -321,20 +328,58 @@ class Recovery {
           settled();
         },
         (e: unknown) => {
-          const code = codeOf(e);
-          if (code === "disconnected" || code === "timeout") {
-            sub.markRecovering();
-            if (code === "timeout" && !aborted && !this.#stale(epoch)) {
-              aborted = true;
-              client.abortSocket("resubscribe_timeout");
-            }
-          } else {
+          const transport = this.#transportFailure(e, epoch, Date.now() - sentAt);
+          if (transport === null) {
+            // An error response from the server, whatever its code: terminal (§8).
             sub.fail(e instanceof ProtocolFailure ? e : new ProtocolFailure("internal", String(e)));
+          } else {
+            sub.markRecovering();
+            if (transport !== "closed" && !aborted && !this.#stale(epoch)) {
+              aborted = true;
+              client.abortSocket(
+                transport === "timeout" ? "resubscribe_timeout" : "resubscribe_send_failed",
+              );
+            }
           }
           settled();
         },
       );
     }
+  }
+
+  /**
+   * Classifies a resubscribe failure: a transport failure the client produced
+   * locally, or `null` for an error response from the server. The client
+   * rejects pending requests of a closed socket only after emitting nothing
+   * else, and emits `socket_closed` synchronously in the same call, so a local
+   * socket-loss `disconnected` always finds this round stale. A local send
+   * failure (`sent: false`) and a local timeout carry the client's own
+   * details and message; a server response with the same code is told apart
+   * by those, by the round still being current, and, for a timeout, by the
+   * time elapsed since the send reaching (half of) the timeout the message
+   * names, which a prompt server answer does not.
+   */
+  #transportFailure(
+    e: unknown,
+    epoch: number,
+    elapsedMs: number,
+  ): "closed" | "timeout" | "send_failed" | null {
+    if (!(e instanceof ProtocolFailure)) return null;
+    const { code, message, details } = e.error;
+    const keys = details !== null && typeof details === "object" ? Object.keys(details) : [];
+    const sent =
+      keys.length === 1 && keys[0] === "sent" ? (details as { sent: unknown }).sent : undefined;
+    if (code === "disconnected") {
+      if (this.#stale(epoch) && sent !== undefined) return "closed";
+      if (sent === false && message.startsWith("cannot send subscribe")) return "send_failed";
+      return null;
+    }
+    if (code === "timeout") {
+      const match = /^subscribe: no response within (\d+) ms$/.exec(message);
+      if (sent === true && match && elapsedMs >= Number(match[1]) / 2) return "timeout";
+      return null;
+    }
+    return null;
   }
 
   #rebind(sub: Subscription, result: SubscribeResult): void {
@@ -430,13 +475,15 @@ export async function transactWithRetry(
 ): Promise<TransactResult> {
   const timers = options.timers ?? globalTimers;
   const txn_id = options.txn_id ?? globalThis.crypto.randomUUID();
-  const params: TransactParams = {
+  const built: TransactParams = {
     base_revision: options.base_revision ?? client.revision,
     ops,
     txn_id,
   };
-  if (options.label !== undefined) params.label = options.label;
-  if (options.actor !== undefined) params.actor = options.actor;
+  if (options.label !== undefined) built.label = options.label;
+  if (options.actor !== undefined) built.actor = options.actor;
+  // A snapshot: the caller mutating `ops` or `actor` later must not change the resend (§6).
+  const params = structuredClone(built);
   const session = client.session;
 
   try {
