@@ -131,3 +131,19 @@ describe("staleConflicts", () => {
     expect(err.rejection).toBe(stale);
   });
 });
+
+describe("Transaction.effects", () => {
+  test("returns copies: mutating one changes neither the transaction nor the history", () => {
+    const t = fixture();
+    commit(t, (tx) => {
+      writeValue(tx, "goblin1", "hp", num(1));
+      const [e] = tx.effects();
+      if (e?.type === "cell") e.after = c(num(99));
+      expect(tx.effects()).toEqual([expect.objectContaining({ type: "cell", after: c(num(1)) })]);
+    });
+    expect(t.store.history.get(0)?.effects).toEqual([
+      expect.objectContaining({ type: "cell", object: "goblin1", cell: "hp", after: c(num(1)) }),
+    ]);
+    expect(t.store.getCell("goblin1", "hp")).toEqual(c(num(1)));
+  });
+});
