@@ -11,8 +11,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTable } from "@vtt/authority";
 import { ProtocolClient } from "@vtt/protocol";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { WebSocket as WsClient } from "ws";
+
+// Spawning the CLI under CI load can exceed Vitest's 5 s default (vtt-qf5.51).
+vi.setConfig({ testTimeout: 30_000 });
 
 const PKG = fileURLToPath(new URL("../..", import.meta.url));
 const ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
