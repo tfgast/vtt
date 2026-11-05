@@ -40,6 +40,9 @@ describe("keyCommand", () => {
       o: "zone-circle",
       p: "zone-polygon",
       i: "image",
+      d: "ink",
+      w: "text",
+      l: "layout",
     });
     for (const [k, tool] of Object.entries(TOOL_KEYS)) {
       expect(keyCommand(key(k))).toEqual({ type: "tool", tool });

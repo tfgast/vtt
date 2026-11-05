@@ -2,7 +2,7 @@
  * The app's keybindings (vtt-3l6.17; DESIGN.md §7 Undo, §8.1): Ctrl/Cmd+Z
  * undoes the GM's own latest group and Ctrl/Cmd+S saves (its default
  * prevented), both through vtt-3l6.21's `undo` and `save`; the tool keys
- * activate tools. Nothing fires while focus is in a text field, where the
+ * activate tools (M5, vtt-1xv.23: D ink, W text, L layout). Nothing fires while focus is in a text field, where the
  * keys keep their text-editing meaning. The select tool's own keys (Delete,
  * arrows, F, `[`, `]`, Escape) reach it through `BoardCanvas`, not here.
  */
@@ -22,6 +22,9 @@ export const TOOL_KEYS: Readonly<Record<string, ToolId>> = {
   o: "zone-circle",
   p: "zone-polygon",
   i: "image",
+  d: "ink",
+  w: "text",
+  l: "layout",
 };
 
 export type KeyCommand = { type: "undo" } | { type: "save" } | { type: "tool"; tool: ToolId };
