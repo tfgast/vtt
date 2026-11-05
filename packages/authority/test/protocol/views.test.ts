@@ -5,7 +5,9 @@
 import {
   createObject,
   FACE_DOWN_EXEMPT,
+  move,
   remove,
+  reorder,
   STRUCTURAL_VIEW_CELLS,
   setActions,
   setCellVisibility,
@@ -23,6 +25,7 @@ import {
   EffectViewSchema,
   type GroupView,
   GroupViewSchema,
+  type ObjectSnapshotView,
   ObjectViewSchema,
   WireResultSchema,
 } from "@vtt/protocol";
@@ -226,7 +229,6 @@ describe("redact", () => {
           cells: {
             target: c(ref("ghost")),
             via: f("target"),
-            gone: c(ref("nobody")),
             where: c(ref("table")),
             nested: c(list([list([ref("ghost"), num(1)]), ref("aldric")])),
             party: c(viewers("owner", ref("bryn"), ref("aldric"))),
@@ -240,7 +242,14 @@ describe("redact", () => {
     const cells = new ViewBuilder(table, ALDRIC).objectView("note", "all")?.cells;
     expect(cells?.target?.value).toEqual(REDACTED);
     expect(cells?.via?.value).toEqual(REDACTED);
-    expect(cells?.gone?.value).toEqual(REDACTED);
+    // A dead ref read from a cell is #REF (FORMULAS.md §2); one passed in is redacted.
+    const aldric = new ViewBuilder(table, ALDRIC);
+    expect(aldric.redact(ref("nobody"))).toEqual(REDACTED);
+    expect(aldric.redact(list([list([ref("nobody")])]))).toEqual({
+      type: "list",
+      items: [{ type: "list", items: [REDACTED] }],
+    });
+    expect(aldric.redact(ref("table"))).toEqual(ref("table"));
     expect(cells?.where?.value).toEqual(ref("table"));
     expect(cells?.board?.value).toEqual(ref("table"));
     expect(cells?.nested?.value).toEqual({
@@ -258,7 +267,7 @@ describe("redact", () => {
     const gm = new ViewBuilder(table, GM);
     const cells = gm.objectView("note", "all")?.cells;
     expect(cells?.target?.value).toEqual(ref("ghost"));
-    expect(cells?.gone?.value).toEqual(ref("nobody"));
+    expect(gm.redact(ref("nobody"))).toEqual(ref("nobody"));
     expect(cells?.party?.value).toEqual(viewers("owner", ref("bryn"), ref("aldric")));
     expect(gm.redact(list([ref("ghost")]))).toEqual(list([ref("ghost")]));
   });
@@ -397,9 +406,12 @@ describe("covers", () => {
   test("overlapping hidden opaque zones: covers are the zones not effectively visible and agree with canSeeObject", () => {
     const hidden = { opaque: c(bool(true)), visible_to: c(GM_ONLY) };
     const tokens: TableObject[] = [];
+    const anchors = new Map<string, Point>();
     for (let x = -40; x <= 20; x += 2.5) {
       for (let y = -12; y <= 16; y += 2) {
-        tokens.push(placed(`t${tokens.length}`, x, y));
+        const id = `t${tokens.length}`;
+        tokens.push(placed(id, x, y));
+        anchors.set(id, [x, y]);
       }
     }
     const table = Table.fromSnapshot(
@@ -426,9 +438,7 @@ describe("covers", () => {
     ]);
     let hiddenCount = 0;
     for (const t of tokens) {
-      const anchor = (t.cells.position?.content as { items: { value: number }[] }).items.map(
-        (i) => i.value,
-      ) as Point;
+      const anchor = anchors.get(t.id) as Point;
       const covered = covers.some(
         (cv) =>
           "position" in cv.region &&
@@ -671,6 +681,55 @@ describe("group views", () => {
     expect(view?.effects).toBeUndefined();
   });
 
+  test("hidden containers and contents ids are nulled, refs in values redacted; each nulls the label", () => {
+    const table = Table.fromSnapshot(
+      snapshot([
+        character("aldric", 0),
+        placed("chest", 0, 0, { contents: ["coin"], cells: { visible_to: c(GM_ONLY) } }),
+        obj("coin"),
+        placed("hand", 3, 0, { contents: ["c1", "c2"] }),
+        obj("c1"),
+        obj("c2", { cells: { visible_to: c(GM_ONLY) } }),
+        placed("note", 6, 0, { cells: { target: c(ref("chest")) } }),
+      ]),
+    );
+    const aldric = () => new ViewBuilder(table, ALDRIC);
+    const out = group(table, "Take the coin", (tx) =>
+      move(tx, "coin", { type: "board", board: "table", position: [1, 1] }),
+    );
+    const place = aldric().groupView(out, { effects: true });
+    expect(place?.effects?.filter((e) => e.type === "place")).toEqual([
+      {
+        type: "place",
+        object: "coin",
+        before: { type: "container", container: null, index: 0 },
+        after: { type: "board", board: "table" },
+      },
+    ]);
+    expect(place?.label).toBeNull();
+
+    const shuffled = group(table, "Shuffle", (tx) => reorder(tx, "hand", [1, 0]));
+    const view = aldric().groupView(shuffled, { effects: true });
+    expect(view?.effects).toEqual([
+      { type: "reorder", container: "hand", before: ["c1", null], after: [null, "c1"] },
+    ]);
+    expect(view?.label).toBeNull();
+
+    const retarget = group(table, "Retarget", (tx) =>
+      writeValue(tx, "note", "target", ref("hand")),
+    );
+    const rv = aldric().groupView(retarget, { effects: true });
+    expect(rv?.effects?.[0]).toMatchObject({
+      before: { kind: "literal", value: REDACTED },
+      after: { kind: "literal", value: ref("hand") },
+    });
+    expect(rv?.label).toBeNull();
+    expect(aldric().filterEffect(retarget.effects[0] as Effect).reduced).toBe(true);
+    expect(new ViewBuilder(table, GM).groupView(retarget, { effects: true })?.label).toBe(
+      "Retarget",
+    );
+  });
+
   test("the GM view is the raw group plus undone, every effect variant converted losslessly", () => {
     const table = groupTable();
     const full: TableObject = obj("box", {
@@ -742,7 +801,7 @@ describe("group views", () => {
       names: { box: "Box" },
       effects,
     };
-    const snap = {
+    const snap: ObjectSnapshotView = {
       id: "box",
       is_template: false,
       is_zone: true,
@@ -761,7 +820,7 @@ describe("group views", () => {
         { name: "Kick", steps: [] },
       ],
     };
-    const gemSnap = {
+    const gemSnap: ObjectSnapshotView = {
       id: "gem",
       is_template: false,
       is_zone: false,
