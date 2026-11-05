@@ -4,6 +4,7 @@ export * from "./app/keybindings";
 export * from "./app/Notices";
 export * from "./app/StatusBar";
 export * from "./app/Toolbar";
+export * from "./assets/image-cell";
 export * from "./assets/upload";
 export * from "./canvas/BoardCanvas";
 export * from "./face/face-contracts";
