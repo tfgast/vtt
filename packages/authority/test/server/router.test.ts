@@ -80,7 +80,7 @@ describe("routing over a real server", () => {
     const gm = await connect(server, { client: { name: "ui", kind: "ui" } });
     const r = await agent.transact(setHp(agent.revision, 2).ops as never);
     expect(r).toMatchObject({ status: "committed", revision: 4 });
-    expect(host.table.store.history.groups.at(-1)?.actor).toEqual({
+    expect(host.table.store.history.groups().at(-1)?.actor).toEqual({
       type: "agent",
       name: "Claude",
     });
@@ -108,7 +108,7 @@ describe("routing over a real server", () => {
     const a = await connect(server, { instance: "inst-a" });
     const b = await connect(server, { instance: "inst-b" });
     const ra = await a.request("transact", setHp(3, 1, { txn_id: "t1" }) as never);
-    const rb = await b.request("transact", setHp(3, 2, { txn_id: "t1" }) as never);
+    const rb = await b.request("transact", setHp(4, 2, { txn_id: "t1" }) as never);
     expect(ra).toMatchObject({ status: "committed", revision: 4 });
     expect(rb).toMatchObject({ status: "committed", revision: 5 });
     const again = await a.request("transact", setHp(3, 1, { txn_id: "t1" }) as never);
