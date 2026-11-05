@@ -29,6 +29,11 @@
  * In the GM view (not view-as) the row is a drag source of
  * `application/x-vtt-cell` with data `{object, cell}` while no editor is open
  * (vtt-1xv.27): dropped on the object, it adds a value element to its face.
+ *
+ * In the GM view the row of a cell named `image` offers "Upload…" (vtt-nb8.7,
+ * DESIGN.md §4.6 Appearance cells, M6-D4): it opens a hidden file input of
+ * PNG, JPEG, WebP and GIF, and a chosen file goes to `uploadIntoCell` with
+ * the revision captured at the button's click.
  */
 import type {
   CellView,
@@ -46,10 +51,13 @@ import {
   type MouseEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { uploadIntoCell } from "../assets/image-cell";
 import { CELL_DRAG_MIME, cellDragData } from "../face-editor/cell-drop";
 import type { WritePort } from "../interaction/contracts";
+import { IMAGE_ACCEPT } from "../interaction/create-tools";
 import { useUiStore } from "../session/hooks";
 import type { TableSession } from "../session/table-session";
 import { createWritePort } from "../session/writes";
@@ -341,6 +349,27 @@ export function CellRow({
   const deleteCell = () =>
     write([{ type: "delete_cell", object, cell: name }], revision(), `Delete ${where()}`);
 
+  // -- image upload (the revision is captured at the Upload… click)
+
+  const fileInput = useRef<HTMLInputElement>(null);
+  const uploadRevision = useRef<number | null>(null);
+  const canUpload = name === "image" && !readOnly;
+  const startUpload = (event: MouseEvent) => {
+    event.stopPropagation();
+    uploadRevision.current = revision();
+    fileInput.current?.click();
+  };
+  const onFileChosen = () => {
+    const input = fileInput.current;
+    const file = input?.files?.[0];
+    const baseRevision = uploadRevision.current ?? revision();
+    uploadRevision.current = null;
+    if (input === null || file === undefined) return;
+    // Cleared, so choosing the same file again is a change.
+    input.value = "";
+    void uploadIntoCell({ file, object, cell: name, baseRevision, session });
+  };
+
   const setViewers = (next: InputViewers | null) => {
     if (next === null) return;
     write(cellInputToOps(object, name, next, cell), revision(), `Set ${where()}`);
@@ -517,6 +546,23 @@ export function CellRow({
           <button type="button" style={NOTE_STYLE} onClick={deleteCell}>
             Delete
           </button>
+        </>
+      )}
+      {canUpload && (
+        <>
+          <button type="button" style={NOTE_STYLE} onClick={startUpload}>
+            Upload…
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept={IMAGE_ACCEPT}
+            hidden
+            aria-hidden="true"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            onChange={onFileChosen}
+          />
         </>
       )}
       {name === "visible_to" && caps.literal && (
