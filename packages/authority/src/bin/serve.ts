@@ -7,17 +7,38 @@
  * saves, releases the lock and removes the discovery file.
  *
  *   vtt-serve <file> [--port n] [--token t] [--allow-origin o]…
- *             [--no-autosave] [--print-session] [--force-unlock]
+ *             [--ui-dir dir | --no-ui] [--no-autosave] [--print-session]
+ *             [--force-unlock]
+ *
+ * HTTP (PROTOCOL.md §1; M4-D1): the table-image routes (`POST /assets`,
+ * `GET /assets/<path>`) and then the built UI (`GET /`, `/index.html`,
+ * `/ui-assets/<path>`, with the session element injected). `--ui-dir` names
+ * the UI build directory (default: `packages/ui/dist` beside this package);
+ * `--no-ui` serves no UI (`GET /` is 404) but still serves assets. Once
+ * listening it logs `Open http://127.0.0.1:<port>/` (not with `--no-ui`).
+ *
+ * Development: run `pnpm dev` (the Vite dev server on
+ * http://localhost:5173, which injects the session from the discovery file
+ * and proxies `/assets` here) next to
+ * `vtt-serve <file> --allow-origin http://localhost:5173`, so the dev page's
+ * WebSocket `Origin` is accepted.
  *
  * Exit codes: 0 after a clean shutdown whose final save succeeded; 1 for a
  * usage error, a start-up failure (locked table, bad identity file, port in
  * use, any other open or listen failure) or a failed final save. Logs go to
- * stderr; stdout carries only the `--print-session` line.
+ * stderr; stdout carries only the `--print-session` line, which holds
+ * `{url, token, session, table_path, table_id, http}` (`http`:
+ * `http://127.0.0.1:<port>/`).
  */
 import { lstatSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
   canonicalTablePath,
+  createAssetHttpHandler,
+  createUiHttpHandler,
+  type HttpHandler,
   type RunningServer,
   removeSessionFile,
   removeTableLock,
@@ -29,7 +50,10 @@ import {
 } from "../index";
 
 const USAGE =
-  "usage: vtt-serve <file> [--port n] [--token t] [--allow-origin o]... [--no-autosave] [--print-session] [--force-unlock]";
+  "usage: vtt-serve <file> [--port n] [--token t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock]";
+
+/** The default UI build directory: `packages/ui/dist`, resolved from this module's location. */
+const DEFAULT_UI_DIR = fileURLToPath(new URL("../../../ui/dist", import.meta.url));
 
 /**
  * The flags. Later flags (e.g. the UI's) are added here; `allowNegative`
@@ -39,6 +63,8 @@ const OPTIONS = {
   port: { type: "string" },
   token: { type: "string" },
   "allow-origin": { type: "string", multiple: true },
+  "ui-dir": { type: "string" },
+  ui: { type: "boolean", default: true },
   autosave: { type: "boolean", default: true },
   "print-session": { type: "boolean", default: false },
   "force-unlock": { type: "boolean", default: false },
@@ -49,6 +75,8 @@ interface ServeArgs {
   port: number | undefined;
   token: string | undefined;
   allowOrigins: string[];
+  /** The UI build directory (absolute), or null with `--no-ui`. */
+  uiDir: string | null;
   autosave: boolean;
   printSession: boolean;
   forceUnlock: boolean;
@@ -85,11 +113,16 @@ function parse(argv: string[]): ServeArgs {
     }
   }
   if (values.token === "") throw new UsageError("--token must not be empty");
+  if (!values.ui && values["ui-dir"] !== undefined) {
+    throw new UsageError("--no-ui and --ui-dir cannot be combined");
+  }
+  if (values["ui-dir"] === "") throw new UsageError("--ui-dir must not be empty");
   return {
     file: positionals[0] as string,
     port,
     token: values.token,
     allowOrigins: values["allow-origin"] ?? [],
+    uiDir: values.ui ? resolve(values["ui-dir"] ?? DEFAULT_UI_DIR) : null,
     autosave: values.autosave,
     printSession: values["print-session"],
     forceUnlock: values["force-unlock"],
@@ -217,12 +250,17 @@ async function main(argv: string[]): Promise<never> {
   for (const warning of host.warnings) log(`warning: ${warning}`);
   if (signalled) return shutdown();
 
+  // Assets first, then the UI (vtt-3l6.16, vtt-3l6.14); both take the
+  // server's url and token from the route context, known once listening.
+  const http: HttpHandler[] = [createAssetHttpHandler({ host })];
+  if (args.uiDir !== null) http.push(createUiHttpHandler({ uiDir: args.uiDir }));
   try {
     server = await startServer({
       host,
       ...(args.port === undefined ? {} : { port: args.port }),
       ...(args.token === undefined ? {} : { token: args.token }),
       allowOrigins: args.allowOrigins,
+      http,
     });
   } catch (err) {
     const result = await host.close();
@@ -257,7 +295,9 @@ async function main(argv: string[]): Promise<never> {
   }
 
   started = true;
+  const httpUrl = `http://127.0.0.1:${server.port}/`;
   log(`serving ${tablePath} (table id ${tableId}) at ${server.url}`);
+  if (args.uiDir !== null) log(`Open ${httpUrl}`);
   if (args.printSession) {
     process.stdout.write(
       `${JSON.stringify({
@@ -266,6 +306,7 @@ async function main(argv: string[]): Promise<never> {
         session: server.session,
         table_path: tablePath,
         table_id: tableId,
+        http: httpUrl,
       })}\n`,
     );
   }

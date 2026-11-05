@@ -154,7 +154,7 @@ async function assetRoundTrip(http: string, token: string): Promise<void> {
   const posted = await fetch(new URL("/assets", http), {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "x-filename": "map.png" },
-    body: bytes,
+    body: new Uint8Array(bytes),
   });
   expect(posted.status).toBe(201);
   const { path } = (await posted.json()) as { path: string };

@@ -207,9 +207,10 @@ describe("vite.config.ts", () => {
       serveConfig,
     );
     expect(resolved.build?.assetsDir).toBe("ui-assets");
-    const names = (resolved.plugins ?? []).flat(Number.POSITIVE_INFINITY).map((p) => {
-      return p !== null && typeof p === "object" && "name" in p ? p.name : null;
-    });
+    const flat: unknown[] = (resolved.plugins ?? []) as unknown[];
+    const names = flat
+      .flat(4)
+      .map((p) => (p !== null && typeof p === "object" && "name" in p ? p.name : null));
     expect(names).toContain("vtt-session");
   });
 
@@ -369,7 +370,7 @@ describe("the real UI build", () => {
       const posted = await fetch(new URL("/assets", s.http), {
         method: "POST",
         headers: { authorization: `Bearer ${s.token}`, "x-filename": "map.png" },
-        body: bytes,
+        body: new Uint8Array(bytes),
       });
       expect(posted.status).toBe(201);
       const { path } = (await posted.json()) as { path: string };
@@ -418,20 +419,22 @@ describe("the dev server's /assets proxy", () => {
     async () => {
       host = await TableHost.open(join(dir, "crypt.table.json"), { createIfMissing: true });
       authority = await startServer({ host, port: 0, http: [createAssetHttpHandler({ host })] });
-      const xdg = join(dir, "config");
-      vite = await withEnv(
-        { XDG_CONFIG_HOME: xdg, VTT_URL: authority.url, VTT_TOKEN: authority.token },
-        async () => {
-          const server = await createServer({
-            root: UI,
-            configFile: CONFIG_FILE,
-            logLevel: "silent",
-            server: { port: 0, host: "127.0.0.1", strictPort: true, hmr: false, ws: false },
-          });
-          await server.listen();
-          return server;
-        },
-      );
+      // The plugin reads the environment on every page load, the proxy when the config loads.
+      const env = {
+        XDG_CONFIG_HOME: join(dir, "config"),
+        VTT_URL: authority.url,
+        VTT_TOKEN: authority.token,
+      };
+      vite = await withEnv(env, async () => {
+        const server = await createServer({
+          root: UI,
+          configFile: CONFIG_FILE,
+          logLevel: "silent",
+          server: { port: 0, host: "127.0.0.1", strictPort: true, hmr: false, ws: false },
+        });
+        await server.listen();
+        return server;
+      });
       const address = vite.httpServer?.address();
       if (typeof address !== "object" || address === null) throw new Error("no Vite address");
       const vitePort = address.port;
@@ -442,7 +445,7 @@ describe("the dev server's /assets proxy", () => {
       const posted = await fetch(`${viteBase}/assets`, {
         method: "POST",
         headers: { authorization: `Bearer ${authority.token}`, "x-filename": "map.png" },
-        body: bytes,
+        body: new Uint8Array(bytes),
       });
       expect(posted.status).toBe(201);
       const { path } = (await posted.json()) as { path: string };
@@ -465,9 +468,12 @@ describe("the dev server's /assets proxy", () => {
       expect(direct.body.equals(bytes)).toBe(true);
 
       // The dev page carries the session of the authority it proxies to.
-      const page = await fetch(`${viteBase}/`);
+      const page = await withEnv(env, async () => {
+        const res = await fetch(`${viteBase}/`);
+        return { status: res.status, html: await res.text() };
+      });
       expect(page.status).toBe(200);
-      expect(sessionOf(await page.text())).toEqual({
+      expect(sessionOf(page.html)).toEqual({
         url: authority.url,
         token: authority.token,
       });
