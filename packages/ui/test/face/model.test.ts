@@ -632,6 +632,37 @@ describe("resolveFace: default faces", () => {
     expect(only(resolve(contained), "gear")).toEqual([]);
   });
 
+  test("a face-down board template has the gear only; a face-down nested child has no primitives", () => {
+    const tpl = mk("down_tpl", {
+      shape: rect(2.5, 3.5),
+      template: true,
+      at: [0, 0],
+      actions: ["Roll"],
+      cells: { name: text("Secret"), face_up: bool(false), ink: ink([[0, 0]]) },
+      face: { elements: [button("Roll", [-1, 0, 2, 0.5], 0)] },
+    });
+    const d = resolve(tpl);
+    expect(kinds(d)).toEqual(["gear"]);
+    expect(d.primitives[0]).toMatchObject({
+      id: "down_tpl",
+      target: { type: "gear", id: "down_tpl" },
+    });
+    // Faceless too: no ink, strip or list, only the gear.
+    const { face: _face, ...faceless } = tpl;
+    expect(kinds(resolve(faceless))).toEqual(["gear"]);
+
+    const holder = mk("holder", {
+      shape: rect(7, 10),
+      contents: ["down_tpl"],
+      face: { elements: [contents([-3, -4, 6, 8], 0)] },
+    });
+    const fs = createFaceStateStore();
+    fs.expand("down_tpl");
+    const nested = contentsOf(resolve(holder, [tpl], fs)).entries[0]?.drawing as FaceDrawing;
+    expect(nested.primitives).toEqual([]);
+    expect(nested.base).toMatchObject({ faceDown: true });
+  });
+
   test("a faced template on the board has a gear too; buttons carry template", () => {
     const tpl = mk("tpl", {
       shape: rect(2, 2),
