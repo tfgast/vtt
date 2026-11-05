@@ -1,6 +1,9 @@
 export const PACKAGE = "@vtt/schema";
 export * from "./cell";
+export * from "./document";
 export * from "./guard";
 export * from "./ids";
+export * from "./object";
 export * from "./shape";
+export * from "./structural";
 export * from "./values";
