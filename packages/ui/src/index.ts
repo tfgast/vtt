@@ -1,4 +1,8 @@
-export { App } from "./App";
+export * from "./App";
+export * from "./app/keybindings";
+export * from "./app/Notices";
+export * from "./app/StatusBar";
+export * from "./app/Toolbar";
 export * from "./assets/upload";
 export * from "./canvas/BoardCanvas";
 export * from "./formula-bar/editor-port";
