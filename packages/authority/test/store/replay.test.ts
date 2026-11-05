@@ -36,7 +36,14 @@ const steps: Effect[][] = [
       before: { type: "board", board: "map" },
       after: { type: "container", container: "bag", index: 2 },
     },
-    { type: "cell", object: "goblin", cell: "position", before: at(1, 2), after: null, cause: "edit" },
+    {
+      type: "cell",
+      object: "goblin",
+      cell: "position",
+      before: at(1, 2),
+      after: null,
+      cause: "edit",
+    },
     { type: "cell", object: "goblin", cell: "z", before: lit(0), after: null, cause: "edit" },
     {
       type: "remove",
@@ -129,9 +136,9 @@ describe("rewind", () => {
     const { inverses } = replayWithInverses(base(), groups);
     const mid = rewind(store.toSnapshot(), groups.slice(3), inverses.slice(3));
     expect(mid.revision).toBe(10);
-    expect(storedStateEqual(mid, replay(base(), groups.slice(0, 3)), { ignoreRevision: false })).toBe(
-      true,
-    );
+    expect(
+      storedStateEqual(mid, replay(base(), groups.slice(0, 3)), { ignoreRevision: false }),
+    ).toBe(true);
   });
 
   test("requires the head revision to match the last group and inverses to match effects", () => {

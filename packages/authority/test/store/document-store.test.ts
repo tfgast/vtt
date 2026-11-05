@@ -23,9 +23,20 @@ describe("DocumentStore.fromSnapshot / toSnapshot", () => {
     const s = scrambled();
     const goblin = must(s.objects.goblin);
     const gm = { type: "viewers", viewers: ["gm"] } as const;
-    goblin.cell_visibility = { zeta: { ...gm, viewers: ["gm"] }, alpha: { ...gm, viewers: ["gm"] } };
+    goblin.cell_visibility = {
+      zeta: { ...gm, viewers: ["gm"] },
+      alpha: { ...gm, viewers: ["gm"] },
+    };
     const out = DocumentStore.fromSnapshot(s).toSnapshot();
-    expect(Object.keys(out.objects)).toEqual(["bag", "chest", "coin", "gem", "goblin", "pouch", "ring"]);
+    expect(Object.keys(out.objects)).toEqual([
+      "bag",
+      "chest",
+      "coin",
+      "gem",
+      "goblin",
+      "pouch",
+      "ring",
+    ]);
     expect(Object.keys(must(out.objects.goblin).cells)).toEqual(["hp", "name", "position", "z"]);
     expect(Object.keys(must(out.objects.goblin).cell_visibility)).toEqual(["alpha", "zeta"]);
     expect(out.boards.map((b) => b.id)).toEqual(["map", "shelf"]);

@@ -7,7 +7,12 @@ import { at, lit, must, named, obj, table } from "./helpers";
 const gm: Actor = { type: "gm" };
 const edit = { kind: "edit", label: "edit" } as const;
 
-const write = (object: string, cell: string, before: number | null, after: number | null): Effect => ({
+const write = (
+  object: string,
+  cell: string,
+  before: number | null,
+  after: number | null,
+): Effect => ({
   type: "cell",
   object,
   cell,
@@ -43,14 +48,25 @@ const goblinIntoBag: Effect[] = [
     before: { type: "board", board: "map" },
     after: { type: "container", container: "bag", index: 2 },
   },
-  { type: "cell", object: "goblin", cell: "position", before: at(1, 2), after: null, cause: "edit" },
+  {
+    type: "cell",
+    object: "goblin",
+    cell: "position",
+    before: at(1, 2),
+    after: null,
+    cause: "edit",
+  },
   { type: "cell", object: "goblin", cell: "z", before: lit(0), after: null, cause: "edit" },
 ];
 
 const removeCoin = (): Effect[] => {
   const coin = must(table().objects.coin);
   return [
-    { type: "remove", objects: [coin], location: { type: "container", container: "bag", index: 0 } },
+    {
+      type: "remove",
+      objects: [coin],
+      location: { type: "container", container: "bag", index: 0 },
+    },
     { type: "retire", ids: ["coin"] },
   ];
 };
@@ -175,13 +191,19 @@ describe("Transaction", () => {
 
   test("names hold the name at commit time, and a removed object's name before removal", () => {
     const store = DocumentStore.fromSnapshot(table());
-    const first = commitAll(store, [rename("goblin", "Goblin", "Gob"), write("goblin", "hp", 7, 6)]);
+    const first = commitAll(store, [
+      rename("goblin", "Goblin", "Gob"),
+      write("goblin", "hp", 7, 6),
+    ]);
     commitAll(store, [rename("goblin", "Gob", "Grub")]);
     expect(store.history.get(first.group.index)?.names).toEqual({ goblin: "Gob" });
     expect(store.history.get(1)?.names).toEqual({ goblin: "Grub" });
 
     // Renamed, then removed, in one transaction: the name just before removal.
-    const { group } = commitAll(store, [rename("coin", "Coin", "Penny"), ...removeCoin().map(withCoinName("Penny"))]);
+    const { group } = commitAll(store, [
+      rename("coin", "Coin", "Penny"),
+      ...removeCoin().map(withCoinName("Penny")),
+    ]);
     expect(group.names).toEqual({ bag: "Bag", coin: "Penny" });
     // Unnamed objects are recorded with the empty name.
     expect(commitAll(store, [write("ring", "value", 100, 99)]).group.names).toEqual({ ring: "" });
@@ -231,7 +253,7 @@ describe("Transaction", () => {
         ],
       },
     ]);
-    expect(s.changedCells).toEqual(expect.arrayContaining(must(s.moved[0]).derived));
+    expect(s.changedCells).toEqual(expect.arrayContaining([...must(s.moved[0]).derived]));
     // `before` is the pre-commit document.
     expect(beforeHp).toEqual(lit(7));
     expect(beforeGoblin).toEqual({ type: "board", board: "map" });
