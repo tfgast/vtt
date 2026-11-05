@@ -295,7 +295,8 @@ false (2.1).
 non-finite result is `#TYPE`. `%` takes the sign of the dividend: `-7 % 3` is
 `-1`. `round` is half away from zero: `round(-2.5)` is `-3`. `number(text)`
 accepts `-?digits(.digits)?` after trimming whitespace, and is `#TYPE` for
-anything else.
+any other text; a number passes through, a roll result gives its total, and
+`empty` stays `empty`.
 
 **Broadcasting.** Arithmetic, `&`, comparison, and scalar functions applied
 to a list with a scalar apply elementwise and yield a list:
@@ -347,11 +348,11 @@ takes text, giving its length in code points.
 | `len` | `0` (all items) |
 | `min`, `max`, `avg` | `empty` |
 | `any` | `false` (true if any item is truthy) |
-| `all` | `true` |
+| `all` | `true` (empty items are skipped: `all([1, empty])` is true) |
 | `first`, `last` | `empty` |
 
 **Numbers:** `round(x, places=0)`, `floor`, `ceil`, `abs`, `clamp(x, lo, hi)`,
-`number(text)` (4)
+`number(x)` (4)
 
 **Text:** `text(x)`, `upper`, `lower`, `join(list, sep)`, `len(text)`
 
