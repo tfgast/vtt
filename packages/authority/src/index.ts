@@ -6,6 +6,8 @@ export * from "./host/lock";
 export * from "./host/new-table";
 export * from "./host/table-host";
 export * from "./persist/index";
+export * from "./protocol/commands";
+export * from "./protocol/conflicts";
 export * from "./spatial/index";
 export * from "./store/index";
 export * from "./visibility";

@@ -210,6 +210,11 @@ export class Transaction {
     return this.#view;
   }
 
+  /** Copies of the effects recorded so far, in order; mutating them changes nothing. */
+  effects(): readonly Effect[] {
+    return structuredClone(this.#effects);
+  }
+
   /** The change summary of the effects recorded so far. */
   changes(): ChangeSummary {
     return this.#summary.build();
