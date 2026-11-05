@@ -146,6 +146,36 @@ describe("selectKeyEffects", () => {
     expect(w.label).toBe("Send Alpha to back");
   });
 
+  test("[ counts board objects skipped by the scene (invalid position) but not contained or other-board ones", () => {
+    const bad = obj("bad", [0, 0], literalZ(-100));
+    (bad.cells as Record<string, CellView>).position = {
+      value: { type: "text", value: "?" },
+      kind: "literal",
+    };
+    const held = obj("held", [0, 0], literalZ(-500));
+    (held.cells as Record<string, CellView>).container = {
+      value: { type: "ref", object: "a" },
+      kind: "structural",
+    };
+    const views = [
+      VIEWS[0] as ObjectView,
+      VIEWS[1] as ObjectView,
+      bad,
+      held,
+      VIEWS[5] as ObjectView,
+    ];
+    const scene = buildScene({ views, covers: [], board: BOARD, viewer: GM });
+    expect([...scene.skipped].sort()).toEqual(["bad", "far", "held"]);
+    const byId = new Map(views.map((v) => [v.id, v]));
+    const w = onlyWrite(
+      selectKeyEffects(
+        press("["),
+        makeInput(["a"], { scene, views: (id) => byId.get(id) ?? null }),
+      ),
+    );
+    expect(w.ops).toEqual([{ type: "set_value", object: "a", cell: "z", value: num(-101) }]);
+  });
+
   test("[ with several objects keeps their order below the lowest", () => {
     const w = onlyWrite(selectKeyEffects(press("["), makeInput(["b", "a"])));
     expect(w.ops).toEqual([

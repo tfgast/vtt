@@ -346,6 +346,45 @@ describe("Alt+click cycling", () => {
   });
 });
 
+describe("hover lock across gestures", () => {
+  test("leaving the locked target during a drag releases the lock; after a cancel the first hit is hovered", () => {
+    const d = driver();
+    d.click([1, 1], ALT);
+    d.click([1, 1], ALT);
+    d.click([1, 1], ALT);
+    expect(d.selection).toEqual(["room"]);
+    // Drag the selected room out of its own footprint, then cancel.
+    d.send(pointer("pointer_down", [1, 1]));
+    d.send(pointer("pointer_move", [30, 30]));
+    d.cancel("escape");
+    // Back over the map (inside the room): the map is hovered, not the room.
+    const back = d.send(pointer("pointer_move", [2, 2], NO_MODS, { buttons: 0 }));
+    expect(of(back, "hover")).toEqual([{ type: "hover", id: "map", zone: null }]);
+  });
+
+  test("staying inside the locked target during a drag keeps the lock", () => {
+    const d = driver();
+    d.click([1, 1], ALT);
+    d.click([1, 1], ALT);
+    d.click([1, 1], ALT);
+    d.send(pointer("pointer_down", [1, 1]));
+    d.send(pointer("pointer_move", [2, 2]));
+    d.cancel("escape");
+    const back = d.send(pointer("pointer_move", [2.1, 2], NO_MODS, { buttons: 0 }));
+    expect(of(back, "hover")).toEqual([]);
+    expect((d.state.phase as { hoverLock: string | null }).hoverLock).toBe("room");
+  });
+
+  test("a drop recomputes the hover at the drop point", () => {
+    const d = driver();
+    d.click([1, 1], ALT);
+    d.click([1, 1], ALT);
+    d.click([1, 1], ALT);
+    const effects = d.drag([1, 1], [30, 30]);
+    expect(of(effects, "hover")).toEqual([{ type: "hover", id: null, zone: null }]);
+  });
+});
+
 describe("hover", () => {
   test("hover is the first hit, with zone set only when it is a zone", () => {
     const d = driver();
