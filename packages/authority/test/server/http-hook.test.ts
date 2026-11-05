@@ -73,7 +73,8 @@ describe("Host check", () => {
       const res = await send(port, "/x", { host });
       expect(res.status, host).toBe(421);
     }
-    expect((await send(port, "/x", { host: null })).status).toBe(421);
+    // Node's HTTP server refuses an HTTP/1.1 request without `Host` (400) before routing.
+    expect((await send(port, "/x", { host: null })).status).toBe(400);
     expect((await send(port, "/nowhere", { host: `evil.example:${port}` })).status).toBe(421);
     expect((await send(port, "/x", { method: "POST", host: `evil.example:${port}` })).status).toBe(
       421,
@@ -101,9 +102,9 @@ describe("Host check", () => {
     expect((await send(server.port, "/healthz", { method: "POST" })).status).toBe(404);
   });
 
-  test("GET /healthz answers with any Host, or none", async () => {
+  test("GET /healthz answers with any Host", async () => {
     const { server, host } = await serve();
-    for (const h of [`evil.example:${server.port}`, "evil.example", null]) {
+    for (const h of [`evil.example:${server.port}`, "evil.example", `localhost:${server.port}`]) {
       const res = await send(server.port, "/healthz", { host: h });
       expect(res.status).toBe(200);
       expect(JSON.parse(res.body)).toEqual({ ok: true, revision: host.revision });

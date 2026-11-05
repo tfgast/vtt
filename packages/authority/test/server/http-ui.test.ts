@@ -89,7 +89,7 @@ describe("injectSession", () => {
     expect(out).toContain(
       `<script id="vtt-session" type="application/json">{"url":"ws://127.0.0.1:4747/ws","token":"abc"}</script></head>`,
     );
-    expect(out.replace(/<script id="vtt-session"[^]*?<\/script>/, "")).toBe(INDEX);
+    expect(out.replace(/<script id="vtt-session"[\s\S]*?<\/script>/, "")).toBe(INDEX);
   });
 
   test("replaces stale elements", () => {
@@ -180,7 +180,8 @@ describe("GET / and /index.html", () => {
         expect(res.body).toContain("pnpm --filter @vtt/ui build");
         expect(res.body).not.toContain("tok-123");
       }
-      expect((await get(server.port, "/ui-assets/app.js")).status).toBe(404);
+      // Bundles are independent of index.html; without a directory there are none.
+      expect((await get(server.port, "/ui-assets/app.js")).status).toBe(uiDir === dist ? 200 : 404);
     }
   });
 

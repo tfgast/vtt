@@ -9,8 +9,11 @@
  * synchronously as they are produced, and the host's save results are
  * broadcast as `save` events.
  *
- * No CLI, discovery file or signals here (vtt-5su.14); no static files
- * (M4: the HTTP fallback in `#onHttp` is where route handlers plug in).
+ * Every other non-upgrade request passes the `Host` check (PROTOCOL.md §1;
+ * M4-D1: 421 unless `Host` is `127.0.0.1:<port>` or `localhost:<port>`) and
+ * then the `http` route handlers, in order, before the 404 (vtt-3l6.14).
+ *
+ * No CLI, discovery file or signals here (vtt-5su.14).
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -50,6 +53,25 @@ export {
   routeRequest,
 } from "./router";
 
+/** What a route handler knows about the server it runs in. */
+export interface HttpContext {
+  /** `ws://127.0.0.1:<port>/ws`. */
+  readonly url: string;
+  readonly port: number;
+  readonly token: string;
+}
+
+/**
+ * An HTTP route handler (vtt-3l6.14): answers the request and returns true,
+ * or returns false without writing anything to let the next handler try.
+ * It runs only for requests that passed the `Host` check.
+ */
+export type HttpHandler = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: HttpContext,
+) => boolean | Promise<boolean>;
+
 /** The timers the server schedules with (hello timeouts, heartbeat); injectable for tests. */
 export interface ServerTimers extends ConnectionTimers {
   setInterval(fn: () => void, ms: number): unknown;
@@ -74,6 +96,11 @@ export interface StartServerOptions {
   /** Default 15000 (PROTOCOL.md §8). */
   heartbeatMs?: number;
   timers?: ServerTimers;
+  /**
+   * Route handlers for non-upgrade requests other than `GET /healthz`, tried
+   * in order after the `Host` check; unhandled requests are 404.
+   */
+  http?: readonly HttpHandler[];
 }
 
 export interface RunningServer {
@@ -127,6 +154,7 @@ class AuthorityServer {
   readonly #helloTimeoutMs: number;
   readonly #heartbeatMs: number;
   readonly #timers: ServerTimers;
+  readonly #handlers: readonly HttpHandler[];
   readonly #deps: RouterDeps;
   readonly #http: Server;
   readonly #wss: WebSocketServer;
@@ -148,6 +176,7 @@ class AuthorityServer {
     this.#helloTimeoutMs = options.helloTimeoutMs ?? 5000;
     this.#heartbeatMs = options.heartbeatMs ?? 15000;
     this.#timers = options.timers ?? systemServerTimers;
+    this.#handlers = [...(options.http ?? [])];
     const hub = createSubscriptionHub(this.#host.table);
     this.#deps = { host: this.#host, hub, txns: new TxnCache() };
     // Commit events are sent as the hub produces them, inside the commit,
@@ -208,9 +237,46 @@ class AuthorityServer {
       res.end(body);
       return;
     }
-    // Seam for M4 (vtt-3l6.14): further HTTP route handlers go here.
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("not found\n");
+    if (!this.#hostAllowed(req.headers.host)) {
+      res.writeHead(421, { "Content-Type": "text/plain" });
+      res.end("misdirected request\n");
+      return;
+    }
+    if (this.#handlers.length === 0) {
+      notFound(res);
+      return;
+    }
+    void this.#route(req, res);
+  }
+
+  /** The DNS-rebinding guard (PROTOCOL.md §1): only this server's own loopback `Host`. */
+  #hostAllowed(host: string | undefined): boolean {
+    return host === `127.0.0.1:${this.#port}` || host === `localhost:${this.#port}`;
+  }
+
+  /** Tries the route handlers in order; 404 when none handles the request. */
+  async #route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const ctx: HttpContext = {
+      url: `ws://127.0.0.1:${this.#port}/ws`,
+      port: this.#port,
+      token: this.#token,
+    };
+    try {
+      for (const handler of this.#handlers) {
+        if (await handler(req, res, ctx)) return;
+        // A handler that wrote anything has taken the request, whatever it returned.
+        if (res.headersSent || res.writableEnded) return;
+      }
+      notFound(res);
+    } catch (err) {
+      console.error(`vtt: HTTP handler failed for ${req.method} ${pathOf(req)}:`, err);
+      if (res.headersSent) {
+        res.destroy();
+      } else {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("internal error\n");
+      }
+    }
   }
 
   #onUpgrade(req: IncomingMessage, socket: Socket, head: Buffer): void {
@@ -352,6 +418,11 @@ function pathOf(req: IncomingMessage): string {
   const url = req.url ?? "/";
   const q = url.indexOf("?");
   return q < 0 ? url : url.slice(0, q);
+}
+
+function notFound(res: ServerResponse): void {
+  res.writeHead(404, { "Content-Type": "text/plain" });
+  res.end("not found\n");
 }
 
 function refuseUpgrade(socket: Socket, status: string): void {
