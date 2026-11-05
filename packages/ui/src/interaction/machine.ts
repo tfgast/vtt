@@ -54,6 +54,12 @@ export interface PanGesture {
   last: Point;
 }
 
+/** Stamped effects of one interaction still awaiting `settled`. */
+export interface PendingInteraction {
+  tool: ToolId;
+  outstanding: number;
+}
+
 export interface MachineState {
   /** The active tool. */
   readonly tool: ToolId;
@@ -65,8 +71,14 @@ export interface MachineState {
   /** Space is held (outside text fields). */
   readonly space: boolean;
   readonly pan: PanGesture | null;
-  /** Interaction ids of stamped effects not yet settled, to the tool that emitted them. */
-  readonly pending: Readonly<Record<string, ToolId>>;
+  /**
+   * Per interaction id with stamped effects not yet settled: the tool that
+   * emitted them and how many are outstanding. Each `settled` result
+   * decrements the count; the entry goes when it reaches zero. A cancel
+   * keeps entries, since a started write or upload still settles back to its
+   * tool (review r3 finding 1).
+   */
+  readonly pending: Readonly<Record<string, PendingInteraction>>;
   /** The counter behind fresh interaction ids. */
   readonly nextInteraction: number;
 }
@@ -91,7 +103,9 @@ function applyTool(state: MachineState, id: ToolId, result: ToolResult): Machine
   let pending = state.pending;
   for (const effect of result.effects) {
     const interactionId = settlingInteraction(effect);
-    if (interactionId !== null) pending = { ...pending, [interactionId]: id };
+    if (interactionId === null) continue;
+    const outstanding = (pending[interactionId]?.outstanding ?? 0) + 1;
+    pending = { ...pending, [interactionId]: { tool: id, outstanding } };
   }
   return {
     state: { ...state, tools: { ...state.tools, [id]: result.state }, pending },
@@ -286,10 +300,19 @@ function route(
       }
       return deliver(state, state.tool, event, input, registry);
     case "settled": {
-      const owner = state.pending[event.interactionId];
-      if (owner === undefined || registry.get(owner) === undefined) return { state, effects: [] };
-      const { [event.interactionId]: _settled, ...pending } = state.pending;
-      return deliver({ ...state, pending }, owner, event, input, registry);
+      const entry = state.pending[event.interactionId];
+      if (entry === undefined || registry.get(entry.tool) === undefined) {
+        return { state, effects: [] };
+      }
+      const { [event.interactionId]: _settled, ...rest } = state.pending;
+      const pending =
+        entry.outstanding > 1
+          ? {
+              ...rest,
+              [event.interactionId]: { tool: entry.tool, outstanding: entry.outstanding - 1 },
+            }
+          : rest;
+      return deliver({ ...state, pending }, entry.tool, event, input, registry);
     }
     default:
       return deliver(state, state.tool, event, input, registry);

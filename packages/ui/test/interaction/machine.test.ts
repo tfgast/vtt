@@ -615,7 +615,7 @@ describe("settled results go to the tool that started the interaction", () => {
     const out = reduce(s0, key("key_down", "x", "KeyX"), makeInput(), registry);
     const ids = Object.keys(out.state.pending).sort();
     expect(ids).toHaveLength(3);
-    for (const id of ids) expect(out.state.pending[id]).toBe("select");
+    for (const id of ids) expect(out.state.pending[id]).toEqual({ tool: "select", outstanding: 1 });
     const pickId = ids.find((i) => i.endsWith("-p")) as string;
     const picked = reduce(
       out.state,
@@ -623,10 +623,59 @@ describe("settled results go to the tool that started the interaction", () => {
       makeInput(),
       registry,
     );
-    expect(picked.state.pending[pickId]).toBe("select");
+    expect(picked.state.pending[pickId]).toEqual({ tool: "select", outstanding: 1 });
     expect(
       calls.filter((c) => c.kind === "reduce").map((c) => c.kind === "reduce" && c.event.type),
     ).toEqual(["key_down", "settled"]);
+  });
+});
+
+describe("several effects sharing one stamp", () => {
+  test("every result settles back to the tool, then the entry goes", () => {
+    const {
+      calls,
+      registry,
+      state: s0,
+    } = setup((event, input) => {
+      if (event.type !== "key_down") return [];
+      const stamp = captureStamp(input);
+      if (!stamp) return [];
+      return [
+        { type: "extension", name: "a", stamp, payload: 1 },
+        { type: "extension", name: "b", stamp, payload: 2 },
+      ];
+    });
+    const started = reduce(s0, key("key_down", "x", "KeyX"), makeInput(), registry);
+    const [first] = started.effects;
+    if (first?.type !== "extension" || first.stamp === undefined)
+      throw new Error("expected extension");
+    const id = first.stamp.interactionId;
+    expect(started.state.pending[id]).toEqual({ tool: "select", outstanding: 2 });
+    // Switch away: the cancel keeps the entry, so both results still arrive.
+    const switched = setTool(started.state, { tool: "token" }, registry).state;
+    expect(switched.pending[id]).toEqual({ tool: "select", outstanding: 2 });
+    const settle = (name: string): InteractionEvent => ({
+      type: "settled",
+      interactionId: id,
+      outcome: { type: "extension", name, result: name },
+    });
+    calls.length = 0;
+    const a = reduce(switched, settle("a"), makeInput(), registry);
+    expect(a.state.pending[id]).toEqual({ tool: "select", outstanding: 1 });
+    const b = reduce(a.state, settle("b"), makeInput(), registry);
+    expect(b.state.pending[id]).toBeUndefined();
+    expect(
+      calls.map(
+        (c) => c.kind === "reduce" && c.event.type === "settled" && [c.tool, c.event.outcome],
+      ),
+    ).toEqual([
+      ["select", { type: "extension", name: "a", result: "a" }],
+      ["select", { type: "extension", name: "b", result: "b" }],
+    ]);
+    // A third result for the finished interaction is dropped.
+    calls.length = 0;
+    reduce(b.state, settle("c"), makeInput(), registry);
+    expect(calls).toEqual([]);
   });
 });
 
