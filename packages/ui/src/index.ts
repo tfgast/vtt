@@ -1,4 +1,5 @@
 export * from "./App";
+export * from "./actions/invoke";
 export * from "./app/keybindings";
 export * from "./app/Notices";
 export * from "./app/StatusBar";
@@ -30,6 +31,7 @@ export * from "./interaction/contracts";
 export * from "./interaction/create-tools";
 export * from "./interaction/effects";
 export * from "./interaction/events";
+export * from "./interaction/face-tool";
 export * from "./interaction/handles";
 export * from "./interaction/keys";
 export * from "./interaction/machine";

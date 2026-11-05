@@ -3,8 +3,10 @@
  * r2 findings 3 and 8, r3 findings 1 and 2): one pure function from
  * `(state, event, input)` to `{state, effects}` in front of the tools.
  *
- * - Wheel → a `camera` effect from `zoomAt` about the cursor, factor
- *   `1.1^(-deltaY/100)`.
+ * - Wheel → first the active tool's `wheel`, when it has one (with a fresh
+ *   interaction id); when that returns null or the tool has none, a `camera`
+ *   effect from `zoomAt` about the cursor, factor `1.1^(-deltaY/100)`
+ *   (vtt-1xv.16).
  * - Middle-button drag, or a primary drag started while Space is held →
  *   `camera` effects from `panBy` (the grabbed board point follows the
  *   pointer) until that pointer is up; none of its events reach the tool.
@@ -248,7 +250,22 @@ function route(
 ): MachineResult {
   const pan = state.pan;
   switch (event.type) {
-    case "wheel":
+    case "wheel": {
+      const tool = toolOf(registry, state.tool);
+      if (tool.wheel !== undefined) {
+        const interactionId = `i${state.nextInteraction}`;
+        const out = tool.wheel(stateOf(state, state.tool, registry), event, {
+          ...input,
+          interactionId,
+        });
+        if (out !== null) {
+          return applyTool(
+            { ...state, nextInteraction: state.nextInteraction + 1 },
+            state.tool,
+            out,
+          );
+        }
+      }
       return {
         state,
         effects: [
@@ -263,6 +280,7 @@ function route(
           },
         ],
       };
+    }
     case "key_down":
     case "key_up":
       if (isSpace(event))
