@@ -6,7 +6,7 @@
  * writes the discovery file, and on SIGINT or SIGTERM closes the server,
  * saves, releases the lock and removes the discovery file.
  *
- *   vtt-serve <file> [--port n] [--token t] [--allow-origin o]…
+ *   vtt-serve <file> [--port n] [--token=t] [--allow-origin o]…
  *             [--no-autosave] [--print-session] [--force-unlock]
  *
  * Exit codes: 0 after a clean shutdown whose final save succeeded; 1 for a
@@ -29,7 +29,7 @@ import {
 } from "../index";
 
 const USAGE =
-  "usage: vtt-serve <file> [--port n] [--token t] [--allow-origin o]... [--no-autosave] [--print-session] [--force-unlock]";
+  "usage: vtt-serve <file> [--port n] [--token=t] [--allow-origin o]... [--no-autosave] [--print-session] [--force-unlock]";
 
 /**
  * The flags. Later flags (e.g. the UI's) are added here; `allowNegative`

@@ -78,6 +78,18 @@ export interface ServerTimers extends ConnectionTimers {
   clearInterval(handle: unknown): void;
 }
 
+/**
+ * A session token (PROTOCOL.md §2): 32 random bytes, base64url, drawn again
+ * while the first character is not alphanumeric. A token never starts with
+ * `-`, so it is safe as a separate CLI argument (`--token <t>`).
+ */
+export function generateToken(): string {
+  for (;;) {
+    const token = randomBytes(32).toString("base64url");
+    if (/^[A-Za-z0-9]/.test(token)) return token;
+  }
+}
+
 export interface StartServerOptions {
   host: TableHost;
   /** Default 4747; 0 picks a free port. */
@@ -87,7 +99,7 @@ export interface StartServerOptions {
    * which binds 127.0.0.1 so `url` stays exact. Anything else is refused.
    */
   hostname?: string;
-  /** Default: 32 random bytes, base64url. */
+  /** Default: {@link generateToken}. */
   token?: string;
   /** Origins accepted besides `http://127.0.0.1:<port>` and `http://localhost:<port>`. */
   allowOrigins?: readonly string[];
@@ -171,7 +183,7 @@ class AuthorityServer {
 
   constructor(options: StartServerOptions) {
     this.#host = options.host;
-    this.#token = options.token ?? randomBytes(32).toString("base64url");
+    this.#token = options.token ?? generateToken();
     this.#allowOrigins = [...(options.allowOrigins ?? [])];
     this.#helloTimeoutMs = options.helloTimeoutMs ?? 5000;
     this.#heartbeatMs = options.heartbeatMs ?? 15000;

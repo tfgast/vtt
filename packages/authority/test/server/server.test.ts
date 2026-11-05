@@ -1,5 +1,5 @@
 import { request as httpRequest } from "node:http";
-import { startServer } from "@vtt/authority";
+import { generateToken, startServer } from "@vtt/authority";
 import { DEFAULT_PORT, LIMITS, ProtocolFailure } from "@vtt/protocol";
 import { afterEach, describe, expect, test } from "vitest";
 import WebSocketClient from "ws";
@@ -311,5 +311,18 @@ describe("close", () => {
     const again = await serve({ host });
     const client = await connect(again.server);
     expect(client.revision).toBe(3);
+  });
+});
+
+describe("generated tokens (PROTOCOL.md §2; vtt-qf5.32)", () => {
+  test("1000 generated tokens are 32 bytes of base64url and never start with a dash", () => {
+    const tokens = new Set<string>();
+    for (let i = 0; i < 1000; i++) {
+      const token = generateToken();
+      expect(token).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{42}$/);
+      expect(Buffer.from(token, "base64url")).toHaveLength(32);
+      tokens.add(token);
+    }
+    expect(tokens.size).toBe(1000);
   });
 });

@@ -5,7 +5,7 @@
  * protocol client with `client.kind: "agent"` and serves the MCP tools over
  * stdin/stdout.
  *
- *   vtt-mcp [--url u] [--token t] [--name n]
+ *   vtt-mcp [--url u] [--token=t] [--name n]
  *
  * Credentials: `--url`/`--token`, else `VTT_URL`/`VTT_TOKEN` (explicit: never
  * refreshed, a 4401 is terminal `unauthorized`), else the session file
@@ -31,7 +31,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { type ClientState, enableRecovery, ProtocolClient } from "@vtt/protocol";
 import { createMcpServer, readSessionFile, sessionCredentials, subscriptionTools } from "../index";
 
-const USAGE = "usage: vtt-mcp [--url u] [--token t] [--name n]";
+const USAGE = "usage: vtt-mcp [--url u] [--token=t] [--name n]";
 
 const OPTIONS = {
   url: { type: "string" },
