@@ -19,7 +19,8 @@
  *   rect around the stroke (at least `INK_MIN_SIZE` per side) anchored at
  *   its bounding-box centre. The tool stays active. The stroke carries the
  *   options' colour and width where they differ from the default pen
- *   (`penStroke`).
+ *   (`penStroke`). Stored points are rounded to 0.001 board units
+ *   (`roundInkPoint`) after thinning; the preview keeps full precision.
  * - With `eraser` set, pointer down captures the stamp, the eraser's reach
  *   (`ERASER_RADIUS_PX` at the current zoom) and every drawn, face-up board
  *   object whose `ink` cell holds ink, as in that snapshot; the drag's board
@@ -41,7 +42,7 @@ import type { InteractionStamp } from "./contracts";
 import { MAX_LABEL_LENGTH } from "./create-tools";
 import type { Effect } from "./effects";
 import type { InteractionEvent } from "./events";
-import { crossedStrokes, ERASER_RADIUS_PX, penStroke } from "./ink-pen";
+import { crossedStrokes, ERASER_RADIUS_PX, penStroke, roundInkPoint } from "./ink-pen";
 import { PRIMARY_BUTTON } from "./machine";
 import {
   captureStamp,
@@ -226,7 +227,8 @@ const text = (value: string) => ({ type: "text" as const, value });
 /** The effects ending a stroke of at least two points, drawn with `pen`. */
 function finish(stroke: InkStroke, pen: { color: string; width: number }): Effect[] {
   const { stamp, target, points } = stroke;
-  const drawn = (pts: Point[]): Stroke => penStroke(pts, pen.color, pen.width);
+  // Stored points are rounded after thinning and the frame change (vtt-qf5.44).
+  const drawn = (pts: Point[]): Stroke => penStroke(pts.map(roundInkPoint), pen.color, pen.width);
   if (target !== null) {
     if (target.ink === null) {
       return [
