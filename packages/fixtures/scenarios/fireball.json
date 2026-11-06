@@ -229,7 +229,7 @@
             "name": "Lock targets",
             "when": "not locked",
             "steps": [
-              "each(targets, spawn(save_row, this, {target: it, owner: it.owner}))",
+              "each(targets, spawn(save_row, this, {target: it, owner: it.owner or it}))",
               "set(locked, true)"
             ]
           },
@@ -689,7 +689,7 @@
             "type": "ref",
             "object": "goblin1"
           },
-          "note": "{..., owner: it.owner}: the creature's owner, here the creature itself."
+          "note": "{..., owner: it.owner or it}: the creature's owner, here the creature itself (an unowned creature would own its row itself, M6-D20)."
         },
         {
           "type": "cell",
@@ -765,7 +765,7 @@
             "type": "ref",
             "object": "goblin2"
           },
-          "note": "{..., owner: it.owner}: the creature's owner, here the creature itself."
+          "note": "{..., owner: it.owner or it}: the creature's owner, here the creature itself (an unowned creature would own its row itself, M6-D20)."
         },
         {
           "type": "cell",

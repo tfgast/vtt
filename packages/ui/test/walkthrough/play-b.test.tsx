@@ -175,6 +175,12 @@ describe(`play B: ${WALKTHROUGH_STEPS.slice(11, 15)
       expect(value(goblin, "damage_taken")).toEqual(num(want.taken));
     }
     expect(value(await view(c, pc.Brenna.token), "damage_taken")).toEqual(num(0));
+    // Each Roll save, pressed in GM view, is the goblin's: its row is owned by its target (M6-D20).
+    const saveActors = o.logShown
+      .filter((gr) => gr.label === "Roll save")
+      .sort((a, b) => a.index - b.index)
+      .map((gr) => gr.actor);
+    expect(saveActors).toEqual(["G1", "G2", "G3"]);
     expect(o.applyAllGroup.label).toBe("Apply all");
     expect(o.applyAllGroup.actor).toBe("Aldric");
     // One damage_taken sentence per goblin, with the exact change; none for Brenna.

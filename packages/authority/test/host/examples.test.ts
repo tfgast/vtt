@@ -375,7 +375,7 @@ const EXPECTED: Record<string, Expected> = {
       locked: false; applied: false; targets = contents(zone).where(tag has "creature");
       rows = contents.where(tag has "save_row")`,
     actions: `
-      Lock targets [not locked]: each(targets, spawn(save_row, this, {target: it, owner: it.owner})) ; set(locked, true)
+      Lock targets [not locked]: each(targets, spawn(save_row, this, {target: it, owner: it.owner or it})) ; set(locked, true)
       Roll damage [locked and damage = empty]: roll(damage_dice) -> damage
       Apply all [locked and damage != empty and all(rows.save_roll != empty) and not applied]: each(rows, add(it.target.damage_taken, it.damage_dealt)) ; set(applied, true)
       Discard: remove(zone) ; remove(this)`,
