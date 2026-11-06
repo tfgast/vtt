@@ -2,7 +2,7 @@
  * Binders, working copies and edit-template against a real in-process
  * authority (vtt-1xv.17; DESIGN.md §4.7, §4.1 spawn, §8.4 steps 9, 10, 12;
  * M5 plan Q14, Q15, Q17, review r1 finding 11, r2 findings 2, 9, r3
- * findings 3, 8): `startServer` with scripted dice, the real session,
+ * findings 3, 8): `startAuthority` with scripted dice, the real session,
  * `UiStore`, runtime inputs and tool context (vtt-3l6.21), the interaction
  * runtime (vtt-3l6.23) with the `invoke` extension and this bead's
  * `expand_created` continuation, `withFaces(withHandles(createSelectTool(
@@ -14,21 +14,8 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  DocumentStore,
-  newTableSnapshot,
-  type RunningServer,
-  type ScriptedDiceEntry,
-  ScriptedDiceSource,
-  startServer,
-  TableHost,
-} from "@vtt/authority";
-import {
-  ProtocolClient,
-  type WebSocketConstructor,
-  type WebSocketLike,
-  type WireOp,
-} from "@vtt/protocol";
+import { type ScriptedDiceEntry, ScriptedDiceSource } from "@vtt/authority";
+import type { WebSocketConstructor, WebSocketLike, WireOp } from "@vtt/protocol";
 import type { ObjectId, OpGroup, Point, Rect } from "@vtt/schema";
 import {
   type Affine,
@@ -47,7 +34,6 @@ import {
   createInteractionRuntime,
   createRuntimeInputs,
   createSelectTool,
-  createTableSession,
   createToolContext,
   createUiStore,
   drawFaceItem,
@@ -80,7 +66,7 @@ import {
 import { useEffect, useMemo, useReducer, useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { WebSocket as NodeWs } from "ws";
-import { JSDOM_ORIGIN, NodeWebSocket, until, whenReady } from "../support/authority";
+import { startAuthority, until, whenReady } from "../support/authority";
 
 const RECT = { left: 0, top: 0, width: 800, height: 600 };
 const VIEWPORT = { width: 800, height: 600 };
@@ -391,31 +377,15 @@ function Board(props: {
 
 async function world(options: { dice?: ScriptedDiceEntry[] } = {}) {
   const dice = new ScriptedDiceSource(options.dice ?? []);
-  const host = TableHost.inMemory(DocumentStore.fromSnapshot(newTableSnapshot()), { dice });
-  const server: RunningServer = await startServer({ host, port: 0, allowOrigins: [JSDOM_ORIGIN] });
-  cleanups.push(async () => {
-    await server.close();
-    await host.close().catch(() => undefined);
-  });
-  const gm = new ProtocolClient({
-    url: server.url,
-    token: server.token,
-    client: { name: "seed", kind: "test" },
-    WebSocket: NodeWebSocket,
-    onWarning: () => undefined,
-  });
-  cleanups.push(() => gm.close());
-  await gm.connect();
+  const authority = await startAuthority({ dice });
+  const { host } = authority;
+  cleanups.push(() => authority.cleanup());
+  const gm = await authority.client("seed");
   const seeded = await gm.transact(SEED, { label: "Seed" });
   if (seeded.status !== "committed") throw new Error(JSON.stringify(seeded));
 
   const gate = new Gate();
-  const session = createTableSession({
-    url: server.url,
-    token: server.token,
-    WebSocket: gatedWebSocket(gate),
-  });
-  cleanups.push(() => session.close());
+  const session = authority.session({ WebSocket: gatedWebSocket(gate) });
   await whenReady(session);
   await until(() => session.boardView()?.objects.has("bnd") === true, "the binder's view");
 

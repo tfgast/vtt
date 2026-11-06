@@ -8,7 +8,7 @@
  * down, up, dblclick) is the real one.
  */
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import { createAssetHttpHandler, type HttpHandler } from "@vtt/authority";
+import { createAssetHttpHandler } from "@vtt/authority";
 import type { Point, TableObject } from "@vtt/schema";
 import {
   BoardCanvas,
@@ -87,13 +87,10 @@ function gate() {
 async function setup(
   options: { holdUpload?: Promise<void>; measured?: { width: number; height: number } } = {},
 ) {
-  // The asset handler needs the host, which the helper creates: route through a late binding.
-  let assets: HttpHandler | null = null;
   const authority: TestAuthority = await startAuthority({
     file: true,
-    http: [(req, res, ctx) => (assets === null ? false : assets(req, res, ctx))],
+    http: (host) => [createAssetHttpHandler({ host })],
   });
-  assets = createAssetHttpHandler({ host: authority.host });
   const base = `http://127.0.0.1:${authority.server.port}`;
   const gm = await authority.client("gm");
   await gm.transact([{ type: "add_board", id: "crypt", name: "Crypt" }]);

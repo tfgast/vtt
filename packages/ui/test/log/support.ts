@@ -1,27 +1,12 @@
 /**
- * Log panel test support (vtt-1xv.20): an in-process authority whose host
- * rolls from a FIXTURES §5 dice script (the shared helper's host rolls
- * randomly), seed records for the Attack card, Aldric and the goblin, and
- * small write helpers. Sockets are the `ws` client, as in the shared helper.
+ * Log panel test support (vtt-1xv.20): an in-process authority (the shared
+ * helper's, vtt-qf5.45) whose host rolls from a FIXTURES §5 dice script, seed
+ * records for the Attack card, Aldric and the goblin, and small write helpers.
  */
-import {
-  DocumentStore,
-  newTableSnapshot,
-  type RunningServer,
-  type ScriptedDiceEntry,
-  ScriptedDiceSource,
-  startServer,
-  TableHost,
-} from "@vtt/authority";
-import {
-  type GroupView,
-  ProtocolClient,
-  type TransactResult,
-  type Viewer,
-  type WireOp,
-} from "@vtt/protocol";
-import { createTableSession, type TableSession } from "@vtt/ui";
-import { JSDOM_ORIGIN, NodeWebSocket, until } from "../support/authority";
+import { type RunningServer, type ScriptedDiceEntry, ScriptedDiceSource } from "@vtt/authority";
+import type { GroupView, ProtocolClient, TransactResult, Viewer, WireOp } from "@vtt/protocol";
+import type { TableSession } from "@vtt/ui";
+import { startAuthority, until } from "../support/authority";
 
 export interface LogAuthority {
   readonly server: RunningServer;
@@ -34,45 +19,14 @@ export interface LogAuthority {
 const running = new Set<LogAuthority>();
 
 export async function startLogAuthority(dice: ScriptedDiceEntry[] = []): Promise<LogAuthority> {
-  const host = TableHost.inMemory(DocumentStore.fromSnapshot(newTableSnapshot()), {
-    dice: new ScriptedDiceSource(dice),
-  });
-  const server = await startServer({ host, port: 0, allowOrigins: [JSDOM_ORIGIN] });
-  const clients: ProtocolClient[] = [];
-  const sessions: TableSession[] = [];
-  let closed = false;
+  const inner = await startAuthority({ dice: new ScriptedDiceSource(dice) });
   const authority: LogAuthority = {
-    server,
-    async client(name, kind = "test") {
-      const client = new ProtocolClient({
-        url: server.url,
-        token: server.token,
-        client: { name, kind },
-        ...(kind === "agent" ? { agent_name: name } : {}),
-        WebSocket: NodeWebSocket,
-        onWarning: () => undefined,
-      });
-      clients.push(client);
-      await client.connect();
-      return client;
-    },
-    session() {
-      const session = createTableSession({
-        url: server.url,
-        token: server.token,
-        WebSocket: NodeWebSocket,
-      });
-      sessions.push(session);
-      return session;
-    },
+    server: inner.server,
+    client: (name, kind = "test") => inner.client(name, { kind }),
+    session: () => inner.session(),
     async cleanup() {
-      if (closed) return;
-      closed = true;
       running.delete(authority);
-      for (const s of sessions.splice(0)) s.close();
-      for (const c of clients.splice(0)) c.close();
-      await server.close();
-      await host.close().catch(() => undefined);
+      await inner.cleanup();
     },
   };
   running.add(authority);
