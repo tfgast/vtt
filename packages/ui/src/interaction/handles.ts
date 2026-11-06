@@ -936,6 +936,9 @@ export function withHandles<TPhase, K extends ToolId>(
       }
       return { state: withPhase(out.state, { hoverCursor }), effects: out.effects };
     },
+    doubleClickTarget(state, event, input) {
+      return tool.doubleClickTarget?.(innerOf(state), event, input) ?? null;
+    },
     cancel(state, reason: CancelReason): Result {
       const { drag } = plain(state).phase;
       // The runtime drops a cancelled tool's held previews, so the pending geometry goes too.

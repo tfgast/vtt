@@ -35,7 +35,12 @@
  *   in the drag gesture and emitted as an `alt_hover` effect when it
  *   changes; the drop recomputes it at the release point and passes it to
  *   the `dropOverride`; the drop and any cancel clear it.
- * - Double-click on an object: `open_editor`.
+ * - Double-click on an object: `open_editor` for the first entry of
+ *   `hitsAt`, except within `ALT_CYCLE_RADIUS_PX` of an Alt+click cycle's
+ *   point with the same hit list, where it selects and opens the cycled
+ *   target (vtt-qf5.50, M6-D21; `cycledTarget`). The cycle counts while open
+ *   and through the two plain clicks of a double-click within the radius,
+ *   which still select the first hit but keep it as `recentCycle`.
  * - Keys: `selectKeyEffects` (keys.ts), when no gesture is in progress.
  * - Cancel (Escape, board or viewer change, tool switch, `pointer_cancel`)
  *   ends a gesture with no write; Escape with no gesture clears the selection.
@@ -136,6 +141,19 @@ export interface AltCycle {
   index: number;
 }
 
+/**
+ * A cycle closed by plain clicks within `ALT_CYCLE_RADIUS_PX` of its point,
+ * kept for a double-click there (vtt-qf5.50): `clicks` such clicks so far, at
+ * most `DOUBLE_CLICK_CLICKS`.
+ */
+export interface RecentCycle {
+  cycle: AltCycle;
+  clicks: number;
+}
+
+/** The plain clicks a double-click is made of: a closed cycle outlives this many. */
+const DOUBLE_CLICK_CLICKS = 2;
+
 export interface HoverTarget {
   id: ObjectId | null;
   zone: ObjectId | null;
@@ -166,6 +184,8 @@ export type SelectGesture =
 export interface SelectPhase {
   gesture: SelectGesture;
   cycle: AltCycle | null;
+  /** The cycle the last plain clicks closed near its point, for a double-click (vtt-qf5.50). */
+  recentCycle: RecentCycle | null;
   /** The Alt+click target that stays the hover target while the pointer is in its footprint. */
   hoverLock: ObjectId | null;
   /** The last hover emitted. */
@@ -193,6 +213,35 @@ function isZone(scene: Scene, id: ObjectId): boolean {
 
 function hoverFor(scene: Scene, id: ObjectId | null): HoverTarget {
   return { id, zone: id !== null && isZone(scene, id) ? id : null };
+}
+
+/**
+ * The target of an Alt+click cycle a double-click at `screen` over `hits`
+ * acts on (vtt-qf5.50, M6-D21): the open cycle's, else the one its plain
+ * clicks just closed, when `screen` is within `ALT_CYCLE_RADIUS_PX` of the
+ * cycle's point and `hits` is its hit list; else null.
+ */
+export function cycledTarget(
+  phase: SelectPhase,
+  screen: Point,
+  hits: readonly ObjectId[],
+): { cycle: AltCycle; target: ObjectId } | null {
+  const cycle = phase.cycle ?? phase.recentCycle?.cycle ?? null;
+  if (cycle === null) return null;
+  if (distance(cycle.screen, screen) > ALT_CYCLE_RADIUS_PX || !sameIds(cycle.hits, hits)) {
+    return null;
+  }
+  const target = cycle.hits[cycle.index];
+  return target === undefined ? null : { cycle, target };
+}
+
+/** What a plain click at `screen` keeps of a cycle for a double-click: see `RecentCycle`. */
+function keptCycle(phase: SelectPhase, screen: Point): RecentCycle | null {
+  const kept: RecentCycle | null =
+    phase.cycle !== null ? { cycle: phase.cycle, clicks: 0 } : phase.recentCycle;
+  if (kept === null || kept.clicks >= DOUBLE_CLICK_CLICKS) return null;
+  if (distance(kept.cycle.screen, screen) > ALT_CYCLE_RADIUS_PX) return null;
+  return { cycle: kept.cycle, clicks: kept.clicks + 1 };
 }
 
 function nameOf(view: ObjectView | null, id: ObjectId): string {
@@ -496,13 +545,14 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
       const target = hits[nextCycle.index] as ObjectId;
       const hover = hoverFor(input.scene, target);
       return {
-        state: withPhase(idle, { cycle: nextCycle, hoverLock: target, hover }),
+        state: withPhase(idle, { cycle: nextCycle, recentCycle: null, hoverLock: target, hover }),
         effects: [{ type: "select", ids: [target] }, ...hoverEffects(state, hover)],
       };
     }
     const first = hits[0];
     const hover = hoverFor(input.scene, first ?? null);
-    const reset = withPhase(idle, { cycle: null, hoverLock: null, hover });
+    const recentCycle = keptCycle(state.phase, g.screen);
+    const reset = withPhase(idle, { cycle: null, recentCycle, hoverLock: null, hover });
     const hoverOut = hoverEffects(state, hover);
     if (first === undefined) {
       return { state: reset, effects: [{ type: "select", ids: [] }, ...hoverOut] };
@@ -521,7 +571,11 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
     if (g.kind === "idle" || g.pointerId !== event.pointerId) return { state, effects: [] };
     if (g.kind === "press") return click(state, g, input);
     // A drop or marquee ends here: the hover is recomputed at the pointer.
-    const ended = hoverMove(withPhase(state, { gesture: IDLE, cycle: null }), event, input);
+    const ended = hoverMove(
+      withPhase(state, { gesture: IDLE, cycle: null, recentCycle: null }),
+      event,
+      input,
+    );
     if (g.kind === "marquee") {
       const inside = marqueeHit(input.scene, normalized(g.start, event.board));
       const ids = g.shift ? [...new Set([...input.selection, ...inside])] : inside;
@@ -574,7 +628,7 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
     init: (toolOptions: NoToolOptions): State => ({
       tool: "select",
       options: toolOptions,
-      phase: { gesture: IDLE, cycle: null, hoverLock: null, hover: NO_HOVER },
+      phase: { gesture: IDLE, cycle: null, recentCycle: null, hoverLock: null, hover: NO_HOVER },
     }),
     cursor(state) {
       const g = state.phase.gesture;
@@ -596,10 +650,25 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
           return endGesture(state);
         }
         case "double_click": {
-          const hit = hitsAt(input.scene, event.board, input.camera)[0];
+          const hits = hitsAt(input.scene, event.board, input.camera);
           const stamp = captureStamp(input);
+          const hit = hits[0];
           if (hit === undefined || stamp === null) return { state, effects: [] };
-          return { state, effects: [{ type: "open_editor", stamp, object: hit }] };
+          const cycled = cycledTarget(state.phase, event.screen, hits);
+          if (cycled === null || cycled.target === hit) {
+            return { state, effects: [{ type: "open_editor", stamp, object: hit }] };
+          }
+          // The cycled target, selected again (the double-click's plain clicks selected the first hit).
+          const { cycle, target } = cycled;
+          const hover = hoverFor(input.scene, target);
+          return {
+            state: withPhase(state, { cycle, recentCycle: null, hoverLock: target, hover }),
+            effects: [
+              { type: "select", ids: [target] },
+              ...hoverEffects(state, hover),
+              { type: "open_editor", stamp, object: target },
+            ],
+          };
         }
         case "key_down": {
           if (state.phase.gesture.kind !== "idle") return { state, effects: [] };
@@ -619,6 +688,10 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
         default:
           return { state, effects: [] };
       }
+    },
+    doubleClickTarget(state, event, input) {
+      const hits = hitsAt(input.scene, event.board, input.camera);
+      return cycledTarget(state.phase, event.screen, hits)?.target ?? null;
     },
     cancel(state, reason: CancelReason): Result {
       // Escape with nothing in progress is the user's "deselect" (tool contract).

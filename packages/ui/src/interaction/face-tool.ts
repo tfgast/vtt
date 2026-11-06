@@ -22,6 +22,9 @@
  *   element likewise on a double-click when its object has no enabled
  *   `default_action` (else the double-click invokes it, below; M6-D9). A
  *   double-click's effects carry the stamp of its first pointer down;
+ * - a double-click near the wrapped tool's open Alt+click cycle
+ *   (`Tool.doubleClickTarget`) whose target is not the hit's board object →
+ *   the wrapped tool, before anything below (vtt-qf5.50, M6-D21);
  * - a double-click on a button, chevron, gear or entry row does nothing more
  *   (each click of a button was one press);
  * - a chevron click → `policy.onToggle`, else the entry toggles and, when it
@@ -464,6 +467,11 @@ export function withFaces<TPhase, K extends ToolId>(
     const stamp = phaseOf(state).recentDowns[0] ?? captureStamp(input);
     const hit = stamp === null ? null : faceHitAt(facesOf(input), event.board, input.camera);
     if (stamp === null || hit === null) return delegate(state, event, input);
+    // An Alt+click cycle near the point picked another board object: it is the wrapped tool's.
+    const cycled = tool.doubleClickTarget?.(innerOf(state), event, input) ?? null;
+    if (cycled !== null && cycled !== (hit.path[0]?.container ?? hit.object)) {
+      return delegate(state, event, input);
+    }
     const done = (effects: Effect[]): Result => ({ state, effects });
     const t = hit.target;
     const view = input.views(hit.object);
@@ -572,6 +580,9 @@ export function withFaces<TPhase, K extends ToolId>(
         default:
           return delegate(state, event, input);
       }
+    },
+    doubleClickTarget(state, event, input) {
+      return tool.doubleClickTarget?.(innerOf(state), event, input) ?? null;
     },
     cancel(state, reason: CancelReason): Result {
       const { gesture, press } = phaseOf(state);
