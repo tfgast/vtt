@@ -150,7 +150,10 @@ export interface Gestures {
    * (or at `grab`), where it is in the hit list after selecting it there by
    * click and Alt+click cycling (the select tool drags a selected object
    * anywhere in the hit list, DESIGN.md §4.6); it throws when `id` is not
-   * in the hit list at the grab point. `grab` is a board offset from the
+   * in the hit list at the grab point. Since it is selected for such a
+   * press, that point must also be clear of its selection handles: an
+   * automatic point is chosen clear of them, and a `grab` within one throws
+   * (a press there would reshape or rotate it). `grab` is a board offset from the
    * anchor (unrotated board units, not object-local): the press is at
    * anchor + `grab` and the release at `to` + `grab`. Board objects only.
    */
