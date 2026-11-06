@@ -6,7 +6,7 @@
  * everything else (writes, camera changes, selection) with effects.
  */
 import type { ObjectView, Viewer } from "@vtt/protocol";
-import type { BoardId, ObjectId } from "@vtt/schema";
+import type { BoardId, ObjectId, Point } from "@vtt/schema";
 import type { Camera } from "../scene/camera";
 import type { Scene } from "../scene/scene";
 import type { InteractionStamp, Viewport } from "./contracts";
@@ -162,6 +162,17 @@ export interface Tool<TPhase = unknown, K extends ToolId = ToolId> {
     event: Extract<InteractionEvent, { type: "double_click" }>,
     input: ToolInput,
   ): ObjectId | null;
+  /**
+   * A primary press at `screen` (a screen point) that a wrapping tool took
+   * for itself, so this tool never sees it (vtt-qf5.69): a face button,
+   * chevron, gear or editor press, a face gesture, a handle drag. The tool
+   * returns its state as after a plain click there, for whatever outlives a
+   * click: the select tool forgets an Alt+click cycle unless the press is
+   * one of the clicks a double-click within its radius is made of (DESIGN.md
+   * §4.6, M6-D21). A wrapping tool forwards it. A tool without
+   * it keeps its state.
+   */
+  consumedPress?(state: ToolState<TPhase, K>, screen: Point): ToolState<TPhase, K>;
 }
 
 /**

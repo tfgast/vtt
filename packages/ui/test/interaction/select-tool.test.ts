@@ -158,6 +158,10 @@ function driver(options?: SelectToolOptions, base: Partial<ReducerInput> = {}) {
     get state() {
       return state;
     },
+    /** A primary press at `board` a wrapping tool took (`Tool.consumedPress`, vtt-qf5.69). */
+    consume(board: Point) {
+      state = (tool.consumedPress?.(state as never, screenOf(board)) ?? state) as ToolState;
+    },
     send(event: InteractionEvent, over: Partial<ReducerInput> = {}): Effect[] {
       const out = tool.reduce(
         state as never,
@@ -370,6 +374,31 @@ describe("double-click after Alt+click cycling (vtt-qf5.50, M6-D21)", () => {
     const d = cycleToRoom();
     d.drag([2, -2], [3, -3]);
     expect(editors(doubleClick(d, [1, 1]))).toEqual(["tok"]);
+  });
+
+  test("a press a wrapping tool took elsewhere ends it (vtt-qf5.69)", () => {
+    const d = cycleToRoom();
+    d.consume([2, -2]);
+    expect(editors(doubleClick(d, [1, 1]))).toEqual(["tok"]);
+  });
+
+  test("a press a wrapping tool took elsewhere ends an open cycle: Alt+click starts afresh", () => {
+    const d = driver();
+    d.click([1, 1], ALT);
+    d.consume([2, -2]);
+    d.click([1, 1], ALT);
+    expect(d.selection).toEqual(["tok"]);
+  });
+
+  test("a press a wrapping tool took at the point counts as one of the double-click's clicks", () => {
+    const d = cycleToRoom();
+    d.consume([1, 1]);
+    d.click([1, 1]);
+    expect(editors(d.send(dbl([1, 1])))).toEqual(["room"]);
+    // A third click at the point forgets it.
+    const e = cycleToRoom();
+    e.consume([1, 1]);
+    expect(editors(doubleClick(e, [1, 1]))).toEqual(["tok"]);
   });
 
   test("doubleClickTarget reports the cycled target near the point, else null", () => {

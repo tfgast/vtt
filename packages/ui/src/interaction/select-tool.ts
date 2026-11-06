@@ -40,7 +40,9 @@
  *   point with the same hit list, where it selects and opens the cycled
  *   target (vtt-qf5.50, M6-D21; `cycledTarget`). The cycle counts while open
  *   and through the two plain clicks of a double-click within the radius,
- *   which still select the first hit but keep it as `recentCycle`.
+ *   which still select the first hit but keep it as `recentCycle`. A press
+ *   a wrapping tool took (a face button, a handle drag; `consumedPress`,
+ *   vtt-qf5.69) counts as such a plain click: elsewhere, it forgets the cycle.
  * - Keys: `selectKeyEffects` (keys.ts), when no gesture is in progress.
  * - Cancel (Escape, board or viewer change, tool switch, `pointer_cancel`)
  *   ends a gesture with no write; Escape with no gesture clears the selection.
@@ -692,6 +694,10 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
     doubleClickTarget(state, event, input) {
       const hits = hitsAt(input.scene, event.board, input.camera);
       return cycledTarget(state.phase, event.screen, hits)?.target ?? null;
+    },
+    consumedPress(state, screen) {
+      // As a plain click there: the open cycle closes, kept only for a double-click near its point.
+      return withPhase(state, { cycle: null, recentCycle: keptCycle(state.phase, screen) });
     },
     cancel(state, reason: CancelReason): Result {
       // Escape with nothing in progress is the user's "deselect" (tool contract).
