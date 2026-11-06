@@ -325,6 +325,47 @@ describe("commands", () => {
     );
   });
 
+  test("Only when selected reads and writes a contents element's when_selected (M6-D12)", async () => {
+    const user = userEvent.setup();
+    const { session, other, transacts } = await setup();
+    const listed: FaceLayout = {
+      ...FACE,
+      elements: [
+        ...FACE.elements,
+        { type: "contents", rect: [-2, 0.9, 4, 0.6], when_selected: true },
+      ],
+    };
+    await other.transact([{ type: "set_face", object: "tok", face: listed }]);
+    await until(() => faceOf(session)?.elements.length === 4, "the contents element");
+    // Only the contents row has the checkbox; it reads the stored field.
+    expect(within(element(2)).queryByRole("checkbox", { name: "Only when selected" })).toBeNull();
+    const box = () =>
+      within(element(4)).getByRole("checkbox", { name: "Only when selected" }) as HTMLInputElement;
+    expect(box().checked).toBe(true);
+    const contentsAt = () => faceOf(session)?.elements[3] as { when_selected?: boolean };
+    // Unchecking removes the field (absent is unset), in one set_face of the whole layout.
+    await user.click(box());
+    await until(() => contentsAt() !== undefined && !("when_selected" in contentsAt()), "unset");
+    expect(box().checked).toBe(false);
+    expect(transacts()).toHaveLength(1);
+    expect(transacts()[0]?.ops).toEqual([
+      {
+        type: "set_face",
+        object: "tok",
+        face: {
+          ...listed,
+          elements: FACE.elements.concat([{ type: "contents", rect: [-2, 0.9, 4, 0.6] }]),
+        },
+      },
+    ]);
+    // Checking writes true.
+    await user.click(box());
+    await until(() => contentsAt()?.when_selected === true, "set again");
+    expect(box().checked).toBe(true);
+    expect(transacts()).toHaveLength(2);
+    expect(faceOf(session)).toEqual(listed);
+  });
+
   test("the Collapsed tab edits the collapsed list", async () => {
     const user = userEvent.setup();
     const { session } = await setup();

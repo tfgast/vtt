@@ -50,7 +50,13 @@ const full: FaceLayout = {
     },
     { type: "editor", cell: "notes", rect: [-1, 0, 2, 0.5], style: { align: "left" } },
     { type: "button", action: "Roll", rect: [0, 0, 1, 1], label: "Roll it", min_size: 0 },
-    { type: "contents", rect: [0, 1, 2, 3], entries: "full", show_when: "true" },
+    {
+      type: "contents",
+      rect: [0, 1, 2, 3],
+      entries: "full",
+      show_when: "true",
+      when_selected: true,
+    },
   ],
   collapsed: [
     { type: "value", cell: "name", rect: [0, 0, 6, 0.6] },
@@ -98,6 +104,11 @@ describe("FaceLayoutSchema", () => {
     ["an unknown style key", { elements: [{ ...value("hp"), style: { color: "red" } }] }],
     ["a non-boolean caption", { elements: [{ ...value("hp"), style: { caption: "yes" } }] }],
     ["an unknown entries value", { elements: [{ ...contents(), entries: "some" }] }],
+    ["a string when_selected", { elements: [{ ...contents(), when_selected: "true" }] }],
+    ["a numeric when_selected", { elements: [{ ...contents(), when_selected: 1 }] }],
+    ["a null when_selected", { elements: [{ ...contents(), when_selected: null }] }],
+    ["when_selected on a value element", { elements: [{ ...value("hp"), when_selected: true }] }],
+    ["when_selected on a button", { elements: [{ ...button("Roll"), when_selected: true }] }],
     ["a non-string show_when", { elements: [{ ...value("hp"), show_when: true }] }],
     ["a non-number min_size", { elements: [{ ...value("hp"), min_size: "24" }] }],
     ["a non-string default_action", { elements: [], default_action: 3 }],
@@ -106,6 +117,35 @@ describe("FaceLayoutSchema", () => {
 
   test.each(malformed)("rejects %s", (_, face) => {
     expect(FaceLayoutSchema.safeParse(face).success).toBe(false);
+  });
+});
+
+describe("when_selected (M6-D12)", () => {
+  test("a contents element takes when_selected true or false, in either list", () => {
+    for (const when_selected of [true, false]) {
+      const face: FaceLayout = {
+        elements: [{ ...contents(), when_selected } as FaceElement],
+        collapsed: [{ ...contents(), when_selected } as FaceElement],
+      };
+      expect(FaceLayoutSchema.parse(face)).toEqual(face);
+      expect(faceProblem(face)).toBeUndefined();
+    }
+  });
+
+  test("absent is unset: the parsed element gains no when_selected", () => {
+    const parsed = FaceLayoutSchema.parse({ elements: [contents()] });
+    expect(Object.hasOwn(parsed.elements[0] as object, "when_selected")).toBe(false);
+  });
+
+  test("an object's stored face keeps it", () => {
+    const o = obj("tok", {
+      face: { elements: [{ type: "contents", rect: [-1.5, 0.9, 3, 1.2], when_selected: true }] },
+    });
+    expect(TableObjectSchema.parse(o).face?.elements[0]).toEqual({
+      type: "contents",
+      rect: [-1.5, 0.9, 3, 1.2],
+      when_selected: true,
+    });
   });
 });
 

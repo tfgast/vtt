@@ -108,6 +108,7 @@ function storedElement(e: FaceElementView): FaceElement {
         type: "contents",
         ...common,
         ...(e.entries === undefined ? {} : { entries: e.entries }),
+        ...(e.when_selected === undefined ? {} : { when_selected: e.when_selected }),
       };
   }
 }
@@ -236,13 +237,14 @@ export interface FaceElementFields {
   min_size: number;
   style: FaceStyle;
   entries: "collapsed" | "full";
+  when_selected: boolean;
 }
 
 const KIND_FIELDS: Record<FaceElement["type"], ReadonlySet<keyof FaceElementFields>> = {
   value: new Set(["type", "cell", "show_when", "min_size", "style"]),
   editor: new Set(["type", "cell", "show_when", "min_size", "style"]),
   button: new Set(["type", "action", "label", "show_when", "min_size"]),
-  contents: new Set(["type", "entries", "show_when", "min_size"]),
+  contents: new Set(["type", "entries", "show_when", "min_size", "when_selected"]),
 };
 
 const REQUIRED: ReadonlySet<keyof FaceElementFields> = new Set(["type", "cell", "action"]);

@@ -8,7 +8,8 @@
  * - Tabs Full / Collapsed, each listing its elements with the kind (value ↔
  *   editor), the cell or action picker, `x y w h`, `show_when` (parse-checked
  *   as typed with `@vtt/formula`'s `parse`; empty clears), `min_size`, the
- *   style (cell elements), the entries mode (contents), Move up / Move down
+ *   style (cell elements), the entries mode and Only when selected
+ *   (contents, M6-D12), Move up / Move down
  *   and Delete; Add value / editor / button / contents; the default action;
  *   "Create face" (`defaultLayoutFor`) when there is none and "Remove face"
  *   (`set_face null`).
@@ -756,22 +757,33 @@ function ElementRow({
           </>
         )}
         {element.type === "contents" && (
-          <select
-            aria-label="Entries"
-            data-first-control
-            value={element.entries ?? ""}
-            disabled={readOnly}
-            onChange={(e) =>
-              pick(
-                "entries",
-                e.target.value === "" ? undefined : (e.target.value as "collapsed" | "full"),
-              )
-            }
-          >
-            <option value="">Default (collapsed)</option>
-            <option value="collapsed">Collapsed</option>
-            <option value="full">Full</option>
-          </select>
+          <>
+            <select
+              aria-label="Entries"
+              data-first-control
+              value={element.entries ?? ""}
+              disabled={readOnly}
+              onChange={(e) =>
+                pick(
+                  "entries",
+                  e.target.value === "" ? undefined : (e.target.value as "collapsed" | "full"),
+                )
+              }
+            >
+              <option value="">Default (collapsed)</option>
+              <option value="collapsed">Collapsed</option>
+              <option value="full">Full</option>
+            </select>
+            <label>
+              <input
+                type="checkbox"
+                checked={element.when_selected === true}
+                disabled={readOnly}
+                onChange={(e) => pick("when_selected", e.target.checked ? true : undefined)}
+              />{" "}
+              Only when selected
+            </label>
+          </>
         )}
         {hiddenReason !== null && (
           <span style={NOTE_STYLE}>{HIDDEN_TEXT[hiddenReason] ?? "hidden"}</span>
