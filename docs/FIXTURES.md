@@ -413,8 +413,8 @@ Any other expectation on a removed object is a scenario error.
 Log effects for `log_includes`:
 
 ```json
-{ "type": "write", "object": "goblin1", "cell": "damage_taken", "value": { "type": "number", "value": 14 } }
-{ "type": "roll", "object": "fb1", "cell": "damage", "value": { "type": "roll", "expr": "8d6", "dice": [3,5,2,6,4,1,6,1], "dropped": [], "total": 28 } }
+{ "type": "write", "object": "goblin1", "cell": "damage_taken", "value": { "type": "number", "value": 13 } }
+{ "type": "roll", "object": "fb1", "cell": "damage", "value": { "type": "roll", "expr": "8d6", "dice": [3,5,2,6,4,1,5,1], "dropped": [], "total": 27 } }
 ```
 
 A `write` matches a resolved cell write in the group: the value written (for
@@ -641,8 +641,8 @@ Construct by construct:
 { "actor": "gm", "do": { "type": "set", "object": "goblin1", "cell": "dex_save", "value": { "type": "number", "value": -5 } },
   "expect": [
     { "type": "cell", "object": "row_g1", "cell": "damage_dealt",
-      "value": { "type": "roll", "expr": "8d6", "dice": [3,5,2,6,4,1,6,1], "dropped": [], "total": 28 } },
-    { "type": "log_includes", "group": 7, "effect": { "type": "write", "object": "goblin1", "cell": "damage_taken", "value": { "type": "number", "value": 14 } } } ] }
+      "value": { "type": "roll", "expr": "8d6", "dice": [3,5,2,6,4,1,5,1], "dropped": [], "total": 27 } },
+    { "type": "log_includes", "group": 7, "effect": { "type": "write", "object": "goblin1", "cell": "damage_taken", "value": { "type": "number", "value": 13 } } } ] }
 ```
 
 7. Discard: `exists: false` for `zone1`, `fb1`, `row_g1`, `row_g2`. The zone
