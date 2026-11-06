@@ -28,6 +28,7 @@ import {
   type InvokePayload,
   invokeExtension,
   type NoticeStore,
+  owningCharacter,
   requestInvoke,
   type TableSession,
   TEMPLATE_REFUSAL,
@@ -38,6 +39,8 @@ const GM: Viewer = { type: "gm" };
 const ALDRIC: Viewer = { type: "character", id: "aldric" };
 const CAMERA = { x: 3.5, y: -2, zoom: 1 };
 const APPLY_WHEN = "hit and dmg != empty and not applied";
+/** No views: the card's owning character is unknown, so a GM press has no actor. */
+const NO_VIEWS = (_id: string): ObjectView | null => null;
 
 function stampOf(viewer: Viewer = GM, baseRevision = 4): InteractionStamp {
   return { interactionId: "i9", board: "map", viewer, baseRevision };
@@ -65,7 +68,10 @@ function card(opts: { template?: boolean; states?: ActionStateView[]; gm?: boole
 describe("requestInvoke", () => {
   test("an enabled action → one invoke extension effect with the stamp, table and no actor (GM)", () => {
     const stamp = stampOf();
-    const effects = requestInvoke(defaultFacePolicy, card(), "Roll", stamp, { camera: CAMERA });
+    const effects = requestInvoke(defaultFacePolicy, card(), "Roll", stamp, {
+      camera: CAMERA,
+      views: NO_VIEWS,
+    });
     expect(effects).toEqual<Effect[]>([
       {
         type: "extension",
@@ -84,6 +90,7 @@ describe("requestInvoke", () => {
     const stamp = stampOf(ALDRIC);
     const [effect] = requestInvoke(defaultFacePolicy, card({ gm: false }), "Roll", stamp, {
       camera: CAMERA,
+      views: NO_VIEWS,
     });
     expect(effect).toMatchObject({
       type: "extension",
@@ -94,6 +101,7 @@ describe("requestInvoke", () => {
   test("a template refuses with one notice and nothing else (Q13)", () => {
     const effects = requestInvoke(defaultFacePolicy, card({ template: true }), "Roll", stampOf(), {
       camera: CAMERA,
+      views: NO_VIEWS,
     });
     expect(effects).toEqual([{ type: "notice", level: "info", text: TEMPLATE_REFUSAL }]);
     expect(TEMPLATE_REFUSAL).toBe("Templates are not played: drag out a copy.");
@@ -101,14 +109,17 @@ describe("requestInvoke", () => {
 
   test("the policy's own refusal reason is the notice", () => {
     const policy: FacePolicy = { canInvoke: () => ({ ok: false, reason: "Not now." }) };
-    expect(requestInvoke(policy, card(), "Roll", stampOf(), { camera: CAMERA })).toEqual([
-      { type: "notice", level: "info", text: "Not now." },
-    ]);
+    expect(
+      requestInvoke(policy, card(), "Roll", stampOf(), { camera: CAMERA, views: NO_VIEWS }),
+    ).toEqual([{ type: "notice", level: "info", text: "Not now." }]);
   });
 
   test("a disabled action shows its reason and sends nothing; the GM also sees the guard", () => {
     expect(
-      requestInvoke(defaultFacePolicy, card(), "Apply", stampOf(), { camera: CAMERA }),
+      requestInvoke(defaultFacePolicy, card(), "Apply", stampOf(), {
+        camera: CAMERA,
+        views: NO_VIEWS,
+      }),
     ).toEqual([
       {
         type: "notice",
@@ -119,6 +130,7 @@ describe("requestInvoke", () => {
     expect(
       requestInvoke(defaultFacePolicy, card({ gm: false }), "Apply", stampOf(ALDRIC), {
         camera: CAMERA,
+        views: NO_VIEWS,
       }),
     ).toEqual([{ type: "notice", level: "info", text: "Apply: its condition is false." }]);
   });
@@ -128,20 +140,118 @@ describe("requestInvoke", () => {
     expect(
       requestInvoke(defaultFacePolicy, card({ states, gm: false }), "Roll", stampOf(), {
         camera: CAMERA,
+        views: NO_VIEWS,
       }),
     ).toEqual([{ type: "notice", level: "info", text: "Roll: its condition is an error." }]);
     const bare = card({ gm: false });
     delete bare.action_states;
-    expect(requestInvoke(defaultFacePolicy, bare, "Roll", stampOf(), { camera: CAMERA })).toEqual([
-      { type: "notice", level: "info", text: "Roll is not available." },
-    ]);
+    expect(
+      requestInvoke(defaultFacePolicy, bare, "Roll", stampOf(), {
+        camera: CAMERA,
+        views: NO_VIEWS,
+      }),
+    ).toEqual([{ type: "notice", level: "info", text: "Roll is not available." }]);
   });
 
   test("the template check comes before the action state", () => {
     const effects = requestInvoke(defaultFacePolicy, card({ template: true }), "Apply", stampOf(), {
       camera: CAMERA,
+      views: NO_VIEWS,
     });
     expect(effects).toEqual([{ type: "notice", level: "info", text: TEMPLATE_REFUSAL }]);
+  });
+});
+
+describe("the GM-view actor is the owning character (M6-D15)", () => {
+  type Cells = ObjectView["cells"];
+  const ref = (object: string) => ({
+    value: { type: "ref" as const, object },
+    kind: "literal" as const,
+  });
+  function obj(id: string, opts: { character?: boolean; template?: boolean; cells?: Cells } = {}) {
+    const view: ObjectView = {
+      id,
+      is_template: opts.template ?? false,
+      is_character: opts.character ?? false,
+      cells: opts.cells ?? {},
+      actions: [{ name: "Roll" }],
+      action_states: [{ name: "Roll", enabled: true }],
+    };
+    return view;
+  }
+  // Aldric (a character) holds his binder (owner Aldric), which holds the Attack
+  // template and its working copy (owner Aldric); G1 (a character) holds its die
+  // (owner G1); the GM binder holds a template and nothing is owned; a loose die
+  // and a card on the board owned by a non-character.
+  const table = new Map<string, ObjectView>(
+    [
+      obj("aldric", { character: true }),
+      obj("binder", { cells: { owner: ref("aldric"), container: ref("aldric") } }),
+      obj("attack_tpl", {
+        template: true,
+        cells: { owner: ref("aldric"), container: ref("binder") },
+      }),
+      obj("attack_copy", { cells: { owner: ref("aldric"), container: ref("binder") } }),
+      obj("row", { cells: { container: ref("fireball") } }),
+      obj("fireball", { cells: { owner: ref("aldric") } }),
+      obj("g1", { character: true }),
+      obj("g1_die", { cells: { owner: ref("g1"), container: ref("g1") } }),
+      obj("gm_binder"),
+      obj("gm_tpl", { template: true, cells: { container: ref("gm_binder") } }),
+      obj("loose_die"),
+      obj("note"),
+      obj("owned_by_note", { cells: { owner: ref("note") } }),
+      obj("cycle_a", { cells: { container: ref("cycle_b") } }),
+      obj("cycle_b", { cells: { container: ref("cycle_a") } }),
+    ].map((v) => [v.id, v]),
+  );
+  const views = (id: string): ObjectView | null => table.get(id) ?? null;
+  const press = (object: string, viewer: Viewer = GM) => {
+    const [effect] = requestInvoke(
+      defaultFacePolicy,
+      views(object) as ObjectView,
+      "Roll",
+      stampOf(viewer),
+      {
+        camera: CAMERA,
+        views,
+      },
+    );
+    return (effect as Extract<Effect, { type: "extension" }>).payload as InvokePayload;
+  };
+
+  test("Aldric's Attack working copy in his binder is pressed as Aldric", () => {
+    expect(press("attack_copy").actor).toEqual({ type: "character", id: "aldric" });
+  });
+
+  test("a goblin's die is pressed as that goblin", () => {
+    expect(press("g1_die").actor).toEqual({ type: "character", id: "g1" });
+  });
+
+  test("a character is its own owner; a row inherits its container's owner", () => {
+    expect(press("g1").actor).toEqual({ type: "character", id: "g1" });
+    expect(press("row").actor).toEqual({ type: "character", id: "aldric" });
+  });
+
+  test("a loose die, a GM-binder object and a non-character owner send no actor", () => {
+    expect(press("loose_die").actor).toBeUndefined();
+    expect(owningCharacter(views, "gm_tpl")).toBeNull();
+    expect(press("owned_by_note").actor).toBeUndefined();
+    expect(press("cycle_a").actor).toBeUndefined();
+  });
+
+  test("a GM-binder template is refused and sends nothing", () => {
+    expect(
+      requestInvoke(defaultFacePolicy, views("gm_tpl") as ObjectView, "Roll", stampOf(), {
+        camera: CAMERA,
+        views,
+      }),
+    ).toEqual([{ type: "notice", level: "info", text: TEMPLATE_REFUSAL }]);
+  });
+
+  test("in view-as the actor is still the viewed character, whoever owns the object", () => {
+    expect(press("g1_die", ALDRIC).actor).toEqual({ type: "character", id: "aldric" });
+    expect(press("loose_die", ALDRIC).actor).toEqual({ type: "character", id: "aldric" });
   });
 });
 

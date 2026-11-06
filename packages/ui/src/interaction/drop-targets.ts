@@ -14,7 +14,8 @@
  *   (reordering is the inspector's);
  * - another contents element → with the copy intent into a binder (its
  *   `tag` contains `"binder"`) the give-a-template write (`spawn … as:
- *   "$copy"` then `set_template_flag $copy true`, selected); with the copy
+ *   "$copy"`, `set_template_flag $copy true` and, when the binder's `owner`
+ *   is a character, `set_value $copy owner` to it, selected); with the copy
  *   intent into any other container a `spawn` at the insertion index
  *   (selected); with the move intent a `move` there;
  * - the board → the caller's own drop.
@@ -143,10 +144,19 @@ export function editorCellAt(faces: FaceScene, object: ObjectId, element: number
 
 const SELECT_SPAWNED: Continuation[] = [{ type: "select_created", opIndex: 0 }];
 
+/** The character `binder`'s `owner` cell refers to, or null (M6-D15). */
+function binderOwner(input: ReducerInput, binder: ObjectId): ObjectId | null {
+  const owner = input.views(binder)?.cells.owner?.value;
+  if (owner?.type !== "ref") return null;
+  return input.views(owner.object)?.is_character === true ? owner.object : null;
+}
+
 /**
- * Giving a template (DESIGN.md §4.7; M5 plan review r2 finding 2): one write
- * spawning `template` into `binder` at `index` and marking the copy a
- * template, selected, so the recipient holds a reusable template.
+ * Giving a template (DESIGN.md §4.7; M5 plan review r2 finding 2; M6-D15):
+ * one write spawning `template` into `binder` at `index`, marking the copy a
+ * template and, when the binder's `owner` is a character, setting the copy's
+ * `owner` to it, selected, so the recipient holds a reusable template whose
+ * working copies are pressed as that character.
  */
 export function giveTemplateWrite(
   input: ReducerInput,
@@ -154,6 +164,7 @@ export function giveTemplateWrite(
   binder: ObjectId,
   index: number,
 ): Required<DropOverrideResult> {
+  const owner = binderOwner(input, binder);
   return {
     ops: [
       {
@@ -163,6 +174,16 @@ export function giveTemplateWrite(
         as: "$copy",
       },
       { type: "set_template_flag", object: "$copy", value: true },
+      ...(owner === null
+        ? []
+        : [
+            {
+              type: "set_value",
+              object: "$copy",
+              cell: "owner",
+              value: { type: "ref", object: owner },
+            } satisfies WireOp,
+          ]),
     ],
     label: `Give ${objectName(input.views(template), template)}`,
     continuations: SELECT_SPAWNED,

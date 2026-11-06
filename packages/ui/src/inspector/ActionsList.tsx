@@ -17,7 +17,7 @@
  *   Move up and Move down are each one `set_actions`. Client-side checks
  *   (`action-ops`) mirror `setActions`' refusals and block the write.
  * - "Run" (given a `runtime`) takes a stamp at the click and executes
- *   `requestInvoke(policy, view, action, stamp, {camera})` through the
+ *   `requestInvoke(policy, view, action, stamp, {camera, views})` through the
  *   runtime: the template refusal and the disabled-reason notice are the
  *   same single check as face buttons. It is drawn disabled (with the
  *   reason) when `policy.canInvoke` refuses or the action is not enabled;
@@ -210,7 +210,12 @@ function ActionsBody({ view, gm, policy = defaultFacePolicy, runtime }: ActionsL
       baseRevision: snapshot.revision,
     };
     const live = session.objectView(object) ?? view;
-    runtime.execute(requestInvoke(policy, live, action, stamp, { camera: ui.getState().camera }));
+    runtime.execute(
+      requestInvoke(policy, live, action, stamp, {
+        camera: ui.getState().camera,
+        views: (id) => session.objectView(id),
+      }),
+    );
   };
 
   const startEdit = (action: ActionDef | null) => {

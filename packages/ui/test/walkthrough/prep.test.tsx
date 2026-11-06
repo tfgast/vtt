@@ -281,6 +281,7 @@ describe(`prep: ${WALKTHROUGH_STEPS.slice(0, 6)
     expect(fireball.is_template).toBe(true);
     expect(value(fireball, "name")).toEqual(text("Fireball"));
     expect(value(fireball, "caster")).toEqual(ref(prep.characters.Aldric.token));
+    expect(value(fireball, "owner")).toEqual(ref(prep.characters.Aldric.token));
     expect(value(fireball, "damage_dice")).toEqual({ type: "dice", expr: "8d6" });
     expect(fireball.cells.dc).toMatchObject({
       kind: "formula",

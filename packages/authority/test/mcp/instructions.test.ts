@@ -65,6 +65,7 @@ const IDENTIFIERS: Record<string, Category> = {
   tpl_d20: "template",
   name: "cell",
   caster: "cell",
+  owner: "cell",
   damage_dice: "cell",
   dc: "cell",
   spell_dc: "cell",
@@ -189,6 +190,14 @@ describe("MCP_INSTRUCTIONS", () => {
   test("exception `$copy` is a batch binding name", () => {
     expect(IDENTIFIERS.$copy).toBe("exception");
     expect(BINDING_NAME_PATTERN.test("$copy")).toBe(true);
+  });
+
+  test("giving a card sets its owner to the binder's owner (M6-D15)", () => {
+    const give = MCP_INSTRUCTIONS.split("\n").find((l) => l.startsWith("To give a card"));
+    expect(give).toContain(
+      "always set its `owner` to the binder's `owner` (the character), so the card's buttons pressed in the UI act as that character",
+    );
+    expect(give).toContain("for `tpl_area_save` also set `name`, `caster` and `damage_dice`");
   });
 
   test("every vtt:// URI is a registered resource", () => {
