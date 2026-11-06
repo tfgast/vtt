@@ -124,8 +124,12 @@ export interface InteractionView {
 }
 
 export interface InteractionRuntime {
-  /** Reduces one event and executes its effects (`BoardCanvas`'s `onEvent`). */
-  dispatch(event: InteractionEvent): void;
+  /**
+   * Reduces one event and executes its effects (`BoardCanvas`'s `onEvent`).
+   * True when the reduction answered a key event (a `key_handled` effect),
+   * so the caller prevents the key's browser default (vtt-qf5.26).
+   */
+  dispatch(event: InteractionEvent): boolean;
   /**
    * Executes effects built outside the machine (the inspector's Run,
    * vtt-1xv.19) as a data-drop handler's are: stamped as their builder
@@ -314,8 +318,8 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
   // -------------------------------------------------------------------------
   // Dispatch
 
-  const dispatch = (event: InteractionEvent) => {
-    if (disposed) return;
+  const dispatch = (event: InteractionEvent): boolean => {
+    if (disposed) return false;
     const input = snapshot();
     sync(input);
     if (event.type === "data_drop") {
@@ -323,7 +327,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
         const effects = handler(event, input);
         if (effects !== null) {
           run(effects, "handler");
-          return;
+          return false;
         }
       }
     }
@@ -331,6 +335,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
     const out = reduce(state, event, input, registry);
     state = out.state;
     run(out.effects, "machine");
+    return out.effects.some((e) => e.type === "key_handled");
   };
 
   /** Dispatches an async result back to the tool that started it (machine-owned interactions only). */
@@ -547,6 +552,9 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
         }
         case "close_editor":
           editor.close();
+          break;
+        case "key_handled":
+          // Reported by `dispatch`.
           break;
       }
     }

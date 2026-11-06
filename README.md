@@ -116,6 +116,7 @@ viewing as a character; it never reverses the agent's work.
 | Click an editor field | edit it |
 | Chevron on a list entry | expand or collapse it (a template entry makes a working copy) |
 | Gear | edit a template |
+| Tab or Shift+Tab, one object selected | ring its next or previous face button, field or chevron; Enter or Space presses it |
 | Drag a cell row from the inspector onto an object (layout mode) | show the cell on the face |
 | Delete | remove the selection |
 | Move selection to board… | move objects between boards |

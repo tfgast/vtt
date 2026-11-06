@@ -817,3 +817,35 @@ describe("initMachine", () => {
     expect(state.pending).toEqual({});
   });
 });
+
+describe("Space with focus on the canvas (vtt-qf5.26)", () => {
+  const space = (type: "key_down" | "key_up", canvasFocused?: boolean): InteractionEvent => ({
+    ...key(type, " ", "Space"),
+    ...(canvasFocused === undefined ? {} : { canvasFocused }),
+  });
+
+  test("a canvas-focused Space key_down that starts a held Space reaches the tool once; Space is held", () => {
+    const {
+      calls,
+      registry,
+      state: s0,
+    } = setup((event) => (event.type === "key_down" ? [{ type: "key_handled" }] : []));
+    const input = makeInput();
+    const first = reduce(s0, space("key_down", true), input, registry);
+    expect(first.state.space).toBe(true);
+    expect(first.effects).toEqual([{ type: "key_handled" }]);
+    // Auto-repeat while held does not reach it again; the release never does.
+    const repeat = reduce(first.state, space("key_down", true), input, registry);
+    const up = reduce(repeat.state, space("key_up"), input, registry);
+    expect(up.state.space).toBe(false);
+    expect(calls.map((c) => c.kind === "reduce" && c.event.type)).toEqual(["key_down"]);
+  });
+
+  test("a Space key_down with focus elsewhere stays the machine's", () => {
+    const { calls, registry, state: s0 } = setup();
+    const out = reduce(s0, space("key_down"), makeInput(), registry);
+    expect(out.state.space).toBe(true);
+    expect(out.effects).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+});

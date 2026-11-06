@@ -432,7 +432,39 @@ function handleSquare(ctx: Ctx2D, at: Point, px: number, round: boolean): void {
   ctx.stroke();
 }
 
-function paintObjectToolOverlay(ctx: Ctx2D, overlay: ObjectToolOverlay, px: number): void {
+/**
+ * The keyboard face focus ring (vtt-qf5.26): `HIGHLIGHT_STROKE`, solid, 2 px,
+ * `OVERLAY_PAD_PX` outside the target's rect, in the object's frame; nothing
+ * unless the object is drawn and outlined as selected.
+ */
+function paintFaceFocus(
+  ctx: Ctx2D,
+  overlay: Extract<ObjectToolOverlay, { kind: "face_focus" }>,
+  scene: Scene,
+  px: number,
+): void {
+  const item = scene.items.find((i) => i.id === overlay.object);
+  const selected = scene.objectOverlays.some(
+    (o) => o.kind === "selection" && o.id === overlay.object,
+  );
+  if (item === undefined || !selected) return;
+  const [x, y, w, h] = overlay.rect;
+  const pad = OVERLAY_PAD_PX * px;
+  ctx.translate(item.anchor[0], item.anchor[1]);
+  ctx.rotate(radians(item.rotation));
+  ctx.beginPath();
+  ctx.rect(x - pad, y - pad, w + 2 * pad, h + 2 * pad);
+  ctx.strokeStyle = HIGHLIGHT_STROKE;
+  ctx.lineWidth = 2 * px;
+  ctx.stroke();
+}
+
+function paintObjectToolOverlay(
+  ctx: Ctx2D,
+  overlay: ObjectToolOverlay,
+  scene: Scene,
+  px: number,
+): void {
   ctx.save();
   switch (overlay.kind) {
     case "drag_ghost":
@@ -509,6 +541,9 @@ function paintObjectToolOverlay(ctx: Ctx2D, overlay: ObjectToolOverlay, px: numb
       }
       break;
     }
+    case "face_focus":
+      paintFaceFocus(ctx, overlay, scene, px);
+      break;
   }
   ctx.restore();
 }
@@ -640,7 +675,7 @@ export function createCanvas2DRenderer<S extends Scene = Scene>(
       // 2. Object-related overlays.
       const { object, chrome } = splitOverlays(toolOverlays);
       for (const overlay of scene.objectOverlays) paintOutlineOverlay(ctx, overlay, px);
-      for (const overlay of object) paintObjectToolOverlay(ctx, overlay, px);
+      for (const overlay of object) paintObjectToolOverlay(ctx, overlay, scene, px);
 
       // 3. Covers: nothing object-related after this point (M4-D16).
       for (const cover of scene.covers) paintCover(ctx, cover, view);

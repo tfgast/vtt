@@ -215,6 +215,7 @@ describe("events", () => {
       code: string;
       modifiers: Modifiers;
       inTextField: boolean;
+      canvasFocused?: boolean;
     }>();
     expectTypeOf<Omit<Variant<InteractionEvent, "key_up">, "type">>().toEqualTypeOf<
       Omit<Variant<InteractionEvent, "key_down">, "type">
@@ -380,10 +381,16 @@ describe("tools", () => {
 describe("overlays", () => {
   test("kinds and their split (DESIGN §4.6, M4-D16)", () => {
     expectTypeOf<ToolOverlay["kind"]>().toEqualTypeOf<
-      "drag_ghost" | "handles" | "creation_preview" | "polygon_draft" | "marquee" | "crosshair"
+      | "drag_ghost"
+      | "handles"
+      | "creation_preview"
+      | "polygon_draft"
+      | "face_focus"
+      | "marquee"
+      | "crosshair"
     >();
     expectTypeOf<ObjectToolOverlay["kind"]>().toEqualTypeOf<
-      "drag_ghost" | "handles" | "creation_preview" | "polygon_draft"
+      "drag_ghost" | "handles" | "creation_preview" | "polygon_draft" | "face_focus"
     >();
     expectTypeOf<ChromeToolOverlay["kind"]>().toEqualTypeOf<"marquee" | "crosshair">();
     expect([...OBJECT_OVERLAY_KINDS]).toEqual([
@@ -391,6 +398,7 @@ describe("overlays", () => {
       "handles",
       "creation_preview",
       "polygon_draft",
+      "face_focus",
     ]);
     expect([...CHROME_OVERLAY_KINDS]).toEqual(["marquee", "crosshair"]);
   });
@@ -470,6 +478,7 @@ describe("effects and continuations", () => {
       | "upload"
       | "open_editor"
       | "close_editor"
+      | "key_handled"
       | "extension"
     >();
   });

@@ -774,6 +774,13 @@ editor share one input grammar:
   the cycle counts through the double-click's own two plain clicks, which
   still select the first object before the double-click selects it back
   (M6-D21).
+- Keyboard (vtt-qf5.26): with exactly one board object selected, Tab and
+  Shift+Tab ring its face targets in reading order (buttons, editor
+  elements a click could edit, then each list entry's chevron and gear,
+  an expanded entry's own targets after its chevron), wrapping, without
+  moving browser focus off the canvas; Enter or Space presses the ringed
+  target exactly as a click does. Escape clears the ring before anything
+  else; a pointer press or a selection change clears it too.
 - Objects move between boards with "Move selection to board…", not by
   dragging.
 - Snap (M6-D13) is a per-session toggle, the toolbar's Snap checkbox next
