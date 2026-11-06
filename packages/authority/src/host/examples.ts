@@ -2,8 +2,8 @@
  * The example templates (DESIGN.md §4.7 Example templates, §8.1; §7 New
  * tables and ownership; M5-D19): the GM binder that `vtt-serve` stocks into
  * a new table, holding a die, a token, a zone, a card, a sticky note, a
- * sheet, a stack, a hand, a binder, a character, and the Attack, Damage and
- * Area Save cards with the save row. These are examples, not game content.
+ * sheet, a stack, a hand, a binder, a character, an initiative marker, and
+ * the Attack, Damage and Area Save cards with the save row. These are examples, not game content.
  *
  * Every record is copied verbatim from §4.7 (with M6-D3's amendments): ids,
  * shapes, tags, flags, cells in the document's order with their initial
@@ -256,6 +256,7 @@ function records(): TableObject[] {
         "tpl_area_save",
         "tpl_save_row",
         "tpl_token",
+        "tpl_marker",
         "tpl_zone",
         "tpl_card",
         "tpl_note",
@@ -474,6 +475,25 @@ function records(): TableObject[] {
           value("hp", [0.2, -0.6, 0.5, 0.3], { m: 8 }),
           value("hit", [-0.7, -0.6, 0.5, 0.3], { sw: "hit" }),
           contentsList([-0.8, 0.9, 1.6, 0.8], { m: 24, whenSelected: true }),
+        ],
+      },
+    }),
+
+    object({
+      id: "tpl_marker",
+      shape: circleShape(0.35),
+      tag: ["marker"],
+      cells: {
+        name: lit(text("Marker")),
+        of: NONE,
+        who: fx("of.name"),
+        image: fx("of.image"),
+      },
+      face: {
+        elements: [
+          value("image", [-0.35, -0.35, 0.7, 0.7]),
+          editor("of", [-0.35, -0.15, 0.7, 0.3], { C: true, sw: "of = empty" }),
+          value("who", [-0.6, 0.4, 1.2, 0.25], { m: 8 }),
         ],
       },
     }),

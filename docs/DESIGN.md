@@ -893,9 +893,9 @@ in `_<digits>`.
   binder; `name: "GM binder"`, `visible_to: [gm]` (viewers); face: `value
   name [-3.3, -4.8, 6.6, 0.6] L`, `contents [-3.3, -4.0, 6.6, 8.8]` (entries
   collapsed). Contents in this order: `tpl_character`, `tpl_attack`,
-  `tpl_damage`, `tpl_area_save`, `tpl_save_row`, `tpl_token`, `tpl_zone`,
-  `tpl_card`, `tpl_note`, `tpl_sheet`, `tpl_hand`, `tpl_binder`,
-  `tpl_stack`, `tpl_d20` (the last is directly playable through a working
+  `tpl_damage`, `tpl_area_save`, `tpl_save_row`, `tpl_token`,
+  `tpl_marker`, `tpl_zone`, `tpl_card`, `tpl_note`, `tpl_sheet`,
+  `tpl_hand`, `tpl_binder`, `tpl_stack`, `tpl_d20` (the last is directly playable through a working
   copy, which the scrolling tests use).
 - `tpl_d20`: circle r 0.5; tag die, d20; `name: "d20"`, `sides: 20`,
   `modifier: empty`, `value: empty`, `total = value + modifier`; `Roll:
@@ -909,6 +909,13 @@ in `_<digits>`.
   0.5, 0.3] sw="hit"` (the HIT badge, drawn at any zoom; a copy's GM
   replaces `hit` with a formula), `contents [-0.8, 0.9, 1.6, 0.8] m=24
   when_selected` (entries collapsed; shown only while selected, M6-D12).
+- `tpl_marker` (an initiative marker, M6-D26: the strip holds markers while
+  the tokens stay on the map): circle r 0.35; tag marker; `name:
+  "Marker"`, `of: empty`, `who = of.name`, `image = of.image`; face `value
+  image [-0.35, -0.35, 0.7, 0.7]`, `editor of [-0.35, -0.15, 0.7, 0.3] C
+  sw="of = empty"` (drop a character on it), `value who [-0.6, 0.4, 1.2,
+  0.25] m=8`. `name` is literal only, so the character's name shows in
+  `who`; an unset `of` reads `empty` through both formulas, a blank.
 - `tpl_zone`: rect 4 × 4, `is_zone`; `name: "Zone"`; no face.
 - `tpl_card`: rect 2.5 × 3.5; `name: "Card"`, `title: ""`, `body: ""`; face
   `editor title [-1.15, -1.65, 2.3, 0.5] L`, `editor body [-1.15, -1.05,
@@ -1551,8 +1558,10 @@ way; nothing about the tool assumes it.
    party has left.
 9. Combat in room 3. Draw a dice tray zone beside the map. Roll initiative
    with loose d20s from the GM binder, double-clicking each to roll, adding
-   bonuses by eye from the sheets. Line the tokens up in a strip zone by
-   initiative. No initiative tracker feature exists; none is needed.
+   bonuses by eye from the sheets. Line up markers from the GM binder in a
+   strip zone by initiative, dropping each PC token on a marker's `of`, so
+   the tokens stay on the map. No initiative tracker feature exists; none is
+   needed.
 10. Aldric attacks: expand the Attack card in Aldric's binder (a working copy
     appears), drop a goblin onto `target`, press Roll. HIT shows; AC does not.
     Roll damage, press Apply. The goblin's `hp` changes on its face and the
@@ -1799,3 +1808,4 @@ a separate player window, shipped game-system content.
 | 2026-11-06 | M6-D22. A cell effect written by an `add` step carries `added`, the number added (a roll counted as its total, `empty` as 0); no other write carries it, and undo's reversal of an add drops it (a plain write back). The log reads such an effect "Added 14 to G1.damage_taken (now 20)", or "Subtracted 3 from G1.damage_taken (now 17)" for a negative amount, the new value being the literal or the override written. The field is optional on the schema `Effect`, the persisted log and the wire `EffectView` (PROTOCOL §7.6); it is a number, so a character's view keeps it unredacted wherever the cell effect is kept. A roll value reads as its total in the log and on faces (compact), with its dice in the inspector (full), as before. DESIGN §4.8, §7; FORMULAS §8.3; PROTOCOL §7.6. | Playtest vtt-nb8.11 note (3): Apply all logged "Set G1.damage_taken to 20 (was 6)", which reads as a set, not as dealing 14. A new optional field rather than a new `cause` value: an unknown enum value would make older clients drop the effect, an unknown key is ignored (PROTOCOL §12), and the amount cannot be derived from before and after when an add overrides a formula cell. |
 | 2026-11-06 | M6-D23. `pnpm start` takes `--no-open` (anywhere in its arguments, like `--no-build`): vtt-serve then runs without `--open`, so no browser tab opens; without it `--open` is still appended. No detection of a reconnecting tab. The guide's step 15 reopens with it. Amends M6-D5. DESIGN §7. | vtt-nb8.12 (guide step 15): reopening a table after Ctrl+C opened a second tab beside the old tab's Reload banner, and the guide had the user close it. A flag the user chooses is predictable; a heuristic for whether an old tab will reconnect is not. |
 | 2026-11-06 | M6-D24. The UI remembers the active board per table in `localStorage` under `vtt.board:<table.id ?? table.path>` (the `welcome`'s table identity, the camera store's key), written whenever the session is ready on an active board. When a session first learns its table and boards (the first `welcome` of a page load, including the page reloaded from the unauthorized banner's Reload after a restart, M6-D5), a remembered board still in the board list is shown with `setView` before any board view opens; a missing or removed one leaves the default, the first board, which is then remembered. A reconnect within one page keeps the session's own board. An in-memory table (no id, no path) is not remembered; a refusing or missing `localStorage` loses only the memory. Per browser, not per user or session; UI state such as Snap stays per page. `nav/board-memory.ts`. DESIGN §4.3. | Playtest vtt-nb8.11 note (6), vtt-qf5.57: after a reload the app opened on the first board, not the one in use, and the walkthrough re-clicked the board tab after its restart. The id is the table's identity (D25) and is preferred; the path covers a table without one, as the camera memory does. |
+| 2026-11-06 | M6-D26. The GM binder stocks an initiative marker, `tpl_marker`, after `tpl_token`: a circle r 0.35 (half a token's area, so a strip of markers reads as smaller than the tokens on the map) tagged `marker` (not `creature`, so area saves and HIT formulas ignore it) with `of: empty`, `who = of.name` and `image = of.image`; its face shows `image`, the `of` editor captioned `of` while `of` is empty (the drop target for a character), and `who` below at `m=8`, as a token shows its name. `name` stays the literal "Marker" because `name` is literal only, so the character's name is the formula cell `who`; dot-access on an empty `of` is `empty`, so an unset marker is blank, not an error. §8.4 step 9 and the guide line up markers instead of tokens. No initiative tracker. DESIGN §4.7, §8.4. | Playtest 1 step 9: a token used to track initiative order cannot also track its position on the map. A marker is an ordinary template that refers to its character, so the strip and the map each keep their own object. |
