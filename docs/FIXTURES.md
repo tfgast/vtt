@@ -235,8 +235,9 @@ are unique per object. Spawned copies carry their template's actions.
 **Face** (M5). An object may carry an optional `face`: a face layout in the
 encoding of DESIGN §4.6 (`{elements, collapsed?, default_action?}`; value,
 editor, button and contents elements with `rect`, optional `show_when` and
-`min_size`; a contents element also takes optional `entries` and the
-optional boolean `when_selected`, M6-D12). It maps one to one onto the
+`min_size`; a contents element also takes optional `entries`, the
+optional boolean `when_selected`, M6-D12, and an optional `layout` of
+`"list"`, `"grid"` or `"fan"`, M6-D30). It maps one to one onto the
 object's `face` field and is copied verbatim on spawn, as actions are.
 `show_when` is source text like `when`. An object without `face` has no
 layout.

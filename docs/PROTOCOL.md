@@ -379,7 +379,7 @@ type FaceLayout = { elements: FaceElement[]; collapsed?: FaceElement[]; default_
 type FaceElement =
   | { type: "value" | "editor"; cell: string; rect: Rect; show_when?: string; min_size?: number; style?: FaceStyle }
   | { type: "button"; action: string; rect: Rect; label?: string; show_when?: string; min_size?: number }
-  | { type: "contents"; rect: Rect; entries?: "collapsed" | "full"; show_when?: string; min_size?: number; when_selected?: boolean };
+  | { type: "contents"; rect: Rect; entries?: "collapsed" | "full"; show_when?: string; min_size?: number; when_selected?: boolean; layout?: "list" | "grid" | "fan" };
 type Rect = [x: number, y: number, w: number, h: number];   // finite, w and h > 0
 type FaceStyle = { size?: "small" | "normal" | "large" | "huge"; align?: "left" | "center" | "right"; caption?: boolean; format?: FaceNumberFormat };
 type FaceNumberFormat = { sign?: "always" | "auto"; decimals?: number };   // decimals an integer 0–10 (FORMULAS.md §11)
@@ -397,6 +397,11 @@ layout: `bad_request`); absent means unset. It is presentation for the UI
 (DESIGN.md §4.6, **Only when selected**): the authority stores it, and
 views, `field: "face"` effects and snapshots carry it unchanged, to the GM
 and characters alike.
+
+`layout` (M6-D30) is likewise optional on contents elements only and is one
+of `"list"`, `"grid"` or `"fan"` (another value, or the key on another
+element kind, is a malformed layout: `bad_request`); absent means `"list"`.
+It is presentation (DESIGN.md §4.6): stored, viewed and logged unchanged.
 
 **Bindings.**
 

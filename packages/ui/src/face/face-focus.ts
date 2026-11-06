@@ -26,6 +26,7 @@ import type { FaceHit, FaceHitTarget, FaceList, FacePathEntry } from "./face-con
 import {
   type ContentsPrimitive,
   contentsRect,
+  entrySlotTransform,
   entryTransform,
   type FaceDrawing,
   type FaceEntry,
@@ -83,6 +84,16 @@ interface Level {
   path: FacePathEntry[];
   /** The lists around this drawing, outermost first: each list and the entry drawn in it. */
   lists: { container: ObjectId; c: ContentsPrimitive; e: FaceEntry }[];
+  /**
+   * The clips of the non-scrolling lists (grid, fan; M6-D30) around this
+   * drawing: board → the list's container frame, and the element's rect. A
+   * target outside one cannot be scrolled into view, so it is not offered.
+   */
+  clips: { fromBoard: Affine; rect: Rect }[];
+}
+
+function inRect(p: Point, r: Rect): boolean {
+  return p[0] >= r[0] && p[0] <= r[0] + r[2] && p[1] >= r[1] && p[1] <= r[1] + r[3];
 }
 
 function shown(rect: Rect, minSize: number, toBoard: Affine, camera: Camera): boolean {
@@ -188,7 +199,9 @@ export function faceFocusTargets(
     element: number | null,
     elementLocal: Rect | null = null,
   ) => {
-    if (isCovered(scene, apply(rectFrame.toBoard, centreOf(rect)))) return;
+    const centre = apply(rectFrame.toBoard, centreOf(rect));
+    if (isCovered(scene, centre)) return;
+    if (!level.clips.every((k) => inRect(apply(k.fromBoard, centre), k.rect))) return;
     out.push({
       key: keyOf(level, kind, name, element),
       hit: {
@@ -222,7 +235,26 @@ export function faceFocusTargets(
           },
         ],
         lists: [...level.lists, { container: level.object, c, e }],
+        clips:
+          c.layout === "list"
+            ? level.clips
+            : [...level.clips, { fromBoard: invert(level.toBoard), rect: c.rect }],
       };
+      if (e.slot !== undefined) {
+        // A fan card (M6-D30): its chevron and gear in the card's turned frame.
+        const slot = entrySlotTransform(c, e);
+        const card: Level = {
+          ...level,
+          toBoard: compose(level.toBoard, slot),
+          toItem: compose(level.toItem, slot),
+        };
+        push(row, e.chevron, card, { type: "chevron", id: e.id }, "chevron", e.id, null, e.chevron);
+        if (e.gear !== undefined) {
+          push(row, e.gear, card, { type: "gear", id: e.id }, "gear", e.id, null, e.gear);
+        }
+        if (e.drawing !== null) walk(e.drawing, row);
+        continue;
+      }
       push(
         row,
         contentsRect(c, e.chevron),
@@ -270,6 +302,7 @@ export function faceFocusTargets(
     toItem: [1, 0, 0, 1, 0, 0],
     path: [],
     lists: [],
+    clips: [],
   });
   return out;
 }

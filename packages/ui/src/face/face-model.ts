@@ -13,20 +13,25 @@ import type { ActionStateView, FaceElementView, ObjectView, WireValue } from "@v
 import {
   type Bounds,
   COLLAPSED_FRAME,
+  type ContentsLayout,
   defaultFaceFrame,
   type ObjectId,
+  type Point,
   type Rect,
   type Stroke,
 } from "@vtt/schema";
 import { readAppearance } from "../scene/appearance";
 import { type DrawItem, drawItemFor } from "../scene/scene";
 import { type FormatTone, formatValue, type RefLabel } from "../values/format";
+import { fitCentred, tileParts, tileSlots } from "./contents-layout";
 import type { FaceHitTarget, FaceList } from "./face-contracts";
 import type { EntriesMode, FaceStateStore } from "./face-state";
 import {
   type Affine,
   aabb,
+  apply,
   compose,
+  invert,
   itemTransform,
   rectToRect,
   translate,
@@ -140,8 +145,9 @@ export interface GearPrimitive extends PrimitiveCommon {
 }
 
 /**
- * One row of a contents element. Rects are element-local (origin at the
- * element rect's top-left) and before the scroll offset.
+ * One row of a contents element (a tile in a grid or fan, M6-D30). Rects
+ * are element-local (origin at the element rect's top-left) and before the
+ * scroll offset; in a fan they are the card upright, before its `slot`.
  */
 export interface FaceEntry {
   /** Null for a redacted entry. */
@@ -155,6 +161,11 @@ export interface FaceEntry {
   /** Template entries only. */
   gear?: Rect;
   /**
+   * Fan cards only: the turn (element-local → element-local) that puts the
+   * upright `row`, `chevron` and `gear` in place; absent is no turn.
+   */
+  slot?: Affine;
+  /**
    * Child frame → container frame: the element rect, the row and one
    * uniform scale. Without the scroll offset (`entryTransform` adds it).
    */
@@ -167,6 +178,8 @@ export interface FaceEntry {
 export interface ContentsPrimitive extends PrimitiveCommon {
   kind: "contents";
   element: number;
+  /** How the entries are arranged (M6-D30): rows, tiles in rows, or a fan. Only a list scrolls. */
+  layout: ContentsLayout;
   /** The scroll offset, clamped to `[0, maxOffset]`. */
   offset: number;
   /** `max(0, total rows height − rect height)`. */
@@ -449,6 +462,7 @@ function elementPrimitives(
             e.min_size ?? 0,
             ctx,
             ancestors,
+            e.layout ?? "list",
           ),
         );
         break;
@@ -577,7 +591,22 @@ function layoutContents(
   minSize: number,
   ctx: Ctx,
   ancestors: ReadonlySet<ObjectId>,
+  layout: ContentsLayout = "list",
 ): ContentsPrimitive {
+  if (layout !== "list") {
+    const entries = tileEntries(view, rect, mode, ctx, ancestors, layout);
+    return {
+      kind: "contents",
+      rect,
+      minSize,
+      element,
+      layout,
+      offset: 0,
+      maxOffset: 0,
+      entries,
+      target: { type: "contents", container: view.id, element, index: entries.length },
+    };
+  }
   const width = rect[2];
   const rowH = rowHeight(width);
   const chevronW = rowH;
@@ -644,6 +673,7 @@ function layoutContents(
     rect,
     minSize,
     element,
+    layout,
     offset,
     maxOffset,
     entries,
@@ -651,9 +681,107 @@ function layoutContents(
   };
 }
 
+/**
+ * The entries of a grid or fan contents element (M6-D30), one tile per
+ * entry on `tileSlots`: a header with the chevron (and a template's gear at
+ * its right), the collapsed face fitted in the header right of the chevron,
+ * or, expanded, the child's full drawing fitted and centred in the body.
+ * The tile is the entry's `row`; a fan card's turn is its `slot`. The
+ * slots stay put whether entries are expanded or not.
+ */
+function tileEntries(
+  view: ObjectView,
+  rect: Rect,
+  mode: EntriesMode,
+  ctx: Ctx,
+  ancestors: ReadonlySet<ObjectId>,
+  layout: "grid" | "fan",
+): FaceEntry[] {
+  const refs = contentsRefs(view);
+  const slots = tileSlots(layout, rect, refs.length);
+  const toContainer = translate(rect[0], rect[1]);
+  const collapsedFrame: Rect = [...COLLAPSED_FRAME];
+  return refs.map((id, i) => {
+    const { rect: tile, turn } = slots[i] as (typeof slots)[number];
+    const { header, chevron, body } = tileParts(tile);
+    const label: Rect = [chevron[0] + chevron[2], header[1], header[2] - chevron[2], header[3]];
+    const place = compose(toContainer, turn);
+    const slot = layout === "fan" ? { slot: turn } : {};
+    const child = id === null || ancestors.has(id) ? null : (ctx.views(id) ?? null);
+    if (child === null) {
+      return {
+        id,
+        expanded: false,
+        list: "collapsed",
+        template: false,
+        row: tile,
+        chevron,
+        ...slot,
+        transform: compose(place, rectToRect(collapsedFrame, label)),
+        drawing: null,
+      };
+    }
+    const inside = new Set(ancestors).add(child.id);
+    const expanded = ctx.faceState.isExpanded(child.id, mode);
+    const drawing = resolveDrawing(child, expanded ? "full" : "collapsed", ctx, true, inside);
+    // A template's gear takes the header's right end.
+    const named: Rect = child.is_template
+      ? [label[0], label[1], label[2] - header[3], label[3]]
+      : label;
+    const transform = expanded
+      ? compose(place, fitCentred(drawing.bounds, body))
+      : compose(place, rectToRect(collapsedFrame, named));
+    const entry: FaceEntry = {
+      id: child.id,
+      expanded,
+      list: expanded ? "full" : "collapsed",
+      template: child.is_template,
+      row: tile,
+      chevron,
+      ...slot,
+      transform,
+      drawing,
+    };
+    if (child.is_template) {
+      const g = header[3] * ROW_GEAR_RATIO;
+      const inset = (header[3] - g) / 2;
+      entry.gear = [header[0] + header[2] - g - inset, header[1] + inset, g, g];
+    }
+    return entry;
+  });
+}
+
 /** An entry's child frame → its container's frame, the scroll offset applied. */
 export function entryTransform(contents: ContentsPrimitive, entry: FaceEntry): Affine {
   return compose(translate(0, -contents.offset), entry.transform);
+}
+
+/**
+ * An entry's slot frame (where its `row`, `chevron` and `gear` are) → its
+ * container's frame: the element's corner, scrolled, then a fan card's turn.
+ */
+export function entrySlotTransform(contents: ContentsPrimitive, entry: FaceEntry): Affine {
+  const corner = translate(contents.rect[0], contents.rect[1] - contents.offset);
+  return entry.slot === undefined ? corner : compose(corner, entry.slot);
+}
+
+/**
+ * The index of the entry of `contents` whose row (tile) holds element-local
+ * point `q` (scrolled), or -1. A fan is searched last card first, so where
+ * cards overlap the point belongs to the card on top.
+ */
+export function entryIndexAt(contents: ContentsPrimitive, q: Point): number {
+  const holds = (e: FaceEntry) => {
+    const p = e.slot === undefined ? q : apply(invert(e.slot), q);
+    return (
+      p[0] >= e.row[0] &&
+      p[0] <= e.row[0] + e.row[2] &&
+      p[1] >= e.row[1] &&
+      p[1] <= e.row[1] + e.row[3]
+    );
+  };
+  if (contents.layout === "fan") return contents.entries.findLastIndex(holds);
+  return contents.entries.findIndex(holds);
 }
 
 /** An element-local rect of `contents` (a row, chevron or gear) in the container's frame, scrolled. */

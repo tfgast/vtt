@@ -12,6 +12,7 @@ export * from "./assets/upload";
 export * from "./binder/binder-policy";
 export * from "./binder/EditTemplateBanner";
 export * from "./canvas/BoardCanvas";
+export * from "./face/contents-layout";
 export * from "./face/face-contracts";
 export * from "./face/face-focus";
 export * from "./face/face-hit";

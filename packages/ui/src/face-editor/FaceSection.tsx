@@ -40,6 +40,7 @@
 import { parse } from "@vtt/formula";
 import type { ObjectView, Viewer } from "@vtt/protocol";
 import {
+  type ContentsLayout,
   type FaceElement,
   type FaceLayout,
   type FaceNumberFormat,
@@ -825,6 +826,22 @@ function ElementRow({
               <option value="">Default (collapsed)</option>
               <option value="collapsed">Collapsed</option>
               <option value="full">Full</option>
+            </select>
+            <select
+              aria-label="Layout"
+              value={element.layout ?? ""}
+              disabled={readOnly}
+              onChange={(e) =>
+                pick(
+                  "layout",
+                  e.target.value === "" ? undefined : (e.target.value as ContentsLayout),
+                )
+              }
+            >
+              <option value="">Default (list)</option>
+              <option value="list">List</option>
+              <option value="grid">Grid</option>
+              <option value="fan">Fan</option>
             </select>
             <label>
               <input

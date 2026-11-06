@@ -15,6 +15,8 @@ import type { DropTarget, FaceHit, FaceHitTarget, FaceList, FacePathEntry } from
 import {
   type ContentsPrimitive,
   contentsRect,
+  entryIndexAt,
+  entrySlotTransform,
   entryTransform,
   type FaceDrawing,
   type FaceEntry,
@@ -93,8 +95,17 @@ function hit(level: Level, rect: Rect, target: FaceHitTarget, rectFrame = level.
   };
 }
 
-/** The insertion index at element-local `y`: before a row on its upper half, after it on its lower half. */
-function insertionIndex(c: ContentsPrimitive, y: number): number {
+/**
+ * The insertion index at element-local `q`: in a list, before a row on its
+ * upper half, after it on its lower half; in a grid or fan, the index of
+ * the tile under `q` (the topmost card), else the end (M6-D30).
+ */
+function insertionIndex(c: ContentsPrimitive, q: Point): number {
+  if (c.layout !== "list") {
+    const i = entryIndexAt(c, q);
+    return i < 0 ? c.entries.length : i;
+  }
+  const y = q[1];
   let index = 0;
   c.entries.forEach((e, i) => {
     if (y >= e.row[1] + e.row[3] / 2) index = i + 1;
@@ -123,11 +134,10 @@ function rowLevel(c: ContentsPrimitive, e: FaceEntry, id: ObjectId, level: Level
 /** A point inside contents primitive `c` (its rect, the clip): always a hit. */
 function hitContents(c: ContentsPrimitive, p: Point, level: Level, camera: Camera): FaceHit {
   const q = elementLocal(c, p);
-  const i = c.entries.findIndex((e) => inRect(q, e.row));
-  const e = c.entries[i];
+  const e = c.entries[entryIndexAt(c, q)];
   if (e === undefined || e.id === null) {
     // No row, or a redacted one (nothing to target): the list itself.
-    const index = insertionIndex(c, q[1]);
+    const index = insertionIndex(c, q);
     return hit(level, c.rect, {
       type: "contents",
       container: level.object,
@@ -136,6 +146,7 @@ function hitContents(c: ContentsPrimitive, p: Point, level: Level, camera: Camer
     });
   }
   const row = rowLevel(c, e, e.id, level);
+  if (e.slot !== undefined) return hitCard(c, e, e.id, p, row, level, camera);
   if (inRect(q, e.chevron)) {
     return hit(row, contentsRect(c, e.chevron), { type: "chevron", id: e.id }, level.toBoard);
   }
@@ -153,6 +164,33 @@ function hitContents(c: ContentsPrimitive, p: Point, level: Level, camera: Camer
     { type: "entry", id: e.id, container: level.object, element: c.element },
     level.toBoard,
   );
+}
+
+/**
+ * A point on fan card `e` of `c` (M6-D30): as a row, but tested in the
+ * card's own (turned) frame, its rects' board boxes taken through the turn.
+ */
+function hitCard(
+  c: ContentsPrimitive,
+  e: FaceEntry,
+  id: ObjectId,
+  p: Point,
+  row: Level,
+  level: Level,
+  camera: Camera,
+): FaceHit {
+  const slot = entrySlotTransform(c, e);
+  const frame = compose(level.toBoard, slot);
+  const q = apply(invert(slot), p);
+  if (inRect(q, e.chevron)) return hit(row, e.chevron, { type: "chevron", id }, frame);
+  if (e.gear !== undefined && inRect(q, e.gear))
+    return hit(row, e.gear, { type: "gear", id }, frame);
+  if (e.drawing !== null) {
+    const local = apply(invert(entryTransform(c, e)), p);
+    const found = hitDrawing(e.drawing, local, row, e.expanded ? "expanded" : "collapsed", camera);
+    if (found !== null) return found;
+  }
+  return hit(row, e.row, { type: "entry", id, container: level.object, element: c.element }, frame);
 }
 
 /**
@@ -248,8 +286,7 @@ function rowUnder(
   level: DropLevel,
   dragged: ReadonlySet<ObjectId>,
 ): DropLevel | null {
-  const q = elementLocal(c, level.p);
-  const e = c.entries.find((x) => inRect(q, x.row));
+  const e = c.entries[entryIndexAt(c, elementLocal(c, level.p))];
   if (e === undefined || e.id === null || e.drawing === null || dragged.has(e.id)) return null;
   const t = entryTransform(c, e);
   return {
@@ -290,7 +327,7 @@ function contentsIn(
   const row = rowUnder(c, level, dragged);
   const inner = row === null ? null : contentsIn(row, camera, dragged);
   if (inner !== null) return inner;
-  const index = insertionIndex(c, elementLocal(c, level.p)[1]);
+  const index = insertionIndex(c, elementLocal(c, level.p));
   return { kind: "contents", container: level.object, element: c.element, index };
 }
 

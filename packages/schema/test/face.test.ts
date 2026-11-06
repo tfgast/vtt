@@ -5,6 +5,7 @@
  */
 import {
   COLLAPSED_FRAME,
+  CONTENTS_LAYOUTS,
   defaultFaceFrame,
   type FaceElement,
   type FaceLayout,
@@ -323,5 +324,29 @@ describe("style.format (vtt-qf5.29; FORMULAS.md §11)", () => {
     expect(faceProblem(face)).toMatch(
       /elements\[0\]: style\.format\.decimals must be an integer 0–10/,
     );
+  });
+});
+
+describe("contents layout (vtt-qf5.28; M6-D30)", () => {
+  test("a contents element takes list, grid or fan; absent is the list", () => {
+    const face: FaceLayout = {
+      elements: [{ ...contents(), layout: "fan" } as FaceElement],
+      collapsed: [{ ...contents(), layout: "grid" } as FaceElement],
+    };
+    expect(FaceLayoutSchema.parse(face)).toEqual(face);
+    expect(faceProblem(face)).toBeUndefined();
+    const list: FaceLayout = { elements: [{ ...contents(), layout: "list" } as FaceElement] };
+    expect(FaceLayoutSchema.parse(list)).toEqual(list);
+    expect(CONTENTS_LAYOUTS).toEqual(["list", "grid", "fan"]);
+  });
+
+  const malformed: [string, unknown][] = [
+    ["an unknown layout", { ...contents(), layout: "stack" }],
+    ["a numeric layout", { ...contents(), layout: 1 }],
+    ["layout on a value element", { ...value("hp"), layout: "grid" }],
+    ["layout on a button", { ...button("Roll"), layout: "grid" }],
+  ];
+  test.each(malformed)("the structural schema rejects %s", (_, element) => {
+    expect(FaceLayoutSchema.safeParse({ elements: [element] }).success).toBe(false);
   });
 });
