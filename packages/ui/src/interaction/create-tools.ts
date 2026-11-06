@@ -116,7 +116,7 @@ export function importLabel(name: string): string {
 const text = (value: string) => ({ type: "text" as const, value });
 
 /** The fog cells of a zone: opaque and visible to the GM only (DESIGN.md §4.4, §8.4 step 3). */
-const FOG_CELLS: NonNullable<ObjectInit["cells"]> = {
+export const FOG_CELLS: NonNullable<ObjectInit["cells"]> = {
   opaque: { type: "boolean", value: true },
   visible_to: { type: "viewers", viewers: ["gm"] },
 };
