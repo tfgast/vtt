@@ -1003,6 +1003,35 @@ describe("resizing an object with a face scales its elements", () => {
     closeRect((second.elements[1] as FaceElement).rect, [-3.1, -3.6, 6.2, 8]);
   });
 
+  test("the move preview carries the scaled face (vtt-qf5.67)", () => {
+    const d = driver({ selection: ["b"] });
+    // se (63.3, 4.8) → (66.6, 7.2): 9.9 × 12 (factors 1.5 and 1.25).
+    const effects = d.drag([63.3, 4.8], [66.6, 7.2]);
+    const write = onlyWrite(effects);
+    const previews = of(effects, "previews");
+    const moves = previews.filter((p) => p.hold === undefined);
+    const lastMove = moves[moves.length - 1]?.previews.get("b");
+    const face = lastMove?.face;
+    if (face === undefined) throw new Error("no preview face");
+    // The same face the release writes, and held with the write until it is visible.
+    expect(face).toEqual(faceOp(write.ops));
+    const [name, contents] = face.elements as [FaceElement, FaceElement];
+    closeRect(contents.rect, [-4.95 + 0.2 * 1.5, -6 + 1.2 * 1.25, 6.2 * 1.5, 8 * 1.25]);
+    closeRect(name.rect, [-4.95 + 0.2 * 1.5, -6 + 0.2 * 1.25, 6.2 * 1.5, 0.8 * 1.25]);
+    expect(face.collapsed).toEqual(BINDER_FACE.collapsed);
+    expect(previews[previews.length - 1]?.previews.get("b")?.face).toEqual(face);
+  });
+
+  test("no preview face for an object without a face, or for a rotation", () => {
+    const plain = driver({ selection: ["u"] }).drag([7, -3], [8, -2]);
+    expect(of(plain, "previews").every((p) => p.previews.get("u")?.face === undefined)).toBe(true);
+    const turned = driver({ selection: ["b"] }).drag(
+      handleOf("b", "rotate").at,
+      world([0, -6], [60, 0], 40),
+    );
+    expect(of(turned, "previews").every((p) => p.previews.get("b")?.face === undefined)).toBe(true);
+  });
+
   test("with Snap the handle snaps before the factors are computed", () => {
     const d = driver({ selection: ["b"], snap: true });
     // The s edge snaps to y 9 (from 9.2): 6.6 × 13.8.

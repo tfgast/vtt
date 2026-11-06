@@ -7,12 +7,18 @@
  * Pure: drawing is vtt-1xv.15's, hit testing `face-hit.ts`.
  */
 import type { ObjectView, WireValue } from "@vtt/protocol";
-import type { Bounds, ObjectId, Point, Rect } from "@vtt/schema";
+import type { Bounds, FaceLayout, ObjectId, Point, Rect } from "@vtt/schema";
 import { decoratedBounds } from "../render/canvas2d";
 import { persistentTextBounds } from "../render/face-draw";
 import type { Camera } from "../scene/camera";
 import { hitsAt } from "../scene/hit-test";
-import { buildScene, type DrawItem, type Scene, type SceneInput } from "../scene/scene";
+import {
+  buildScene,
+  type DrawItem,
+  type Scene,
+  type SceneInput,
+  type ScenePreviews,
+} from "../scene/scene";
 import {
   defaultContentsRect,
   type FaceDrawing,
@@ -47,6 +53,22 @@ export interface AttachFacesOptions {
   selection?: readonly ObjectId[];
   /** The object an Alt-held drag hovers (`altHoverAt`), whose `when_selected` lists show. */
   altHover?: ObjectId | null;
+  /** The gesture previews; a preview's `face` (a handle resize, M6-D14) is drawn in place of the view's. */
+  previews?: ScenePreviews;
+}
+
+/**
+ * `view` with its live face's full-list rects taken from `face` (a handle
+ * resize's scaled layout, M6-D14), matched by each element's stored `index`;
+ * everything else of the live face (`shown`, the collapsed list) is kept.
+ */
+function withPreviewFace(view: ObjectView, face: FaceLayout | undefined): ObjectView {
+  if (face === undefined || view.face === undefined) return view;
+  const elements = view.face.elements.map((e) => {
+    const rect = face.elements[e.index]?.rect;
+    return rect === undefined ? e : { ...e, rect };
+  });
+  return { ...view, face: { ...view.face, elements } };
 }
 
 /** The container `view` is in, or null. */
@@ -84,7 +106,8 @@ function outlinedSelection(scene: Scene): ObjectId[] {
  * (vtt-1xv.14). An item without a view keeps its footprint only. A
  * `when_selected` contents element is resolved only for the objects
  * `revealedObjects` gives for the selection and the Alt-hover (M6-D12),
- * else as its count badge.
+ * else as its count badge. A preview's `face` (`opts.previews`) replaces
+ * the view's full-list rects (`withPreviewFace`).
  */
 export function attachFaces(
   scene: Scene,
@@ -107,7 +130,7 @@ export function attachFaces(
     let drawing: FaceDrawing | null = null;
     if (view !== null) {
       out = faceBaseItem(item, view);
-      const resolved = resolveFace(view, {
+      const resolved = resolveFace(withPreviewFace(view, opts.previews?.get(item.id)?.face), {
         views,
         faceState,
         list: "full",
@@ -133,7 +156,7 @@ export interface BuildFaceSceneOptions {
 
 /**
  * vtt-3l6.5's `buildScene`, then `attachFaces` with the same views, viewer,
- * selection and formatter (and `opts.altHover`).
+ * selection, previews and formatter (and `opts.altHover`).
  */
 export function buildFaceScene(input: SceneInput, opts: BuildFaceSceneOptions): FaceScene {
   const list: ObjectView[] = [...input.views];
@@ -144,6 +167,7 @@ export function buildFaceScene(input: SceneInput, opts: BuildFaceSceneOptions): 
     gm: input.viewer.type === "gm",
     selection: input.selection ?? [],
     ...(opts.altHover != null ? { altHover: opts.altHover } : {}),
+    ...(input.previews ? { previews: input.previews } : {}),
     ...(input.formatText ? { formatText: input.formatText } : {}),
   });
 }
