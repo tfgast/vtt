@@ -21,6 +21,7 @@
  * zone on the board that might be opaque (valid geometry with `opaque` true
  * or treated as opaque, or any invalid geometry read) is `undetermined`.
  */
+import { anchorOf, geometryNumber } from "@vtt/formula";
 import { type ObjectId, type Point, pointInRegion, type Result, type Shape } from "@vtt/schema";
 import type { SpatialIndex } from "../spatial/index";
 import type { DocView } from "../store/document-store";
@@ -37,25 +38,9 @@ type ZoneRead =
   | { opaque: boolean; anchor: Point; rotation: number; shape: Shape | null }
   | "invalid";
 
-/** The anchor, if `r` is a list of two finite numbers. */
-function anchorOf(r: Result): Point | undefined {
-  if (r.type !== "list" || r.items.length !== 2) return undefined;
-  const [x, y] = r.items;
-  if (x?.type !== "number" || y?.type !== "number") return undefined;
-  if (!Number.isFinite(x.value) || !Number.isFinite(y.value)) return undefined;
-  return [x.value, y.value];
-}
-
 /** A rotation as the evaluator reads it: a number, empty as 0, a roll as its total. */
 function rotationOf(r: Result): number | undefined {
-  const n =
-    r.type === "number"
-      ? r.value
-      : r.type === "empty"
-        ? 0
-        : r.type === "roll"
-          ? r.total
-          : undefined;
+  const n = geometryNumber(r);
   return n !== undefined && Number.isFinite(n) ? n : undefined;
 }
 

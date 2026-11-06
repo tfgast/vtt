@@ -10,6 +10,7 @@
  * visibility metadata, refs to what the viewer cannot see redacted in place,
  * and errors whose origin the viewer cannot see reduced to their code.
  */
+import { anchorOf, geometryNumber } from "@vtt/formula";
 import type {
   ActionStateView,
   ActionView,
@@ -41,7 +42,6 @@ import {
   type Location,
   type ObjectId,
   type OpGroup,
-  type Point,
   type Result,
   type Shape,
   STRUCTURAL_CELLS,
@@ -103,25 +103,9 @@ function coverKey(table: Table, zone: ObjectId): string {
   return key;
 }
 
-/** The anchor, if `r` is a list of two finite numbers (as M2's cover oracle reads it). */
-function anchorOf(r: Result): Point | undefined {
-  if (r.type !== "list" || r.items.length !== 2) return undefined;
-  const [x, y] = r.items;
-  if (x?.type !== "number" || y?.type !== "number") return undefined;
-  if (!Number.isFinite(x.value) || !Number.isFinite(y.value)) return undefined;
-  return [x.value, y.value];
-}
-
 /** A rotation as M2's cover oracle reads it: a number, empty as 0, a roll as its total. */
 function rotationOf(r: Result): number | undefined {
-  const n =
-    r.type === "number"
-      ? r.value
-      : r.type === "empty"
-        ? 0
-        : r.type === "roll"
-          ? r.total
-          : undefined;
+  const n = geometryNumber(r);
   return n !== undefined && Number.isFinite(n) ? n : undefined;
 }
 
