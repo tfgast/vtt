@@ -290,3 +290,38 @@ describe("the face field", () => {
     expect(OpGroupSchema.safeParse(bad).success).toBe(false);
   });
 });
+
+describe("style.format (vtt-qf5.29; FORMULAS.md §11)", () => {
+  test("a value or editor element takes a sign and fixed decimals", () => {
+    const face: FaceLayout = {
+      elements: [
+        { ...value("bonus"), style: { format: { sign: "always" } } } as FaceElement,
+        { ...value("weight"), style: { format: { decimals: 2 } } } as FaceElement,
+        { ...value("hp"), style: { format: { sign: "auto", decimals: 0 } } } as FaceElement,
+        { type: "editor", cell: "mod", rect: [0, 0, 1, 1], style: { format: { decimals: 10 } } },
+        { ...value("x"), style: { format: {} } } as FaceElement,
+      ],
+    };
+    expect(FaceLayoutSchema.parse(face)).toEqual(face);
+    expect(faceProblem(face)).toBeUndefined();
+  });
+
+  const malformed: [string, unknown][] = [
+    ["an unknown sign", { sign: "never" }],
+    ["a text decimals", { decimals: "2" }],
+    ["an unknown format key", { thousands: true }],
+  ];
+  test.each(malformed)("the structural schema rejects %s", (_, format) => {
+    const face = { elements: [{ ...value("hp"), style: { format } }] };
+    expect(FaceLayoutSchema.safeParse(face).success).toBe(false);
+  });
+
+  test.each([-1, 1.5, 11, Number.NaN, Infinity])("faceProblem rejects decimals %s", (decimals) => {
+    const face: FaceLayout = {
+      elements: [{ ...value("hp"), style: { format: { decimals } } } as FaceElement],
+    };
+    expect(faceProblem(face)).toMatch(
+      /elements\[0\]: style\.format\.decimals must be an integer 0–10/,
+    );
+  });
+});

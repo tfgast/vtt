@@ -765,7 +765,17 @@ hand would create an override and stop the formula; the inspector says so.
   boards may want feet. Probably a per-board `unit` cell and a `ft()` helper.
 - **Dice dialect beyond the v1 subset.** Compound explosions, success
   counting, and other dialect features wait for a need.
-- **Text formatting** of numbers on faces (signs, decimals). A face element
-  setting, not a language feature.
+- **Text formatting** of numbers on faces (signs, decimals). Settled as a
+  face element setting, not a language feature: a value or editor element's
+  `style.format = {sign?: "always" | "auto"; decimals?: number}` (DESIGN.md
+  §4.6). It applies only to a cell whose value is a number (a roll, text or
+  any other value shows as before). `decimals`, an integer 0–10, writes
+  exactly that many places, rounded half away from zero as `round` is
+  (`2.5` at 2 shows `2.50`); absent, the face's compact text stands.
+  `sign: "always"` prefixes `+` to a number shown positive (`+3`); negatives
+  keep their minus (`-1`) and zero, including a value that rounds to zero,
+  shows unsigned (`0`, `0.00`). `"auto"`, the default, writes only the
+  minus. The cell's value, formulas, and the in-place editor (which opens on
+  the value) are unchanged.
 - **Outer-scope access in nested `where`.** Binding to a cell is the
   workaround; a named binding form may be warranted later.

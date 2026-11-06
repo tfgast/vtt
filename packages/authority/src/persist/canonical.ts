@@ -55,7 +55,7 @@ const CONTENT = by("type", { ...valueCases, formula: tagged("source") });
 const CELL = fields(["content", CONTENT], ["override", VALUE]);
 const ACTION = fields("name", "when", "steps");
 
-const FACE_STYLE = fields("size", "align", "caption");
+const FACE_STYLE = fields("size", "align", "caption", ["format", fields("sign", "decimals")]);
 const CELL_ELEMENT = tagged("cell", "rect", "show_when", "min_size", ["style", FACE_STYLE]);
 const FACE_ELEMENT = by("type", {
   value: CELL_ELEMENT,

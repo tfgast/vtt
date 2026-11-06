@@ -42,7 +42,9 @@ import type { ObjectView, Viewer } from "@vtt/protocol";
 import {
   type FaceElement,
   type FaceLayout,
+  type FaceNumberFormat,
   type FaceStyle,
+  MAX_FORMAT_DECIMALS,
   type ObjectId,
   type Rect,
   STRUCTURAL_CELLS,
@@ -89,6 +91,16 @@ export function showWhenProblem(source: string): string | null {
 function numberProblem(text: string, allowEmpty: boolean): string | null {
   if (text.trim() === "") return allowEmpty ? null : "Enter a number.";
   return Number.isFinite(Number(text.trim())) ? null : "Enter a number.";
+}
+
+/** Blank, or an integer 0–`MAX_FORMAT_DECIMALS` (FORMULAS.md §11). */
+function decimalsProblem(text: string): string | null {
+  const t = text.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isInteger(n) && n >= 0 && n <= MAX_FORMAT_DECIMALS
+    ? null
+    : `Enter a whole number 0–${MAX_FORMAT_DECIMALS}.`;
 }
 
 const SECTION_STYLE: CSSProperties = { borderTop: "1px solid rgba(127, 127, 127, 0.3)" };
@@ -694,6 +706,32 @@ function ElementRow({
       target,
     );
   };
+  /**
+   * Sets one `style.format` key (FORMULAS.md §11), keeping the other style
+   * and format keys as acknowledged; an emptied format is removed.
+   */
+  const setFormat = <K extends keyof FaceNumberFormat>(
+    key: K,
+    value: FaceNumberFormat[K] | undefined,
+    baseRevision = writer.now(),
+  ) => {
+    writer.edit(
+      (f) => {
+        const current = at(f);
+        const next: FaceStyle = {
+          ...(current !== undefined && "style" in current ? current.style : undefined),
+        };
+        const format: FaceNumberFormat = { ...next.format };
+        if (value === undefined) delete format[key];
+        else format[key] = value;
+        if (Object.keys(format).length === 0) delete next.format;
+        else next.format = format;
+        return setElementField(f, elementRef, "style", next);
+      },
+      baseRevision,
+      target,
+    );
+  };
   const field = (
     label: string,
     value: string,
@@ -862,6 +900,32 @@ function ElementRow({
             />{" "}
             Caption
           </label>
+          <select
+            aria-label="Sign"
+            value={style.format?.sign ?? ""}
+            disabled={readOnly}
+            onChange={(e) =>
+              setFormat(
+                "sign",
+                e.target.value === "" ? undefined : (e.target.value as FaceNumberFormat["sign"]),
+              )
+            }
+          >
+            <option value="">Sign: default</option>
+            <option value="auto">auto (-1)</option>
+            <option value="always">always (+3)</option>
+          </select>
+          {field(
+            "Decimals",
+            style.format?.decimals === undefined ? "" : String(style.format.decimals),
+            (text, baseRevision) =>
+              setFormat(
+                "decimals",
+                text.trim() === "" ? undefined : Number(text.trim()),
+                baseRevision,
+              ),
+            decimalsProblem,
+          )}
         </div>
       )}
       {!readOnly && (

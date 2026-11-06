@@ -325,6 +325,62 @@ describe("commands", () => {
     );
   });
 
+  test("Sign and Decimals write style.format, one set_face each, keeping the style (vtt-qf5.29)", async () => {
+    const user = userEvent.setup();
+    const { session, transacts } = await setup();
+    const hpStyle = () => (faceOf(session)?.elements[1] as { style?: object } | undefined)?.style;
+    await user.selectOptions(within(element(2)).getByRole("combobox", { name: "Sign" }), "always");
+    await until(() => JSON.stringify(hpStyle()) !== JSON.stringify({ caption: true }), "the sign");
+    expect(hpStyle()).toEqual({ caption: true, format: { sign: "always" } });
+    expect(transacts()).toHaveLength(1);
+    expect(transacts()[0]?.ops).toEqual([
+      {
+        type: "set_face",
+        object: "tok",
+        face: {
+          ...FACE,
+          elements: [
+            FACE.elements[0],
+            { ...FACE.elements[1], style: { caption: true, format: { sign: "always" } } },
+            FACE.elements[2],
+          ],
+        },
+      },
+    ]);
+    const decimals = within(element(2)).getByRole("textbox", { name: "Decimals" });
+    await user.click(decimals);
+    await user.type(decimals, "2{Enter}");
+    await until(
+      () => (hpStyle() as { format?: { decimals?: number } }).format?.decimals === 2,
+      "the decimals",
+    );
+    expect(hpStyle()).toEqual({ caption: true, format: { sign: "always", decimals: 2 } });
+    expect(transacts()).toHaveLength(2);
+    // Clearing both removes the format, leaving the rest of the style.
+    await user.selectOptions(within(element(2)).getByRole("combobox", { name: "Sign" }), "");
+    await until(
+      () =>
+        JSON.stringify(hpStyle()) === JSON.stringify({ caption: true, format: { decimals: 2 } }),
+      "no sign",
+    );
+    await user.click(decimals);
+    await user.clear(decimals);
+    await user.type(decimals, "{Enter}");
+    await until(() => JSON.stringify(hpStyle()) === JSON.stringify({ caption: true }), "no format");
+    expect(transacts()).toHaveLength(4);
+  });
+
+  test("Decimals refuses a fraction or a value past 10 (vtt-qf5.29)", async () => {
+    const user = userEvent.setup();
+    const { transacts } = await setup();
+    const decimals = within(element(2)).getByRole("textbox", { name: "Decimals" });
+    await user.click(decimals);
+    await user.type(decimals, "1.5{Enter}");
+    await user.clear(decimals);
+    await user.type(decimals, "11{Enter}");
+    expect(transacts()).toHaveLength(0);
+  });
+
   test("Only when selected reads and writes a contents element's when_selected (M6-D12)", async () => {
     const user = userEvent.setup();
     const { session, other, transacts } = await setup();

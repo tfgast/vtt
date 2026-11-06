@@ -32,6 +32,7 @@ import {
   translate,
   unionRect,
 } from "./face-transform";
+import { formatFaceNumber } from "./number-format";
 
 /** The `element` of a default face's contents list, which no stored element backs. */
 export const DEFAULT_CONTENTS_ELEMENT = -1;
@@ -375,10 +376,14 @@ function cellPrimitive(view: ObjectView, e: CellElementView, ctx: Ctx): FacePrim
       return { kind: "image", ...common, path: v.value, target };
     }
   }
-  const f =
+  const compact =
     v === undefined
       ? { text: "", tone: "muted" as const }
       : formatValue(v, { mode: "compact", refLabel: ctx.refLabel });
+  const f =
+    v?.type === "number"
+      ? { ...compact, text: formatFaceNumber(v.value, compact.text, e.style?.format) }
+      : compact;
   const style = {
     size: e.style?.size ?? "normal",
     align: e.style?.align ?? "center",

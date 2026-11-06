@@ -16,6 +16,7 @@ import {
   defaultFaceFrame,
   type FaceElement,
   type FaceLayout,
+  type FaceNumberFormat,
   type FaceStyle,
   faceProblem,
   type ObjectId,
@@ -77,6 +78,14 @@ export function faceUserCells(view: ObjectView): string[] {
     });
 }
 
+/** A view's number format with only the stored keys. */
+function storedFormat(f: FaceNumberFormat): FaceNumberFormat {
+  return {
+    ...(f.sign === undefined ? {} : { sign: f.sign }),
+    ...(f.decimals === undefined ? {} : { decimals: f.decimals }),
+  };
+}
+
 /** A live element without its `index`, `shown`, `reason` and `error`: the stored element. */
 function storedElement(e: FaceElementView): FaceElement {
   const common = {
@@ -94,6 +103,7 @@ function storedElement(e: FaceElementView): FaceElement {
               ...(e.style.size === undefined ? {} : { size: e.style.size }),
               ...(e.style.align === undefined ? {} : { align: e.style.align }),
               ...(e.style.caption === undefined ? {} : { caption: e.style.caption }),
+              ...(e.style.format === undefined ? {} : { format: storedFormat(e.style.format) }),
             };
       return {
         type: e.type,
