@@ -5,11 +5,12 @@
  *
  * Formulas evaluate only here, in the authority. One internal commit hook
  * (`store.onCommitInternal`) applies each commit to the index and then calls
- * `engine.invalidate` once with the commit's changes, so it runs right after
+ * `engine.invalidateAll` once with the commit's changes, so it runs right after
  * the commit point and before every public `onCommit` listener, including
  * listeners registered before the table was constructed: a public listener
  * always reads the new revision's values. `Table.onCommit` registers such a
- * public listener and hands it the keys `engine.invalidate` returned.
+ * public listener and hands it the cells and tracked expression keys
+ * `engine.invalidateAll` returned.
  */
 import {
   type CellKey,
@@ -17,6 +18,7 @@ import {
   createEngine,
   type Engine,
   type EngineOptions,
+  type Invalidation,
 } from "@vtt/formula";
 import type { ObjectId, Result, Snapshot } from "@vtt/schema";
 import { SpatialIndex } from "../spatial/index";
@@ -54,13 +56,15 @@ export function engineChanges(summary: DeepReadonly<ChangeSummary>): Change[] {
 
 /**
  * What `Table.onCommit` listeners receive: the committed group, its change
- * summary, and the formula cells `engine.invalidate` newly marked dirty for
- * it (vtt-5su.9).
+ * summary, the formula cells `engine.invalidateAll` newly marked dirty for
+ * it (vtt-5su.9), and the tracked expression keys it newly marked dirty
+ * (vtt-qf5.25).
  */
 export interface TableCommit {
   group: FrozenGroup;
   summary: DeepReadonly<ChangeSummary>;
   dirty: CellKey[];
+  tracked: string[];
 }
 
 export class Table {
@@ -70,8 +74,8 @@ export class Table {
   readonly engine: Engine;
   readonly cover: EngineCover;
   readonly visibility: Visibility;
-  /** Per committed group: the keys `engine.invalidate` returned for it. */
-  readonly #dirty = new WeakMap<FrozenGroup, readonly CellKey[]>();
+  /** Per committed group: what `engine.invalidateAll` returned for it. */
+  readonly #dirty = new WeakMap<FrozenGroup, Invalidation>();
 
   private constructor(store: DocumentStore, options: EngineOptions) {
     this.store = store;
@@ -83,7 +87,7 @@ export class Table {
     this.visibility = new Visibility(store, reader, this.cover);
     store.onCommitInternal(({ group, summary }) => {
       this.index.applyCommit({ group, summary });
-      this.#dirty.set(group, this.engine.invalidate(engineChanges(summary)));
+      this.#dirty.set(group, this.engine.invalidateAll(engineChanges(summary)));
     });
   }
 
@@ -111,7 +115,8 @@ export class Table {
    */
   onCommit(fn: (commit: TableCommit) => void): () => void {
     return this.store.onCommit(({ group, summary }) => {
-      fn({ group, summary, dirty: [...(this.#dirty.get(group) ?? [])] });
+      const inv = this.#dirty.get(group);
+      fn({ group, summary, dirty: [...(inv?.cells ?? [])], tracked: [...(inv?.tracked ?? [])] });
     });
   }
 

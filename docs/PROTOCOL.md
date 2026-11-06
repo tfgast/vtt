@@ -835,10 +835,12 @@ type ObjectPatch = { object: ObjectId; cells: Record<string, CellView | null> };
 what the changed subscribed views need: their cells, those cells' transitive
 dependencies, and the visibility and geometry inputs the views and covers
 need, even outside the scope. Every other dirty cell stays dirty until read.
-Objects in scope with a `when` or a `show_when`, and objects whose face
-changed (including its removal or undo), are re-viewed after every commit
-(M5-D9), so guard and show-when results that read other objects stay current
-without dependency tracking; views are still sent only when they changed.
+Each `when` and `show_when` a subscription view evaluates is a tracked
+expression of the engine (FORMULAS.md §7, M6-D38): an object is re-viewed for
+them only when the commit may have changed something one of them read (on
+this or any other object), and objects whose actions or face changed
+(including removal or undo) are re-viewed; views are still sent only when
+they changed.
 
 **Ordering (D22).**
 

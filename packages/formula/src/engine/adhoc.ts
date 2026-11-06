@@ -4,8 +4,10 @@
  * evaluated against the current revision.
  *
  * It uses the same recording env as cell evaluation, so its reads use and
- * populate the memo and it is budgeted, but it keeps no dependency entry:
- * nothing is invalidated on its behalf. An attempt that reads uncomputed
+ * populate the memo and it is budgeted. `evaluateAdhoc` keeps no dependency
+ * entry: nothing is invalidated on its behalf. `evaluateRecorded` also
+ * returns the final attempt's dependencies, which the engine's tracked
+ * expressions keep (engine.ts, `evaluateTracked`). An attempt that reads uncomputed
  * formula cells collects them; each is computed with the core's iterative
  * resolver (`resolve`), and the expression is retried. The expression is
  * not a cell, so it is never in a cycle: it reads a cycle member's memoized
@@ -13,7 +15,7 @@
  */
 import { err, type ObjectId, type Result } from "@vtt/schema";
 import { evaluate } from "../eval/evaluate";
-import type { CellKey } from "../host";
+import type { CellKey, Dependency } from "../host";
 import { limitError, withBudget } from "./budget";
 import { createRecordingEnv } from "./env";
 import { PENDING, type ResolveContext, resolve } from "./resolve";
@@ -36,12 +38,33 @@ export interface AdhocOptions {
  * if the final attempt exceeds the budget.
  */
 export function evaluateAdhoc(ctx: ResolveContext, source: string, options: AdhocOptions): Result {
+  return evaluateRecorded(ctx, source, options).result;
+}
+
+/** What `evaluateRecorded` returns: the result and what its final attempt read. */
+export interface RecordedResult {
+  result: Result;
+  /**
+   * The final attempt's dependencies, always led by an `exists` check of
+   * `thisId` when one is given (also for `#REF` and `#SYNTAX`), so deleting
+   * or recreating the object invalidates the result.
+   */
+  deps: readonly Dependency[];
+}
+
+/** `evaluateAdhoc`, also returning the dependencies the final attempt recorded. */
+export function evaluateRecorded(
+  ctx: ResolveContext,
+  source: string,
+  options: AdhocOptions,
+): RecordedResult {
   const { thisId } = options;
+  const self: Dependency[] = thisId === undefined ? [] : [{ type: "exists", object: thisId }];
   if (thisId !== undefined && !ctx.host.exists(thisId)) {
-    return err("#REF", `reference to deleted object ${thisId}`);
+    return { result: err("#REF", `reference to deleted object ${thisId}`), deps: self };
   }
   const parsed = ctx.parse(source);
-  if (!parsed.ok) return err("#SYNTAX", parsed.message);
+  if (!parsed.ok) return { result: err("#SYNTAX", parsed.message), deps: self };
   const scope = thisId === undefined ? {} : { thisId };
   for (;;) {
     const pending: { key: CellKey; id: ObjectId; cell: string }[] = [];
@@ -69,7 +92,11 @@ export function evaluateAdhoc(ctx: ResolveContext, source: string, options: Adho
           : evaluate(parsed.ast, scope, env, ctx.registry),
       () => limitError(ctx.budget),
     );
-    if (pending.length === 0) return result;
+    if (pending.length === 0) {
+      // Each dependency once: the self check leads.
+      const read = env.dependencies().filter((d) => !(d.type === "exists" && d.object === thisId));
+      return { result, deps: [...self, ...read] };
+    }
     // The first pending cell is a true dependency; the rest may be
     // speculative (read after a pending marker changed control flow).
     // Computing them is harmless: each is resolved from its own root, so no

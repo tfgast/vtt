@@ -20,10 +20,10 @@
  * Selective recomputation. A commit's candidate objects are the objects of
  * its changed cells, field effects, creations, removals, moves (both
  * containers), per-cell visibility changes, action changes, face changes
- * (by edit or undo) and newly dirty formula cells, every object with a
- * `when` guard or a `show_when` (M5-D9: their results may read any object
- * and are not dependency-tracked), plus the holders of literal references to any id whose
- * existence the commit touched (the reference reverse index below). A GM
+ * (by edit or undo) and newly dirty formula cells, the owners of the
+ * tracked guard and show-when expressions the commit newly dirtied (below),
+ * plus the holders of literal references to any id whose existence the
+ * commit touched (the reference reverse index below). A GM
  * subscription re-views the candidates in scope and the objects that
  * entered it. A character subscription does the same, except after a
  * visibility-relevant commit (`isVisibilityRelevant`), when it re-views its
@@ -33,6 +33,16 @@
  * engine, which evaluates their transitive dependencies and the visibility
  * and geometry inputs of the views and covers wherever they lie; nothing
  * else is read, so every other dirty cell stays dirty until read.
+ *
+ * Tracked guards and show-whens (vtt-qf5.25, M6-D38; replaces M5-D9's
+ * re-view of every guarded object after every commit). The hub's view
+ * builders evaluate each `when` and `show_when` as a tracked engine
+ * expression under a key of this hub's own (`engine.evaluateTracked`), so
+ * the engine records what it read and `invalidateAll` reports the keys a
+ * commit may have changed; their owners become candidates. An object's keys
+ * are dropped when it is removed or its actions or face change (it is a
+ * candidate then, and re-viewing it registers the current ones), when it
+ * leaves the scope of every subscription of the hub, and on `close`.
  *
  * The reference reverse index. A ref read from stored literal content (not
  * through a formula) changes its value when its target disappears or
@@ -62,7 +72,7 @@ import type { Table, TableCommit } from "../engine/table";
 import type { DeepReadonly, FrozenGroup } from "../store/history";
 import type { ChangeSummary } from "../store/summary";
 import type { Viewer } from "../visibility";
-import { ViewBuilder } from "./views";
+import { type GuardTracking, ViewBuilder } from "./views";
 
 /** A subscription as a scope provider sees it. */
 export interface ScopeSubscription {
@@ -259,6 +269,9 @@ function collectRefs(v: DeepReadonly<Value>, out: Set<string>): void {
   }
 }
 
+/** Distinguishes the tracked expression keys of hubs sharing one engine. */
+let hubSerial = 0;
+
 const notFound = (): never => {
   throw new ProtocolFailure("not_found", "not found");
 };
@@ -276,12 +289,34 @@ export class SubscriptionHub {
   readonly #refTargets = new Map<string, Set<ObjectId>>();
   /** Holder → cell → the ids that cell's effective literal content names. */
   readonly #holderCells = new Map<ObjectId, Map<string, Set<string>>>();
+  /** Tracked expression key → the object whose guard or show-when it is. */
+  readonly #keyOwner = new Map<string, ObjectId>();
+  /** Object → its tracked expression keys. */
+  readonly #keys = new Map<ObjectId, Set<string>>();
+  readonly #tracking: GuardTracking;
   readonly #off: () => void;
   #next = 1;
   #viewsBuilt = 0;
 
   constructor(table: Table) {
     this.table = table;
+    const prefix = `h${++hubSerial}:`;
+    this.#tracking = {
+      // A part never contains "|", so the key determines object and part.
+      key: (object, part) => {
+        const key = `${prefix}${part}|${object}`;
+        if (!this.#keyOwner.has(key)) {
+          this.#keyOwner.set(key, object);
+          let keys = this.#keys.get(object);
+          if (keys === undefined) {
+            keys = new Set();
+            this.#keys.set(object, keys);
+          }
+          keys.add(key);
+        }
+        return key;
+      },
+    };
     for (const id of table.store.objectIds()) this.#indexObject(id);
     this.#off = table.onCommit((commit) => this.#onCommit(commit));
   }
@@ -289,6 +324,7 @@ export class SubscriptionHub {
   /** Stops listening to the table. The hub sends nothing afterwards. */
   close(): void {
     this.#off();
+    for (const id of [...this.#keys.keys()]) this.#untrack(id);
   }
 
   stats(): HubStats {
@@ -371,7 +407,7 @@ export class SubscriptionHub {
       covers: new Map(),
       parts: this.#patching.has(conn) ? new Map() : null,
     };
-    const builder = new ViewBuilder(this.table, viewer);
+    const builder = new ViewBuilder(this.table, viewer, this.#tracking);
     const scopeIds = this.#scopeIds(sub.scope);
     sub.inScope = new Set(scopeIds);
     const objects: ObjectView[] = [];
@@ -407,6 +443,33 @@ export class SubscriptionHub {
     if (sub === undefined) return;
     this.#subs.delete(id);
     if (sub.kind === "provided") sub.provider.drop(sub.info);
+    else this.#untrackUnscoped(sub.inScope);
+  }
+
+  /** Drops the tracked expressions of `id` (vtt-qf5.25). */
+  #untrack(id: ObjectId): void {
+    const keys = this.#keys.get(id);
+    if (keys === undefined) return;
+    this.#keys.delete(id);
+    for (const key of keys) {
+      this.#keyOwner.delete(key);
+      this.table.engine.dropTracked(key);
+    }
+  }
+
+  /** Drops the tracked expressions of each of `ids` no object subscription has in scope. */
+  #untrackUnscoped(ids: Iterable<ObjectId>): void {
+    for (const id of ids) {
+      if (!this.#keys.has(id)) continue;
+      let scoped = false;
+      for (const sub of this.#subs.values()) {
+        if (sub.kind === "objects" && sub.inScope.has(id)) {
+          scoped = true;
+          break;
+        }
+      }
+      if (!scoped) this.#untrack(id);
+    }
   }
 
   #view(builder: ViewBuilder, id: ObjectId, cells: "all" | "structural"): ObjectView | null {
@@ -455,9 +518,14 @@ export class SubscriptionHub {
 
   // Commits.
 
-  #onCommit({ group, summary, dirty }: TableCommit): void {
+  #onCommit({ group, summary, dirty, tracked }: TableCommit): void {
     const visibilityRelevant = isVisibilityRelevant(group, summary, dirty);
-    const candidates = this.#candidates(group, summary, dirty);
+    const candidates = this.#candidates(group, summary, dirty, tracked);
+    // Stale keys go; re-viewing these candidates registers the current ones.
+    for (const ids of [summary.removed, summary.actionsChanged, summary.faceChanged]) {
+      for (const id of ids) this.#untrack(id);
+    }
+    const left = new Set<ObjectId>();
     const commit: CommitInfo = { group, summary, dirty, visibilityRelevant };
     const header: GroupHeader = {
       index: group.index,
@@ -479,7 +547,7 @@ export class SubscriptionHub {
         if (sub === undefined) continue;
         const delta =
           sub.kind === "objects"
-            ? this.#objectDelta(sub, candidates, visibilityRelevant)
+            ? this.#objectDelta(sub, candidates, visibilityRelevant, left)
             : this.#providedDelta(sub, commit);
         if (delta !== null) deltas.push(delta);
       }
@@ -493,6 +561,7 @@ export class SubscriptionHub {
       if (boards !== undefined) event.boards = structuredClone(boards);
       events.push([conn, event]);
     }
+    this.#untrackUnscoped(left);
     // Every listener gets every event; the first error is rethrown afterwards.
     let failure: { error: unknown } | null = null;
     for (const [conn, event] of events) {
@@ -516,6 +585,7 @@ export class SubscriptionHub {
     group: FrozenGroup,
     summary: DeepReadonly<ChangeSummary>,
     dirty: readonly CellKey[],
+    tracked: readonly string[],
   ): Set<ObjectId> {
     const out = new Set<ObjectId>();
     for (const k of summary.changedCells) out.add(objectOf(k));
@@ -529,8 +599,11 @@ export class SubscriptionHub {
     for (const v of summary.visibility) out.add(v.object);
     for (const id of summary.actionsChanged) out.add(id);
     for (const id of summary.faceChanged) out.add(id);
-    // M5-D9: guard and show-when results may read any object, untracked.
-    for (const id of this.table.store.objectIds()) if (this.#conditional(id)) out.add(id);
+    // M6-D38: guards and show-whens whose reads may have changed.
+    for (const key of tracked) {
+      const owner = this.#keyOwner.get(key);
+      if (owner !== undefined) out.add(owner);
+    }
     const existence: string[] = [];
     for (const e of group.effects) {
       switch (e.type) {
@@ -565,26 +638,14 @@ export class SubscriptionHub {
     return out;
   }
 
-  /**
-   * Whether an object's view holds results the engine does not track (M5-D9):
-   * an action with a `when`, or a face element with a `show_when`.
-   */
-  #conditional(id: ObjectId): boolean {
-    const o = this.table.store.getObject(id);
-    if (o === undefined) return false;
-    if (o.actions.some((a) => a.when !== undefined)) return true;
-    const face = o.face;
-    if (face === undefined) return false;
-    return [...face.elements, ...(face.collapsed ?? [])].some((e) => e.show_when !== undefined);
-  }
-
   #objectDelta(
     sub: ObjectSub,
     candidates: ReadonlySet<ObjectId>,
     visibilityRelevant: boolean,
+    left: Set<ObjectId>,
   ): SubscriptionDelta | null {
     const { viewer, cells } = sub.info;
-    const builder = new ViewBuilder(this.table, viewer);
+    const builder = new ViewBuilder(this.table, viewer, this.#tracking);
     const character = viewer.type === "character";
     const whole = character && visibilityRelevant;
     const scopeIds = this.#scopeIds(sub.scope);
@@ -619,6 +680,7 @@ export class SubscriptionHub {
       }
       objects.push(view);
     }
+    for (const id of sub.inScope) if (!next.has(id)) left.add(id);
     sub.inScope = next;
     const covers = whole ? this.#coverDelta(sub, builder, scopeIds) : null;
     if (objects.length === 0 && patches.length === 0 && removed.length === 0 && covers === null) {
