@@ -57,7 +57,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function setup(extra: { overlay?: React.ReactNode; camera?: Camera } = {}) {
+function setup(
+  extra: {
+    overlay?: React.ReactNode;
+    camera?: Camera;
+    answer?: (e: InteractionEvent) => unknown;
+  } = {},
+) {
   const events: InteractionEvent[] = [];
   const viewports: Viewport[] = [];
   const fake = fakeRenderer();
@@ -67,7 +73,10 @@ function setup(extra: { overlay?: React.ReactNode; camera?: Camera } = {}) {
       toolOverlays={[]}
       camera={extra.camera ?? CAMERA}
       createRenderer={fake.createRenderer}
-      onEvent={(e) => events.push(e)}
+      onEvent={(e) => {
+        events.push(e);
+        return extra.answer?.(e);
+      }}
       setViewport={(v) => viewports.push(v)}
       overlay={extra.overlay}
     />,
@@ -203,6 +212,17 @@ describe("BoardCanvas", () => {
     ]);
   });
 
+  test("a key_down onEvent answers with true is prevented; any other answer is not (vtt-qf5.26)", () => {
+    const { canvas, events } = setup({
+      answer: (e) => e.type === "key_down" && (e.key === "Tab" || e.key === " "),
+    });
+    expect(fireEvent.keyDown(canvas, { key: "Tab", code: "Tab" })).toBe(false);
+    expect(fireEvent.keyDown(canvas, { key: "Enter", code: "Enter" })).toBe(true);
+    expect(fireEvent.keyDown(canvas, { key: " ", code: "Space" })).toBe(false);
+    expect(fireEvent.keyUp(canvas, { key: "Tab", code: "Tab" })).toBe(true);
+    expect(events.map((e) => e.type === "key_down" && e.key)).toEqual(["Tab", "Enter", " ", false]);
+  });
+
   test("a key typed in an input of the overlay has inTextField", () => {
     const { events } = setup({ overlay: <input aria-label="editor" /> });
     fireEvent.keyDown(screen.getByLabelText("editor"), { key: "a", code: "KeyA" });
@@ -231,10 +251,11 @@ describe("BoardCanvas", () => {
         // Inside the canvas it is heard once, not by both the canvas and the window.
         fireEvent.keyDown(canvas, SPACE);
         fireEvent.keyUp(canvas, SPACE);
+        // Only the canvas's own Space carries `canvasFocused` (vtt-qf5.26).
         expect(events).toEqual([
           spaceEvent("key_down"),
           spaceEvent("key_up"),
-          spaceEvent("key_down"),
+          { ...spaceEvent("key_down"), canvasFocused: true },
           spaceEvent("key_up"),
         ]);
       } finally {

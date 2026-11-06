@@ -59,9 +59,25 @@
  * the press is marked moved, or the wrapped tool gets the move. A press that
  * never moves that far is unaffected.
  *
+ * Keyboard face focus (vtt-qf5.26; DESIGN.md §4.6 On the canvas): while
+ * exactly one board item is selected and no press or gesture is in
+ * progress, Tab focuses the next of its face targets (`faceFocusTargets`:
+ * buttons, editor elements the click could edit, entry chevrons and gears,
+ * in reading order) and Shift+Tab the previous, wrapping; each answers the
+ * key (`key_handled`) and scrolls the target's lists to reveal it. Enter or
+ * Space activates the focused target as a click on it does (`clicked`:
+ * invoke, open the editor, toggle, gear), with a stamp taken at the key.
+ * The focus is this decorator's state, drawn as a `face_focus` overlay
+ * after the others; it re-resolves against every reduction's scene (a
+ * vanished target passes the focus to the one now at its index) and is
+ * cleared by a pointer down, a selection that is no longer that one item,
+ * a target list gone empty, and any cancel. Without a single selected item
+ * with targets, Tab is the wrapped tool's (and the browser's).
+ *
  * Cancel (Escape, tool switch, board or viewer change) ends a press or a
  * gesture with no effect but the gesture's `cancel`; Escape then stops
- * there, anything else also cancels the wrapped tool. Results of the
+ * there. Otherwise Escape with a face focus only clears it. Anything else
+ * also cancels the wrapped tool. Results of the
  * effects emitted here are the runtime's: an invocation's notice is shown
  * whatever changed meanwhile, and its settled result changes nothing here.
  */
@@ -74,6 +90,13 @@ import type {
   FacePolicyContext,
   WithFacesOptions,
 } from "../face/face-contracts";
+import {
+  type FaceFocus,
+  type FaceFocusTarget,
+  faceFocusTargets,
+  resolveFaceFocus,
+  stepFaceFocus,
+} from "../face/face-focus";
 import { faceHitAt, pathContents } from "../face/face-hit";
 import { revealOffset } from "../face/face-model";
 import { attachFaces, type FaceScene } from "../face/face-scene";
@@ -144,6 +167,10 @@ export interface FacesPhase<TPhase> {
    * carries the revision the double click began on.
    */
   recentDowns: InteractionStamp[];
+  /** The keyboard face focus (vtt-qf5.26), or null. */
+  focus: FaceFocus | null;
+  /** The focus ring, as last emitted (empty without a focus). */
+  focusOverlays: ToolOverlay[];
 }
 
 /** A tool state as plain data (the decorator is generic over the tool id). */
@@ -249,17 +276,18 @@ export function withFaces<TPhase, K extends ToolId>(
     let innerOverlays = phase.innerOverlays;
     let emitted = false;
     const out: Effect[] = [];
+    const all = () => [...innerOverlays, ...gestureOverlays, ...phase.focusOverlays];
     for (const e of effects) {
       if (e.type === "overlays") {
         innerOverlays = [...e.overlays];
-        out.push({ type: "overlays", overlays: [...innerOverlays, ...gestureOverlays] });
+        out.push({ type: "overlays", overlays: all() });
         emitted = true;
       } else {
         out.push(e);
       }
     }
     if (!emitted && !sameOverlays(gestureOverlays, phase.gestureOverlays)) {
-      out.push({ type: "overlays", overlays: [...innerOverlays, ...gestureOverlays] });
+      out.push({ type: "overlays", overlays: all() });
     }
     return { state: withPhase(state, { innerOverlays, gestureOverlays }), effects: out };
   }
@@ -314,9 +342,8 @@ export function withFaces<TPhase, K extends ToolId>(
     return [];
   }
 
-  /** What a click on a pressed target does. */
-  function clicked(press: FacePress, input: ToolInput): Effect[] {
-    const { hit, stamp } = press;
+  /** What a click on a pressed target does (also a keyboard activation, vtt-qf5.26). */
+  function clicked(hit: FaceHit, stamp: InteractionStamp, input: ToolInput): Effect[] {
     const t = hit.target;
     switch (t.type) {
       case "button": {
@@ -447,7 +474,7 @@ export function withFaces<TPhase, K extends ToolId>(
         if (press.moved || distance(press.screen, event.screen) > FACE_CLICK_PX) {
           return { state: ended, effects: [] };
         }
-        return { state: ended, effects: clicked(press, input) };
+        return { state: ended, effects: clicked(press.hit, press.stamp, input) };
       }
       case "pointer_cancel":
         if (event.pointerId !== press.pointerId) return { state, effects: [] };
@@ -547,6 +574,130 @@ export function withFaces<TPhase, K extends ToolId>(
     return false;
   }
 
+  // -------------------------------------------------------------------------
+  // Keyboard face focus (vtt-qf5.26)
+
+  /** The single selected board item, or null. */
+  function soleItem(input: ReducerInput): ObjectId | null {
+    if (input.selection.length !== 1) return null;
+    const id = input.selection[0] as ObjectId;
+    return input.scene.items.some((i) => i.id === id) ? id : null;
+  }
+
+  /** `object`'s targets a click could press: an editor element only where the click edits. */
+  function focusTargets(input: ReducerInput, object: ObjectId): FaceFocusTarget[] {
+    return faceFocusTargets(facesOf(input), object, input.camera).filter((t) => {
+      const target = t.hit.target;
+      return target.type !== "editor" || editable(input, input.views(t.hit.object), target.cell);
+    });
+  }
+
+  function focusRing(object: ObjectId, target: FaceFocusTarget): ToolOverlay[] {
+    return [{ kind: "face_focus", object, rect: target.rect }];
+  }
+
+  /** The focus dropped when a pointer goes down or the selection is no longer its item. */
+  function dropStaleFocus(state: State, event: InteractionEvent, input: ReducerInput): State {
+    const { focus } = phaseOf(state);
+    if (focus === null) return state;
+    if (event.type !== "pointer_down" && soleItem(input) === focus.object) return state;
+    return withPhase(state, { focus: null });
+  }
+
+  /** Tab, Shift+Tab, Enter or Space for the face focus; null when the key is not its. */
+  function focusKey(
+    state: State,
+    event: Extract<InteractionEvent, { type: "key_down" }>,
+    input: ToolInput,
+  ): Result | null {
+    const phase = phaseOf(state);
+    if (phase.press !== null || phase.gesture !== null) return null;
+    const m = event.modifiers;
+    if (m.ctrl || m.meta || m.alt) return null;
+    const handled: Effect = { type: "key_handled" };
+    if (event.key === "Tab") {
+      const object = soleItem(input);
+      if (object === null) return null;
+      const targets = focusTargets(input, object);
+      const focus = stepFaceFocus(targets, object, phase.focus, m.shift);
+      if (focus === null) return null;
+      for (const r of (targets[focus.index] as FaceFocusTarget).reveal) {
+        if (faceState.scrollOffset(r.container, r.element) !== r.offset) {
+          faceState.setScroll(r.container, r.element, r.offset, r.max);
+        }
+      }
+      return { state: withPhase(state, { focus }), effects: [handled] };
+    }
+    if (event.key !== "Enter" && event.key !== " ") return null;
+    if (phase.focus === null || m.shift) return null;
+    const resolved = resolveFaceFocus(focusTargets(input, phase.focus.object), phase.focus);
+    if (resolved === null) return null;
+    const stamp = captureStamp(input);
+    const effects = stamp === null ? [] : clicked(resolved.target.hit, stamp, input);
+    return { state: withPhase(state, { focus: resolved.focus }), effects: [...effects, handled] };
+  }
+
+  /**
+   * `out` with its face focus re-resolved against `input`'s scene and the
+   * ring updated: when the ring changed, the last `overlays` effect (or a
+   * new one) carries the full list.
+   */
+  function refreshFocus(out: Result, input: ReducerInput): Result {
+    const phase = phaseOf(out.state);
+    let focus = phase.focus;
+    let ring: ToolOverlay[] = [];
+    if (focus !== null) {
+      const resolved =
+        soleItem(input) === focus.object
+          ? resolveFaceFocus(focusTargets(input, focus.object), focus)
+          : null;
+      focus = resolved?.focus ?? null;
+      if (resolved !== null) ring = focusRing(resolved.focus.object, resolved.target);
+    }
+    const changedFocus =
+      focus !== phase.focus &&
+      (focus === null ||
+        phase.focus === null ||
+        focus.key !== phase.focus.key ||
+        focus.index !== phase.focus.index);
+    if (sameOverlays(ring, phase.focusOverlays)) {
+      return changedFocus ? { ...out, state: withPhase(out.state, { focus }) } : out;
+    }
+    const state = withPhase(out.state, { focus, focusOverlays: ring });
+    const overlays: Effect = {
+      type: "overlays",
+      overlays: [...phase.innerOverlays, ...phase.gestureOverlays, ...ring],
+    };
+    const effects = [...out.effects];
+    const last = effects.map((e) => e.type).lastIndexOf("overlays");
+    if (last >= 0) effects[last] = overlays;
+    else effects.push(overlays);
+    return { state, effects };
+  }
+
+  /** The reduction of every event but a face focus key (the module comment's gestures). */
+  function reduceEvent(state: State, event: InteractionEvent, input: ToolInput): Result {
+    const { gesture, press } = phaseOf(state);
+    if (gesture !== null) {
+      const out = gesture.gesture.reduce(gesture.state, event, input);
+      const next = out.state === null ? null : { gesture: gesture.gesture, state: out.state };
+      return gestureStep(state, next, out.effects);
+    }
+    if (press !== null) return pressEvent(state, press, event, input);
+    const { handoff } = phaseOf(state);
+    if (handoff !== null && event.type !== "pointer_down" && event.type !== "double_click") {
+      return handoffEvent(state, handoff, event, input);
+    }
+    switch (event.type) {
+      case "pointer_down":
+        return pointerDown(state, event, input);
+      case "double_click":
+        return doubleClick(state, event, input);
+      default:
+        return delegate(state, event, input);
+    }
+  }
+
   const decorated: Tool<Phase, K> = {
     id: tool.id,
     init(toolOptions) {
@@ -560,6 +711,8 @@ export function withFaces<TPhase, K extends ToolId>(
         innerOverlays: [],
         gestureOverlays: [],
         recentDowns: [],
+        focus: null,
+        focusOverlays: [],
       };
       return { ...inner, phase } as unknown as State;
     },
@@ -570,26 +723,9 @@ export function withFaces<TPhase, K extends ToolId>(
       return tool.cursor(innerOf(state));
     },
     reduce(state0, event: InteractionEvent, input: ToolInput): Result {
-      const state = recordDown(state0, event, input);
-      const { gesture, press } = phaseOf(state);
-      if (gesture !== null) {
-        const out = gesture.gesture.reduce(gesture.state, event, input);
-        const next = out.state === null ? null : { gesture: gesture.gesture, state: out.state };
-        return gestureStep(state, next, out.effects);
-      }
-      if (press !== null) return pressEvent(state, press, event, input);
-      const { handoff } = phaseOf(state);
-      if (handoff !== null && event.type !== "pointer_down" && event.type !== "double_click") {
-        return handoffEvent(state, handoff, event, input);
-      }
-      switch (event.type) {
-        case "pointer_down":
-          return pointerDown(state, event, input);
-        case "double_click":
-          return doubleClick(state, event, input);
-        default:
-          return delegate(state, event, input);
-      }
+      const state = dropStaleFocus(recordDown(state0, event, input), event, input);
+      const keyed = event.type === "key_down" ? focusKey(state, event, input) : null;
+      return refreshFocus(keyed ?? reduceEvent(state, event, input), input);
     },
     doubleClickTarget(state, event, input) {
       return tool.doubleClickTarget?.(innerOf(state), event, input) ?? null;
@@ -598,19 +734,39 @@ export function withFaces<TPhase, K extends ToolId>(
       return consumed(state, screen);
     },
     cancel(state, reason: CancelReason): Result {
-      const { gesture, press } = phaseOf(state);
-      let next = withPhase(state, { press: null, gesture: null, handoff: null });
+      const { gesture, press, focus, focusOverlays } = phaseOf(state);
+      // A ring that was drawn goes with the focus.
+      const unring = (out: Result): Result => {
+        if (focusOverlays.length === 0 || out.effects.some((e) => e.type === "overlays")) {
+          return out;
+        }
+        const p = phaseOf(out.state);
+        const overlays: ToolOverlay[] = [...p.innerOverlays, ...p.gestureOverlays];
+        return { ...out, effects: [...out.effects, { type: "overlays", overlays }] };
+      };
+      let next = withPhase(state, {
+        press: null,
+        gesture: null,
+        handoff: null,
+        focus: null,
+        focusOverlays: [],
+      });
       const effects: Effect[] = [];
       if (gesture !== null) {
         effects.push(...gesture.gesture.cancel(gesture.state).filter((e) => e.type !== "overlays"));
       }
-      // Escape ends what was in progress here and nothing else.
+      // Escape ends what was in progress here and nothing else; else it clears the face focus.
       if (reason === "escape" && (gesture !== null || press !== null)) {
-        return present(next, effects, []);
+        return unring(present(next, effects, []));
+      }
+      if (reason === "escape" && focus !== null) {
+        const p = phaseOf(next);
+        const overlays: ToolOverlay[] = [...p.innerOverlays, ...p.gestureOverlays];
+        return { state: next, effects: [{ type: "overlays", overlays }] };
       }
       next = withPhase(next, { innerPointer: null });
       const out = tool.cancel(innerOf(next), reason);
-      return present(withInner(next, out.state), [...effects, ...out.effects], []);
+      return unring(present(withInner(next, out.state), [...effects, ...out.effects], []));
     },
     wheel(state, event, input) {
       // An active gesture receives every event until it ends, wheels included.
@@ -622,10 +778,13 @@ export function withFaces<TPhase, K extends ToolId>(
       }
       // Ctrl or Meta (a trackpad pinch) is a zoom, never a list scroll (M6-D11).
       const zoom = event.modifiers.ctrl || event.modifiers.meta;
-      if (!zoom && scrollAt(event, input)) return { state, effects: [] };
+      if (!zoom && scrollAt(event, input)) return refreshFocus({ state, effects: [] }, input);
       const out = tool.wheel?.(innerOf(state), event, input) ?? null;
       if (out === null) return null;
-      return present(withInner(state, out.state), out.effects, phaseOf(state).gestureOverlays);
+      return refreshFocus(
+        present(withInner(state, out.state), out.effects, phaseOf(state).gestureOverlays),
+        input,
+      );
     },
   };
   return decorated;

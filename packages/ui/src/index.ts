@@ -13,6 +13,7 @@ export * from "./binder/binder-policy";
 export * from "./binder/EditTemplateBanner";
 export * from "./canvas/BoardCanvas";
 export * from "./face/face-contracts";
+export * from "./face/face-focus";
 export * from "./face/face-hit";
 export * from "./face/face-model";
 export * from "./face/face-scene";

@@ -6,13 +6,14 @@
  * board units; sizes that are fixed on screen (handle squares, line widths)
  * are the renderer's.
  */
-import type { Bounds, ObjectId, Point, Shape } from "@vtt/schema";
+import type { Bounds, ObjectId, Point, Rect, Shape } from "@vtt/schema";
 
 export const OBJECT_OVERLAY_KINDS = [
   "drag_ghost",
   "handles",
   "creation_preview",
   "polygon_draft",
+  "face_focus",
 ] as const;
 export const CHROME_OVERLAY_KINDS = ["marquee", "crosshair"] as const;
 
@@ -42,7 +43,14 @@ export type ObjectToolOverlay =
    * An open polyline of world points with a rubber band to `cursor` (null:
    * none); `closing` marks that the next click closes it on the first point.
    */
-  | { kind: "polygon_draft"; points: Point[]; cursor: Point | null; closing: boolean };
+  | { kind: "polygon_draft"; points: Point[]; cursor: Point | null; closing: boolean }
+  /**
+   * The keyboard focus ring around one face target (vtt-qf5.26): `rect` in
+   * board item `object`'s frame (origin at its anchor, unrotated), so the
+   * ring follows the object. Drawn only while `object` is drawn and
+   * outlined as selected.
+   */
+  | { kind: "face_focus"; object: ObjectId; rect: Rect };
 
 /** Viewer-independent chrome, drawn after covers. */
 export type ChromeToolOverlay =
