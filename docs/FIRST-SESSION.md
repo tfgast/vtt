@@ -540,6 +540,8 @@ You should see:
   rounded down; a failing one takes all of it.
 - Each goblin's `damage_taken` grows by its row's damage. Its `hp` is
   `max_hp` − `damage_taken`, so it can go below zero.
+- Each "Roll save" in the Log tab is by its goblin (G1, G2, G3), not
+  Aldric: a save row belongs to its target.
 - The Log tab's newest entry is "Apply all" by Aldric, with one sentence
   per goblin and none for Brenna.
 

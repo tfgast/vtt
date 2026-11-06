@@ -386,7 +386,7 @@ function records(): TableObject[] {
         action(
           "Lock targets",
           "not locked",
-          "each(targets, spawn(save_row, this, {target: it, owner: it.owner}))",
+          "each(targets, spawn(save_row, this, {target: it, owner: it.owner or it}))",
           "set(locked, true)",
         ),
         action("Roll damage", "locked and damage = empty", "roll(damage_dice) -> damage"),

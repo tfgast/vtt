@@ -708,7 +708,7 @@ onto the board, and `zone` keeps pointing at it):
   rows    = contents.where(tag has "save_row")
 
   [Lock targets]  when: not locked
-                  each(targets, spawn(save_row, this, {target: it, owner: it.owner}))
+                  each(targets, spawn(save_row, this, {target: it, owner: it.owner or it}))
                   set(locked, true)
   [Roll damage]   when: locked and damage = empty
                   roll(8d6) -> damage
@@ -730,7 +730,10 @@ Save row template (tag: save_row):
                 roll(1d20) -> save_roll
 ```
 Spawning the Fireball card copies the card and its zone, and the card's `zone`
-reference is remapped to the new zone. Dragging the zone onto the map moves it
+reference is remapped to the new zone. Each row's `owner` is its target's
+`owner`, or the target itself when that is empty (`or` returns an operand,
+2.1; `is_character` is not readable), so a goblin's or a character's own save
+is pressed as that creature (DESIGN.md 4.5, M6-D20). Dragging the zone onto the map moves it
 out of the card's `contents`, so Discard removes it explicitly before removing
 the card and its rows. After Apply all, the log holds what was applied; the
 rows' `damage_dealt` is live and would drift if `dc` or a target's save bonus
