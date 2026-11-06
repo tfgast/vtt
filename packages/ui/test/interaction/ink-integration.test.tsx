@@ -262,6 +262,16 @@ describe("ink tool", () => {
     expectPoints(ink.strokes, local);
     expect(c.created("ink")).toEqual([]);
     expect(c.runtime.machine().tool).toBe("ink");
+    // The authority has the first stroke before the session does. The second
+    // stroke captures its base (the note's ink and the revision) from the
+    // session at pointer down, so it must wait for the session to catch up:
+    // drawn earlier, it rebuilds the ink from a stale base and is refused as a
+    // stale_write, and the second stroke never lands (vtt-qf5.60).
+    await c.session.whenRevision(c.authority.host.table.store.revision);
+    await until(
+      () => c.session.objectView("note")?.cells.ink?.value.type === "ink",
+      "the session's view of the first stroke",
+    );
 
     // A second stroke appends.
     drawStroke(c.canvas, [
