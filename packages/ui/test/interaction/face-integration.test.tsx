@@ -606,7 +606,7 @@ async function world(options: Options = {}) {
       .list()
       .map((n) => n.text);
 
-  /** The scene the runtime sees, with faces, for locating targets. */
+  /** The scene the runtime sees, with faces and the selection (M6-D12), for locating targets. */
   const faces = (): FaceScene => {
     const view = session.boardView();
     if (view === null) throw new Error("no board view");
@@ -616,6 +616,7 @@ async function world(options: Options = {}) {
         covers: [...view.covers.values()],
         board: view.board,
         viewer: session.getSnapshot().viewer,
+        selection: ui.getState().selection,
       },
       { faceState },
     );
@@ -1064,6 +1065,9 @@ describe("double-click by element kind (M6-D9)", () => {
 describe("contents: the wheel and chevrons", () => {
   test("14 entries in an 8-row list: the wheel scrolls it, the last entry expands into view, and its button presses", async () => {
     const w = await world();
+    // The faceless binder's default list shows only while it is selected (M6-D12).
+    act(() => w.ui.select(["bnd"]));
+    await settle();
     const zoom = w.ui.getState().camera.zoom;
     // The default face's list sits below the 6 × 1 frame: [-3, 0.65, 6, 4.8] at [0, -20].
     const list: Point = [0, -20 + 0.65 + 2];
@@ -1133,12 +1137,17 @@ describe("contents: the wheel and chevrons", () => {
       overlays: () => [],
     };
     const w = await world({ gestures: [gesture as FaceGesture<unknown>] });
+    // The faceless binder's default list shows only while it is selected (M6-D12).
+    act(() => w.ui.select(["bnd"]));
+    await settle();
     const row = located(w, "e2").chevron as Point;
     const onRow: Point = [row[0] + 2, row[1]];
     w.click(onRow);
     expect(log).toEqual(["pointer_down e2", "pointer_up"]);
-    expect(w.ui.getState().selection).toEqual([]);
+    // The select tool did not see the click: the selection is unchanged.
+    expect(w.ui.getState().selection).toEqual(["bnd"]);
     // The binder's frame is still the select tool's.
+    act(() => w.ui.select([]));
     w.click([0, -20]);
     expect(w.ui.getState().selection).toEqual(["bnd"]);
     expect(log).toHaveLength(2);

@@ -9,7 +9,7 @@ import type {
   WireResult,
   WireValue,
 } from "@vtt/protocol";
-import type { Point, Rect, Shape } from "@vtt/schema";
+import type { ObjectId, Point, Rect, Shape } from "@vtt/schema";
 import {
   type Affine,
   apply,
@@ -105,12 +105,17 @@ const button = (action: string, r: Rect, index: number, extra: ElementExtra = {}
 const contents = (r: Rect, index: number, extra: ElementExtra = {}) =>
   ({ type: "contents", rect: r, index, shown: true, ...extra }) as FaceElementView;
 
+/**
+ * The face scene with `selection` selected: a faceless container's default
+ * list shows only while it is selected (M6-D12).
+ */
 function scene(
   views: ObjectView[],
   faceState: FaceStateStore = createFaceStateStore(),
   covers: Cover[] = [],
+  selection: ObjectId[] = [],
 ): FaceScene {
-  return buildFaceScene({ views, covers, board: BOARD, viewer: GM }, { faceState });
+  return buildFaceScene({ views, covers, board: BOARD, viewer: GM, selection }, { faceState });
 }
 
 function contentsOf(d: FaceDrawing | null | undefined): ContentsPrimitive {
@@ -235,7 +240,7 @@ const kids = (n: number, container: string): ObjectView[] =>
 describe("faceHitAt: contents", () => {
   test("a shapeless binder's contents list is hit outside its 10 px marker", () => {
     const binder = mk("binder", { at: [0, 0], contents: ["c0", "c1"] });
-    const s = scene([binder, ...kids(2, "binder")]);
+    const s = scene([binder, ...kids(2, "binder")], undefined, [], ["binder"]);
     // The default list is [-3, 0.65, 6, 1.2]: row 0 spans y 0.65..1.25.
     const hit = faceHitAt(s, [2, 0.9], CAMERA);
     expect(hit?.object).toBe("c0");
@@ -261,7 +266,7 @@ describe("faceHitAt: contents", () => {
     const binder = mk("binder", { at: [0, 0], contents: ids });
     const faceState = createFaceStateStore();
     faceState.setScroll("binder", DEFAULT_CONTENTS_ELEMENT, 1.2);
-    const s = scene([binder, ...kids(10, "binder")], faceState);
+    const s = scene([binder, ...kids(10, "binder")], faceState, [], ["binder"]);
     const c = contentsOf(s.faces.get("binder"));
     expect(c.offset).toBeCloseTo(1.2, 9);
     // The first visible row is c2.
@@ -279,7 +284,7 @@ describe("faceHitAt: contents", () => {
 
   test("the chevron of a row", () => {
     const binder = mk("binder", { at: [0, 0], contents: ["c0", "c1"] });
-    const s = scene([binder, ...kids(2, "binder")]);
+    const s = scene([binder, ...kids(2, "binder")], undefined, [], ["binder"]);
     const c = contentsOf(s.faces.get("binder"));
     const p = centre(contentsRect(c, entryOf(c, "c1").chevron));
     const hit = faceHitAt(s, p, CAMERA);
@@ -321,7 +326,7 @@ describe("faceHitAt: contents", () => {
     });
     const plain = mk("plain", { shape: rect(2, 3), container: "binder" });
     const binder = mk("binder", { at: [0, 0], contents: ["plain", "custom"] });
-    const s = scene([binder, plain, custom]);
+    const s = scene([binder, plain, custom], undefined, [], ["binder"]);
     const c = contentsOf(s.faces.get("binder"));
     const toBoard = (e: FaceEntry, local: Point) =>
       apply(compose(boardOf(s, "binder"), entryTransform(c, e)), local);
@@ -362,7 +367,7 @@ describe("faceHitAt: contents", () => {
       face: { elements: [], collapsed: [button("Go", [0, 0, 6, 0.6], 0)] },
     });
     const binder = mk("binder", { at: [0, 0], contents: ["down"] });
-    const s = scene([binder, down]);
+    const s = scene([binder, down], undefined, [], ["binder"]);
     expect(faceHitAt(s, [0, 0.95], CAMERA)?.target).toEqual({
       type: "entry",
       id: "down",
@@ -490,7 +495,7 @@ describe("dropTargetAt", () => {
       cells: { hp: num(3), target: EMPTY },
     });
     const goblin = mk("goblin", { shape: circle(0.5), at: [40, 0] });
-    return scene([binder, a, b, sheet, card, goblin]);
+    return scene([binder, a, b, sheet, card, goblin], undefined, [], ["binder"]);
   };
 
   test("over a collapsed row: that container's contents at the row's index", () => {
@@ -531,7 +536,7 @@ describe("dropTargetAt", () => {
   test("over a list whose rows fill the rect: contents at the row's index", () => {
     const ids = Array.from({ length: 10 }, (_, i) => `c${i}`);
     const binder = mk("binder", { at: [0, 0], contents: ids });
-    const s = scene([binder, ...kids(10, "binder")]);
+    const s = scene([binder, ...kids(10, "binder")], undefined, [], ["binder"]);
     const c = contentsOf(s.faces.get("binder"));
     const r3 = contentsRect(c, entryOf(c, "c3").row);
     expect(dropTargetAt(s, [0, r3[1] + 0.1], CAMERA, ["x"])).toEqual({
@@ -555,7 +560,12 @@ describe("dropTargetAt", () => {
     const card2 = mk("card2", { shape: rect(2, 3), at: [20, 0], z: 1, face: targetFace });
     const upper = mk("upper", { at: [20, -2.3], z: 5, contents: ["u0"] });
     const u0 = mk("u0", { shape: rect(2, 3), container: "upper" });
-    const s = scene([binder, a, b, token, card, cover, card2, upper, u0]);
+    const s = scene(
+      [binder, a, b, token, card, cover, card2, upper, u0],
+      undefined,
+      [],
+      ["binder", "upper"],
+    );
 
     // Contents under a token's body: the list, at the row's index.
     expect(dropTargetAt(s, [2, 1], CAMERA, ["x"])).toEqual({

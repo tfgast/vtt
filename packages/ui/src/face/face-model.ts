@@ -495,7 +495,7 @@ export function defaultContentsRect(view: ObjectView): Rect | null {
  * buttons below the frame, and a collapsed contents list below that, each
  * centred under the frame. The list behaves as a `when_selected` one
  * (M6-D12, amending M5-D10): while `view` is not revealed, its count badge
- * stands in its place.
+ * stands at the lower right of the list's first row.
  */
 function defaultPrimitives(
   view: ObjectView,
@@ -529,7 +529,9 @@ function defaultPrimitives(
   }
   const rect = defaultContentsRect(view);
   if (rect !== null && !ctx.revealed(view.id)) {
-    const badge = countBadge(view, rect, DEFAULT_CONTENTS_ELEMENT);
+    // At the lower right of the list's first row, however many rows it has.
+    const firstRow: Rect = [rect[0], rect[1], rect[2], rowHeight(rect[2])];
+    const badge = countBadge(view, firstRow, DEFAULT_CONTENTS_ELEMENT);
     if (badge !== null) out.push(badge);
   } else if (rect !== null) {
     out.push(

@@ -5,7 +5,7 @@
  * face's contents list below a faceless object is in the face scene only
  * while the object, or something in it, is selected, or while an Alt-held
  * drag hovers it; otherwise a count badge of its readable contents stands at
- * the lower right of the list's place. Empty, all-redacted contents and a
+ * the lower right of the list's first row. Empty, all-redacted contents and a
  * face-down object show neither.
  */
 import type { ObjectView, WireResult, WireValue } from "@vtt/protocol";
@@ -109,14 +109,15 @@ describe("a faceless object's default contents list", () => {
     expect(LIST[3]).toBeCloseTo(1.2);
   });
 
-  test("unselected: no list, a badge with the readable count at the list's lower right, at any zoom", () => {
+  test("unselected: no list, a badge with the readable count at the lower right of the list's first row, at any zoom", () => {
     const d = drawing(scene(VIEWS));
     expect(listOf(d)).toEqual([]);
     const badge = badgeOf(d);
     expect(badge).toMatchObject({ text: "2", minSize: 0, target: { type: "body" } });
     const r = (badge as TextPrimitive).rect;
     expect(r[0] + r[2]).toBeCloseTo(LIST[0] + LIST[2]);
-    expect(r[1] + r[3]).toBeCloseTo(LIST[1] + LIST[3]);
+    // The first row is 0.6 high (a 6-wide list's row), not the whole 1.2-high list.
+    expect(r[1] + r[3]).toBeCloseTo(LIST[1] + 0.6);
   });
 
   test("selected, or something inside it selected: the list, and no badge", () => {
