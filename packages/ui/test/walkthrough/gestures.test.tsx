@@ -18,6 +18,7 @@ import {
   type FaceDrawing,
   type FaceScene,
   faceHitAt,
+  hitsAt,
   invert,
   screenHeight,
 } from "@vtt/ui";
@@ -629,6 +630,128 @@ describe("createGestures (vtt-nb8.18)", () => {
     await g.key("Escape");
     await g.click(zone);
     expect(c.ui.getState().selection).toEqual([zone]);
+  }, 60_000);
+
+  test("dragObject selects a zone under a map image by Alt+click cycling at its grab point, then drags it (snapped, M6-D13); a grab point off it fails; grab moves the press (vtt-qf5.52)", async () => {
+    const { c, g } = await start();
+    const downs: Point[] = [];
+    const canvas = c.root.querySelector("canvas");
+    if (canvas === null) throw new Error("no canvas");
+    canvas.addEventListener("pointerdown", (e) => {
+      downs.push(c.toBoard([(e as PointerEvent).clientX, (e as PointerEvent).clientY]));
+    });
+    const anchorOf = (id: ObjectId): Point => {
+      const item = faces(c).items.find((i) => i.id === id);
+      if (item === undefined) throw new Error(`${id} is not drawn`);
+      return item.anchor;
+    };
+    const pos = async (id: ObjectId) => {
+      const v = (await cellValue(c, id, "position")) as { items: { value: number }[] };
+      return v.items.map((i) => i.value);
+    };
+
+    // grab moves the press point: a token pressed off its anchor still lands exactly.
+    const token = await spawnFromBinder(c, g, "tpl_token", [8, 0]);
+    const grab: Point = [0.25, -0.25];
+    downs.length = 0;
+    await g.dragObject(token, [12, 3], { grab });
+    expect(await pos(token)).toEqual([12, 3]);
+    expect(downs).toHaveLength(1);
+    expect(downs[0]?.[0]).toBeCloseTo(8 + grab[0], 6);
+    expect(downs[0]?.[1]).toBeCloseTo(0 + grab[1], 6);
+
+    // A zone straddling the map's right edge: inside the overlap the map is
+    // hit first (it is no backdrop, since it does not enclose the zone).
+    const map = await importMap(c, g, [60, 0]);
+    const b = faces(c).items.find((i) => i.id === map)?.bounds;
+    if (b === undefined) throw new Error("the map is not drawn");
+    const right = Math.round(b.maxX);
+    const top = Math.round(b.minY);
+    const zone = await g.drawZone([right - 3, top + 2], [right + 1, top + 6]);
+    await g.key("Escape");
+    const press: Point = [right - 2, top + 4];
+    expect(hitsAt(faces(c), press, c.ui.getState().camera)).toEqual([map, zone]);
+    const [ax, ay] = anchorOf(zone);
+    const zoneGrab: Point = [press[0] - ax, press[1] - ay];
+    const mapAt = await pos(map);
+    downs.length = 0;
+    await g.dragObject(zone, [ax - 5.3, ay + 0.2], { grab: zoneGrab });
+    expect(await pos(zone)).toEqual([ax - 5.5, ay]);
+    expect(c.ui.getState().selection).toEqual([zone]);
+    expect(await pos(map)).toEqual(mapAt);
+    // A click and Alt+clicks selected the zone, then the drag pressed at the same point.
+    expect(downs.length).toBeGreaterThan(1);
+    for (const d of downs) {
+      expect(d[0]).toBeCloseTo(press[0], 6);
+      expect(d[1]).toBeCloseTo(press[1], 6);
+    }
+
+    // A grab point where the zone is not in the hit list fails, naming it.
+    await expect(g.dragObject(zone, [ax, ay], { grab: [40, 40] })).rejects.toThrow(
+      /not in the hit list at the grab point/,
+    );
+  }, 60_000);
+
+  test("dragObject with no options drags a token wholly under a map image from a handle-free point in its hit list; a grab on its handle throws and changes nothing (vtt-qf5.52)", async () => {
+    const { c, g } = await start();
+    const pos = async (id: ObjectId) => {
+      const v = (await cellValue(c, id, "position")) as { items: { value: number }[] };
+      return v.items.map((i) => i.value);
+    };
+    const item = (id: ObjectId) => {
+      const it = faces(c).items.find((i) => i.id === id);
+      if (it === undefined) throw new Error(`${id} is not drawn`);
+      return it;
+    };
+    // The token first, then the map over it: both non-zones, the map drawn later,
+    // so the map is the first hit everywhere on the token (M6-D10).
+    const token = await spawnFromBinder(c, g, "tpl_token", [60, 0]);
+    const map = await importMap(c, g, [60, 0]);
+    await g.key("Escape");
+    const t = item(token);
+    const m = item(map).bounds;
+    expect(
+      t.bounds.minX >= m.minX &&
+        t.bounds.maxX <= m.maxX &&
+        t.bounds.minY >= m.minY &&
+        t.bounds.maxY <= m.maxY,
+    ).toBe(true);
+    const s = t.shape;
+    if (s === null) throw new Error("the token has no shape");
+    const reach = s.type === "rect" ? s.width / 2 : s.type === "circle" ? s.radius : 0;
+    if (reach === 0) throw new Error(`unexpected token shape ${s.type}`);
+    const cam = c.ui.getState().camera;
+    const [ax, ay] = t.anchor;
+    for (const p of [
+      t.anchor,
+      [ax - reach / 2, ay],
+      [ax + reach / 2, ay],
+      [ax, ay - reach / 2],
+      [ax, ay + reach / 2],
+    ] as Point[]) {
+      expect(hitsAt(faces(c), p, cam)).toEqual([map, token]);
+    }
+    const shape = (await view(c, token)).cells.shape?.value;
+    const mapAt = await pos(map);
+    const mapShape = (await view(c, map)).cells.shape?.value;
+
+    // An explicit grab within HANDLE_HIT_PX of the token's handle (live once it is
+    // selected for the press) would reshape it: it throws before any press.
+    await expect(g.dragObject(token, [62, 1], { grab: [reach - 0.03, 0] })).rejects.toThrow(
+      /handle once it is selected/,
+    );
+    expect(await pos(token)).toEqual([60, 0]);
+    expect((await view(c, token)).cells.shape?.value).toEqual(shape);
+
+    // No options: no point has the token first, so it is selected by Alt+click
+    // cycling at a handle-free point of its hit list and dragged from there.
+    await g.key("Escape");
+    await g.dragObject(token, [64.5, 3]);
+    expect(await pos(token)).toEqual([64.5, 3]);
+    expect(c.ui.getState().selection).toEqual([token]);
+    expect((await view(c, token)).cells.shape?.value).toEqual(shape);
+    expect(await pos(map)).toEqual(mapAt);
+    expect((await view(c, map)).cells.shape?.value).toEqual(mapShape);
   }, 60_000);
 
   test("a token's list is reached only while the token is selected (M6-D12); an entry drag onto it keeps that selection", async () => {

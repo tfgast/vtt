@@ -143,7 +143,21 @@ export interface Gestures {
   viewAs(name: string | "GM"): Promise<void>;
   moveSelectionToBoard(name: string): Promise<void>;
   drag(from: Point, to: Point, options?: { alt?: boolean }): Promise<void>;
-  dragObject(id: ObjectId, to: Point, options?: { alt?: boolean }): Promise<void>;
+  /**
+   * Drags `id` so its anchor (`position`) lands on `to` (snapped when Snap
+   * is on, M6-D13); an entry is dragged out by its row. A board object is
+   * pressed where it is the first hit, or, when it is nowhere the first hit
+   * (or at `grab`), where it is in the hit list after selecting it there by
+   * click and Alt+click cycling (the select tool drags a selected object
+   * anywhere in the hit list, DESIGN.md §4.6); it throws when `id` is not
+   * in the hit list at the grab point. Since it is selected for such a
+   * press, that point must also be clear of its selection handles: an
+   * automatic point is chosen clear of them, and a `grab` within one throws
+   * (a press there would reshape or rotate it). `grab` is a board offset from the
+   * anchor (unrotated board units, not object-local): the press is at
+   * anchor + `grab` and the release at `to` + `grab`. Board objects only.
+   */
+  dragObject(id: ObjectId, to: Point, options?: { alt?: boolean; grab?: Point }): Promise<void>;
   marquee(from: Point, to: Point): Promise<void>;
   click(id: ObjectId): Promise<void>;
   doubleClick(id: ObjectId): Promise<void>;
