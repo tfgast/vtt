@@ -32,6 +32,12 @@
  * `application/x-vtt-cell` with data `{object, cell}` while no editor is open
  * (vtt-1xv.27): dropped on the object, it adds a value element to its face.
  *
+ * A row given `takeEdit` (vtt-nb8.25: the cell just added) calls it once
+ * when it appears; if it returns true, the row scrolls into view and its
+ * value editor opens focused with the text selected. That editor, left
+ * untouched, closes when focus moves to another element of the page (not on
+ * a window switch, which moves no focus inside the page).
+ *
  * In the GM view the row of a cell named `image` offers "Upload…" (vtt-nb8.7,
  * DESIGN.md §4.6 Appearance cells, M6-D4): it opens a hidden file input of
  * PNG, JPEG, WebP and GIF, and a chosen file goes to `uploadIntoCell` with
@@ -160,6 +166,8 @@ export interface CellRowProps {
   isTaken?: (name: string) => boolean;
   /** Called by "Edit formula" after focusing the cell (the formula bar takes focus). */
   onEditFormula?: (cell: CellAddress) => void;
+  /** Called once as the row appears: true opens its value editor focused (a cell just added). */
+  takeEdit?: () => boolean;
 }
 
 interface ValueEditor {
@@ -169,6 +177,8 @@ interface ValueEditor {
   readonly reason?: string;
   readonly error?: string;
   readonly baseRevision: number;
+  /** Opened by `takeEdit`, not by the user: closes when left untouched. */
+  readonly auto?: boolean;
 }
 
 interface RenameEditor {
@@ -202,6 +212,7 @@ export function CellRow({
   characters = NO_CHARACTERS,
   isTaken = neverTaken,
   onEditFormula,
+  takeEdit,
 }: CellRowProps) {
   const ui = useUiStore();
   const port = useInspectorWrites(session);
@@ -246,15 +257,46 @@ export function CellRow({
 
   // -- value editor
 
-  const openEditor = () => {
+  const openEditor = (auto = false) => {
     if (!caps.literal || editor !== null) return;
     const input = valueToInputText(cell.value, name);
-    setEditor(
+    const opened: ValueEditor =
       input.kind === "literal"
         ? { initial: input.text, text: input.text, baseRevision: revision() }
-        : { initial: "", text: "", reason: input.reason, baseRevision: revision() },
-    );
+        : { initial: "", text: "", reason: input.reason, baseRevision: revision() };
+    setEditor(auto ? { ...opened, auto } : opened);
   };
+
+  // A cell just added: scrolled to, its editor open and focused (vtt-nb8.25).
+  const rowRef = useRef<HTMLLIElement>(null);
+  const tookEdit = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, when `takeEdit` is given
+  useEffect(() => {
+    if (takeEdit === undefined || tookEdit.current) return;
+    tookEdit.current = true;
+    if (!caps.literal || !takeEdit()) return;
+    const row = rowRef.current;
+    if (row !== null && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+    openEditor(true);
+  }, [takeEdit !== undefined]);
+  // An untouched auto-opened editor closes when focus moves to another element
+  // (the formula bar, another field). A window switch moves no focus inside the
+  // page, so it keeps the editor; so does a click on nothing focusable.
+  const editorInput = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const untouchedAuto = editor?.auto === true && editor.text === editor.initial;
+  useEffect(() => {
+    if (!untouchedAuto) return;
+    const onFocusIn = (event: FocusEvent) => {
+      if (event.target === editorInput.current) return;
+      setEditor((current) =>
+        current?.auto === true && current.text === current.initial ? null : current,
+      );
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [untouchedAuto]);
 
   const commitEditor = (current: ValueEditor) => {
     // A replace-value editor's "" is a placeholder, not the value: anything
@@ -424,6 +466,7 @@ export function CellRow({
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard focus of cells is the formula bar's
     <li
+      ref={rowRef}
       data-cell={name}
       style={ROW_STYLE}
       onMouseEnter={onEnter}
@@ -465,7 +508,7 @@ export function CellRow({
           data-part="value"
           data-tone={formatted.tone}
           style={{ color: TONE_COLORS[formatted.tone], cursor: caps.literal ? "text" : "default" }}
-          onDoubleClick={openEditor}
+          onDoubleClick={() => openEditor()}
         >
           {formatted.text}
         </span>
@@ -473,20 +516,32 @@ export function CellRow({
         <span>
           {editor.initial.includes("\n") ? (
             <textarea
+              ref={(el) => {
+                editorInput.current = el;
+              }}
               aria-label={`Value of ${name}`}
               value={editor.text}
               // biome-ignore lint/a11y/noAutofocus: the editor opens on double-click
               autoFocus
-              onChange={(e) => setEditor({ ...editor, text: e.target.value, error: undefined })}
+              onFocus={editor.auto === true ? (e) => e.currentTarget.select() : undefined}
+              onChange={(e) =>
+                setEditor({ ...editor, text: e.target.value, error: undefined, auto: false })
+              }
               onKeyDown={onEditorKey}
             />
           ) : (
             <input
+              ref={(el) => {
+                editorInput.current = el;
+              }}
               aria-label={`Value of ${name}`}
               value={editor.text}
               // biome-ignore lint/a11y/noAutofocus: the editor opens on double-click
               autoFocus
-              onChange={(e) => setEditor({ ...editor, text: e.target.value, error: undefined })}
+              onFocus={editor.auto === true ? (e) => e.currentTarget.select() : undefined}
+              onChange={(e) =>
+                setEditor({ ...editor, text: e.target.value, error: undefined, auto: false })
+              }
               onKeyDown={onEditorKey}
             />
           )}

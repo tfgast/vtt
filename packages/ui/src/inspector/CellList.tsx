@@ -1,17 +1,23 @@
 /**
  * The inspector's cell list (vtt-3l6.11; DESIGN.md §4.4, §4.6 The inspector
  * and View as in the UI, M4-D11, M4-D12; FORMULAS.md §3.1; PROTOCOL.md §5,
- * §7.2): the user cells alphabetically, then a collapsible "Structural"
- * group in FORMULAS §3.1 order (`id` from `view.id`), each a `CellRow`; then,
- * for the GM, "Add cell" and the "Visibility rules" section, which lists
+ * §7.2): under a "Cells" heading the user cells alphabetically and, for the
+ * GM, "Add cell" right below them (vtt-nb8.25); then a collapsible
+ * "Structural" group in FORMULAS §3.1 order (`id` from `view.id`), each a
+ * `CellRow`; then, for the GM, the "Visibility rules" section, which lists
  * every per-cell visibility entry of the object (also for absent cells, from
  * the GM view's `absent_cell_visibility`) with a picker and "Clear", and adds
  * a rule for any valid cell name. Read-only (view-as) shows values only.
  * Every command captures the revision at the click.
+ *
+ * After Add cell, once the new cell's row appears, it is scrolled into view
+ * and its value editor opens focused with the text selected, so the GM types
+ * the value next; unless focus has moved on meanwhile (out of the add-cell
+ * form, or a next name typed into it), which cancels that.
  */
 import type { CellView, InputViewers, ObjectView, WireViewers } from "@vtt/protocol";
 import { type ObjectId, STRUCTURAL_CELLS } from "@vtt/schema";
-import { type CSSProperties, type FormEvent, useState } from "react";
+import { type CSSProperties, type FormEvent, type RefObject, useRef, useState } from "react";
 import { useSession } from "../session/hooks";
 import type { TableSession } from "../session/table-session";
 import type { CellAddress } from "../state/ui-state";
@@ -107,6 +113,9 @@ export function CellList({
   // Re-render on view changes (the directory's characters and labels).
   useSession((s) => s.viewVersion);
   const [structuralOpen, setStructuralOpen] = useState(true);
+  const addForm = useRef<HTMLFormElement>(null);
+  /** The cell just added, until its row appears. */
+  const [added, setAdded] = useState<{ object: ObjectId; name: string } | null>(null);
   const characters = readOnly ? [] : directoryCharacters(session);
   const isTaken = (name: string) =>
     Object.hasOwn(view.cells, name) || STRUCTURAL_CELL_NAMES.has(name);
@@ -124,17 +133,42 @@ export function CellList({
       ? { kind: "structural", value: { type: "text", value: view.id } }
       : view.cells[name];
 
-  const rows = (names: readonly string[]) =>
+  const rows = (names: readonly string[], fresh?: string) =>
     names.map((name) => {
       const cell = cellOf(name);
       return cell === undefined ? null : (
-        <CellRow key={`${object}\u0000${name}`} name={name} cell={cell} {...rowProps} />
+        <CellRow
+          key={`${object}\u0000${name}`}
+          name={name}
+          cell={cell}
+          {...rowProps}
+          {...(name === fresh ? { takeEdit } : {})}
+        />
       );
     });
 
+  const pending = added !== null && added.object === object && !readOnly ? added : null;
+  /** The new row takes the edit unless focus moved on (elsewhere, or a next name typed). */
+  const takeEdit = () => {
+    setAdded(null);
+    const active = document.activeElement;
+    if (active === null || active === document.body) return true;
+    if (!addForm.current?.contains(active)) return false;
+    return !(active instanceof HTMLInputElement && active.value !== "");
+  };
   return (
     <section aria-label="Cells">
-      <ul style={LIST_STYLE}>{rows(userCellNames(view))}</ul>
+      <h4 style={{ margin: 0 }}>Cells</h4>
+      <ul style={LIST_STYLE}>{rows(userCellNames(view), pending?.name)}</ul>
+      {!readOnly && (
+        <AddCell
+          object={object}
+          session={session}
+          isTaken={isTaken}
+          formRef={addForm}
+          onAdded={(name) => setAdded({ object, name })}
+        />
+      )}
       <div style={SECTION_STYLE}>
         <button
           type="button"
@@ -147,10 +181,7 @@ export function CellList({
         {structuralOpen && <ul style={LIST_STYLE}>{rows(structuralCellNames(view))}</ul>}
       </div>
       {!readOnly && (
-        <>
-          <AddCell object={object} session={session} isTaken={isTaken} />
-          <VisibilityRules object={object} view={view} session={session} characters={characters} />
-        </>
+        <VisibilityRules object={object} view={view} session={session} characters={characters} />
       )}
     </section>
   );
@@ -160,10 +191,15 @@ function AddCell({
   object,
   session,
   isTaken,
+  formRef,
+  onAdded,
 }: {
   object: ObjectId;
   session: TableSession;
   isTaken: (name: string) => boolean;
+  formRef: RefObject<HTMLFormElement | null>;
+  /** Called with the name once the add is sent. */
+  onAdded: (name: string) => void;
 }) {
   const port = useInspectorWrites(session);
   const [name, setName] = useState("");
@@ -184,10 +220,11 @@ function AddCell({
       baseRevision,
       label,
     });
+    onAdded(name);
   };
 
   return (
-    <form style={SECTION_STYLE} onSubmit={submit}>
+    <form ref={formRef} style={SECTION_STYLE} onSubmit={submit}>
       <input
         aria-label="New cell name"
         placeholder="New cell name"

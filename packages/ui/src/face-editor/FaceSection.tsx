@@ -12,6 +12,10 @@
  *   and Delete; Add value / editor / button / contents; the default action;
  *   "Create face" (`defaultLayoutFor`) when there is none and "Remove face"
  *   (`set_face null`).
+ * - An added element's row (vtt-nb8.25), once it appears at the end of its
+ *   list, is scrolled into view, its first control (the Cell picker, the
+ *   Label of a button, the Entries of contents) takes focus, and it carries
+ *   a "new" badge until the next edit or selection change.
  * - Every edit is one `set_face` write of the whole new layout, built from
  *   the current layout with `face-ops`. Text fields capture the base
  *   revision on focus and write on Enter, Tab or blur (unchanged input
@@ -101,6 +105,14 @@ const ITEM_STYLE: CSSProperties = {
 const LIST_STYLE: CSSProperties = { margin: 0, padding: 0 };
 const ERROR_STYLE: CSSProperties = { color: "#b3261e", fontSize: "0.85em" };
 const NOTE_STYLE: CSSProperties = { opacity: 0.7 };
+const NEW_STYLE: CSSProperties = {
+  fontSize: "0.75em",
+  fontWeight: 600,
+  padding: "0 0.4em",
+  borderRadius: "0.6em",
+  background: "#1a73e8",
+  color: "white",
+};
 
 export function FaceSection({ session, ui }: FaceSectionProps) {
   return (
@@ -376,9 +388,29 @@ function useFaceWriter(session: TableSession, object: ObjectId): FaceWriter {
   };
 }
 
+/** The row an add is expected to produce, and whether it has taken focus yet. */
+interface FreshElement {
+  readonly list: FaceListName;
+  readonly index: number;
+  readonly focused: boolean;
+}
+
 function FaceEditor({ object, view, session, readOnly }: FaceEditorProps) {
   const [tab, setTab] = useState<FaceListName>("full");
-  const writer = useFaceWriter(session, object);
+  const queued = useFaceWriter(session, object);
+  // The "new" mark lasts until the next edit (a selection change remounts the editor).
+  const [fresh, setFresh] = useState<FreshElement | null>(null);
+  const writer: FaceWriter = {
+    ...queued,
+    edit(edit, baseRevision, options) {
+      setFresh(null);
+      queued.edit(edit, baseRevision, options);
+    },
+    replace(face, baseRevision, verb) {
+      setFresh(null);
+      queued.replace(face, baseRevision, verb);
+    },
+  };
   const face = layoutOfView(view);
 
   const create = () => {
@@ -416,6 +448,8 @@ function FaceEditor({ object, view, session, readOnly }: FaceEditorProps) {
     const element = blankElement(kind, view, tab);
     if (element === null) return;
     writer.edit((f) => addElement(f, tab, element), baseRevision, { structural: true });
+    // Appended: the new element is at the end of the list as shown now.
+    setFresh({ list: tab, index: list.length, focused: false });
   };
   const hasContents = list.some((e) => e.type === "contents");
   const actions = view.actions.map((a) => a.name);
@@ -441,8 +475,12 @@ function FaceEditor({ object, view, session, readOnly }: FaceEditorProps) {
         <ul aria-label={tab === "full" ? "Full elements" : "Collapsed elements"} style={LIST_STYLE}>
           {list.map((element, index) => {
             const hidden = live?.[index];
+            const isFresh = fresh !== null && fresh.list === tab && fresh.index === index;
             return (
               <ElementRow
+                fresh={isFresh}
+                focusOnShow={isFresh && fresh?.focused === false}
+                onFocused={() => setFresh((f) => (f === null ? f : { ...f, focused: true }))}
                 // biome-ignore lint/suspicious/noArrayIndexKey: elements are identified by position
                 key={`${tab}-${index}`}
                 element={element}
@@ -549,6 +587,11 @@ interface ElementRowProps {
   writer: FaceWriter;
   readOnly: boolean;
   hiddenReason: string | null;
+  /** Marked "new": just added, no edit since. */
+  fresh?: boolean;
+  /** Scroll to the row and focus its first control (once, then `onFocused`). */
+  focusOnShow?: boolean;
+  onFocused?: () => void;
 }
 
 function ElementRow({
@@ -560,8 +603,20 @@ function ElementRow({
   writer,
   readOnly,
   hiddenReason,
+  fresh = false,
+  focusOnShow = false,
+  onFocused,
 }: ElementRowProps) {
   const { index } = elementRef;
+  const rowRef = useRef<HTMLLIElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the row is to take focus
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!focusOnShow || row === null) return;
+    if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
+    row.querySelector<HTMLElement>("[data-first-control]")?.focus();
+    onFocused?.();
+  }, [focusOnShow]);
   /** This row's element edits are re-validated against it before they are sent. */
   const target: EditOptions = { element: { ref: elementRef, element } };
   /** The element at this row's position in `face` (validated by the queue). */
@@ -624,10 +679,17 @@ function ElementRow({
       target,
     );
   };
-  const field = (label: string, value: string, onCommit: DraftCommit, validate?: Validate) => (
+  const field = (
+    label: string,
+    value: string,
+    onCommit: DraftCommit,
+    validate?: Validate,
+    first = false,
+  ) => (
     <DraftField
       key={label}
       label={label}
+      first={first}
       value={value}
       session={session}
       readOnly={readOnly}
@@ -637,8 +699,14 @@ function ElementRow({
   );
 
   return (
-    <li aria-label={`Element ${index + 1}`} style={ITEM_STYLE}>
+    <li
+      ref={rowRef}
+      aria-label={`Element ${index + 1}`}
+      data-new={fresh || undefined}
+      style={ITEM_STYLE}
+    >
       <div style={ROW_STYLE}>
+        {fresh && <span style={NEW_STYLE}>new</span>}
         {element.type === "value" || element.type === "editor" ? (
           <>
             <select
@@ -652,6 +720,7 @@ function ElementRow({
             </select>
             <select
               aria-label="Cell"
+              data-first-control
               value={element.cell}
               disabled={readOnly}
               onChange={(e) => pick("cell", e.target.value)}
@@ -683,12 +752,13 @@ function ElementRow({
                 </option>
               ))}
             </select>
-            {field("Label", element.label ?? "", commitOptional("label"))}
+            {field("Label", element.label ?? "", commitOptional("label"), undefined, true)}
           </>
         )}
         {element.type === "contents" && (
           <select
             aria-label="Entries"
+            data-first-control
             value={element.entries ?? ""}
             disabled={readOnly}
             onChange={(e) =>
@@ -812,6 +882,8 @@ interface DraftFieldProps {
   onCommit: DraftCommit;
   /** The problem with the text as typed, or null. A problem blocks the commit. */
   validate?: Validate;
+  /** The row's first control (focused when the row is added). */
+  first?: boolean;
 }
 
 /**
@@ -819,7 +891,15 @@ interface DraftFieldProps {
  * Enter or blur. Unchanged text commits nothing; Escape cancels; invalid
  * text shows its problem and commits nothing (a blur then reverts it).
  */
-function DraftField({ label, value, session, readOnly, onCommit, validate }: DraftFieldProps) {
+function DraftField({
+  label,
+  value,
+  session,
+  readOnly,
+  onCommit,
+  validate,
+  first = false,
+}: DraftFieldProps) {
   const [draft, setDraftState] = useState<Draft | null>(null);
   const ref = useRef<Draft | null>(null);
   const readOnlyRef = useRef(readOnly);
@@ -866,6 +946,7 @@ function DraftField({ label, value, session, readOnly, onCommit, validate }: Dra
         <span>{label}</span>
         <input
           aria-label={label}
+          data-first-control={first || undefined}
           aria-invalid={problem !== null}
           aria-describedby={problem !== null ? id : undefined}
           size={label.length > 2 ? 12 : 5}

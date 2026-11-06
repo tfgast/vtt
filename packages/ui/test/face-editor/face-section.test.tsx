@@ -347,6 +347,80 @@ describe("commands", () => {
   });
 });
 
+/** Records the elements `scrollIntoView` is called on (jsdom has none). */
+function recordScrolls(): { scrolled: Element[]; restore(): void } {
+  const scrolled: Element[] = [];
+  const proto = Element.prototype as { scrollIntoView?: unknown };
+  const had = Object.hasOwn(proto, "scrollIntoView");
+  const previous = proto.scrollIntoView;
+  proto.scrollIntoView = function (this: Element) {
+    scrolled.push(this);
+  };
+  return {
+    scrolled,
+    restore: () => {
+      if (had) proto.scrollIntoView = previous;
+      else delete proto.scrollIntoView;
+    },
+  };
+}
+
+const newMark = (row: HTMLElement) => within(row).queryByText("new");
+
+describe("a new element (vtt-nb8.25)", () => {
+  test("Add value: the new row is scrolled to, its Cell picker focused, marked new until an edit", async () => {
+    const scrolls = recordScrolls();
+    try {
+      const user = userEvent.setup();
+      const { session } = await setup();
+      await user.click(within(section()).getByRole("button", { name: "Add value" }));
+      await until(() => faceOf(session)?.elements.length === 4, "the added value");
+      await until(
+        () => within(section()).queryByRole("listitem", { name: "Element 4" }) !== null,
+        "the new row",
+      );
+      const picker = within(element(4)).getByRole("combobox", { name: "Cell" });
+      await until(() => document.activeElement === picker, "the focused Cell picker");
+      expect(scrolls.scrolled).toContain(element(4));
+      expect(newMark(element(4))).not.toBeNull();
+      for (const n of [1, 2, 3]) expect(newMark(element(n))).toBeNull();
+      // The order stays: the new element is last.
+      expect(faceOf(session)?.elements.slice(0, 3)).toEqual(FACE.elements);
+
+      // An edit clears the mark.
+      await user.selectOptions(
+        within(element(4)).getByRole("combobox", { name: "Kind" }),
+        "editor",
+      );
+      await until(() => faceOf(session)?.elements[3]?.type === "editor", "the kind change");
+      expect(newMark(element(4))).toBeNull();
+    } finally {
+      scrolls.restore();
+    }
+  });
+
+  test("Add button focuses the new row's Label; a selection change clears the mark", async () => {
+    const user = userEvent.setup();
+    const { session, ui } = await setup();
+    await user.click(within(section()).getByRole("button", { name: "Add button" }));
+    await until(() => faceOf(session)?.elements.length === 4, "the added button");
+    await until(
+      () => within(section()).queryByRole("listitem", { name: "Element 4" }) !== null,
+      "the new row",
+    );
+    const label = within(element(4)).getByRole("textbox", { name: "Label" });
+    await until(() => document.activeElement === label, "the focused Label");
+    expect(newMark(element(4))).not.toBeNull();
+    act(() => ui.select(["bare"]));
+    act(() => ui.select(["tok"]));
+    await until(
+      () => within(section()).queryByRole("listitem", { name: "Element 4" }) !== null,
+      "the row again",
+    );
+    expect(newMark(element(4))).toBeNull();
+  });
+});
+
 describe("view-as", () => {
   test("a pending draft writes nothing after switching to Aldric (Enter or blur)", async () => {
     const user = userEvent.setup();
