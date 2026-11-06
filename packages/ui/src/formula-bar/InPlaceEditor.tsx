@@ -24,7 +24,9 @@
  * empty replace-value input with its reason; `=…` writes a formula (not in
  * `name`, whose input is always text). A `textarea` for `text` (Shift+Enter
  * is a newline), else an `input`. Enter and blur commit with the stamp's
- * `baseRevision` (unchanged input writes nothing); Escape cancels.
+ * `baseRevision` (unchanged input writes nothing, except over a formula cell
+ * without an override, where any literal is an override: M4-D6); Escape
+ * cancels.
  *
  * It closes without committing when a cover comes over its rectangle, when
  * the viewer changes, when the active board is no longer `stamp.board`, when
@@ -303,9 +305,14 @@ export function InPlaceEditor({ session, ui, camera, scene }: InPlaceEditorProps
 
   const commit = (current: Draft) => {
     const { cell, request: open } = current;
+    const cellView = session.objectView(open.object)?.cells[cell];
+    // A formula cell without an override (one that stopped being overridden
+    // while the editor was open) takes any literal as an override (M4-D6),
+    // even the shown value: the inspector's rule (vtt-1xv.29, vtt-qf5.47).
+    const followsFormula = cellView?.kind === "formula" && cellView.overridden !== true;
     const noChange =
       current.reason === undefined
-        ? isUnchangedInput(current.initial, current.text, cell)
+        ? !followsFormula && isUnchangedInput(current.initial, current.text, cell)
         : current.text === "";
     if (noChange) {
       close(current);
@@ -316,7 +323,6 @@ export function InPlaceEditor({ session, ui, camera, scene }: InPlaceEditorProps
       setDraft({ ...current, error: parsed.message });
       return;
     }
-    const cellView = session.objectView(open.object)?.cells[cell];
     if (parsed.content.type === "formula" && !cellCapabilities(cell, cellView).formula) {
       setDraft({ ...current, error: `${cell} cannot hold a formula.` });
       return;
