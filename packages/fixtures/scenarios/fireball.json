@@ -355,12 +355,12 @@
       "type": "contents",
       "object": "aldric_binder",
       "contents": ["fireball", "save_row_t"],
-      "note": "The card template and, outside its subtree, the row template sit in Aldric's binder."
+      "note": "FIXTURES §9: the card template sits \"in Aldric's binder\", and the row template outside \"the card's subtree, for example beside it in the binder\"."
     },
     {
       "type": "log_groups",
       "count": 0,
-      "note": "Nothing has happened yet."
+      "note": "FIXTURES §8: \"Every step that is neither rejected nor `bind` appends exactly one group\"; no step has run."
     }
   ],
   "steps": [
@@ -392,13 +392,13 @@
           "object": "fb1",
           "container": "aldric_binder",
           "index": 0,
-          "note": "The spawn destination is index 0 of Aldric's binder."
+          "note": "FIXTURES §6: \"`index` is the object's position in the container's contents after the move\"; the spawn destination is index 0 of Aldric's binder."
         },
         {
           "type": "contents",
           "object": "aldric_binder",
           "contents": ["fb1", "fireball", "save_row_t"],
-          "note": "The templates stay where they were; only the copy is added."
+          "note": "DESIGN §4.1: \"Spawning from a template copies the template\"; only the copy is added, and the templates stay where they were (DESIGN §4.5: \"templates are not mutated by play\")."
         },
         {
           "type": "contents",
@@ -474,7 +474,7 @@
             "type": "number",
             "value": 14
           },
-          "note": "dc = caster.spell_dc; Aldric's spell_dc is 14."
+          "note": "\"dc = caster.spell_dc\" (FORMULAS §10): Aldric's spell_dc is 14."
         },
         {
           "type": "cell",
@@ -484,21 +484,21 @@
             "type": "ref",
             "object": "fireball_zone"
           },
-          "note": "The template itself is untouched by the spawn."
+          "note": "DESIGN §4.5: \"templates are not mutated by play (4.7)\"; the template's zone still points at its own zone."
         },
         {
           "type": "action",
           "object": "fb1",
           "action": "Lock targets",
           "enabled": true,
-          "note": "[Lock targets] when: not locked; locked is false."
+          "note": "\"[Lock targets] when: not locked\" (FORMULAS §10): locked is false."
         },
         {
           "type": "action",
           "object": "fb1",
           "action": "Roll damage",
           "enabled": false,
-          "note": "[Roll damage] when: locked and damage = empty; not yet locked."
+          "note": "\"[Roll damage] when: locked and damage = empty\" (FORMULAS §10): not yet locked."
         },
         {
           "type": "log_groups",
@@ -532,7 +532,7 @@
           "object": "zone1",
           "board": "map",
           "position": [10, 10],
-          "note": "The zone is on the map where it was dropped."
+          "note": "FIXTURES §9: \"`placement` shows where it is\"; the zone was dropped at [10, 10] on the map."
         },
         {
           "type": "cell",
@@ -575,7 +575,7 @@
         {
           "type": "log_groups",
           "count": 2,
-          "note": "A move is one group."
+          "note": "FIXTURES §8: \"`set`, `override`, `clear_override`, `move`, and `spawn` are one group each\"."
         }
       ]
     },
@@ -596,28 +596,28 @@
             "type": "boolean",
             "value": true
           },
-          "note": "set(locked, true)."
+          "note": "FORMULAS §10 Lock targets: \"set(locked, true)\"."
         },
         {
           "type": "action",
           "object": "fb1",
           "action": "Lock targets",
           "enabled": false,
-          "note": "when: not locked; locked is now true, so a second lock is refused."
+          "note": "\"[Lock targets] when: not locked\" (FORMULAS §10): locked is now true, so a second lock is refused."
         },
         {
           "type": "action",
           "object": "fb1",
           "action": "Roll damage",
           "enabled": true,
-          "note": "[Roll damage] when: locked and damage = empty."
+          "note": "\"[Roll damage] when: locked and damage = empty\" (FORMULAS §10): both hold now."
         },
         {
           "type": "action",
           "object": "fb1",
           "action": "Apply all",
           "enabled": false,
-          "note": "[Apply all] needs damage != empty; damage is still empty."
+          "note": "\"[Apply all] when: locked and damage != empty and all(rows.save_roll != empty) and not applied\" (FORMULAS §10): damage is still empty."
         },
         {
           "type": "log_groups",
@@ -662,7 +662,7 @@
           "type": "contents",
           "object": "fb1",
           "contents": ["row_g1", "row_g2"],
-          "note": "One save_row per creature inside the circle, nothing for goblin3 outside it."
+          "note": "FORMULAS §10 Lock targets: \"each(targets, spawn(save_row, this, {target: it, owner: it.owner or it}))\": one row per creature inside the circle, nothing for goblin3 outside it."
         },
         {
           "type": "container",
@@ -679,7 +679,7 @@
             "type": "ref",
             "object": "goblin1"
           },
-          "note": "{target: it, ...}: the row's target is the creature it was spawned for."
+          "note": "\"{target: it, owner: it.owner or it}\" (FORMULAS §10): the row's target is goblin1, the creature it was spawned for."
         },
         {
           "type": "cell",
@@ -689,7 +689,7 @@
             "type": "ref",
             "object": "goblin1"
           },
-          "note": "{..., owner: it.owner or it}: the creature's owner, here the creature itself (an unowned creature would own its row itself, M6-D20)."
+          "note": "FORMULAS §10: \"Each row's `owner` is its target's `owner`, or the target itself when that is empty\"; goblin1 owns itself, so the row's owner is goblin1 (M6-D20)."
         },
         {
           "type": "cell",
@@ -709,7 +709,7 @@
             "type": "ref",
             "object": "fb1"
           },
-          "note": "card = container."
+          "note": "\"card = container\" (FORMULAS §10): the row was spawned into fb1's contents."
         },
         {
           "type": "cell",
@@ -719,7 +719,7 @@
             "type": "number",
             "value": 2
           },
-          "note": "save_bonus = target.dex_save; goblin1's dex_save is 2."
+          "note": "\"save_bonus = target.dex_save\" (FORMULAS §10): goblin1's dex_save is 2."
         },
         {
           "type": "cell",
@@ -738,7 +738,7 @@
           "value": {
             "type": "empty"
           },
-          "note": "if(passed, ..., card.damage): not passed, and card.damage is still empty."
+          "note": "\"damage_dealt = if(passed, floor(card.damage / 2), card.damage)\" (FORMULAS §10): not passed, and card.damage is still empty; `if` \"returns the chosen branch's value unchanged\" (FORMULAS §5)."
         },
         {
           "type": "container",
@@ -755,7 +755,7 @@
             "type": "ref",
             "object": "goblin2"
           },
-          "note": "{target: it, ...}: the row's target is the creature it was spawned for."
+          "note": "\"{target: it, owner: it.owner or it}\" (FORMULAS §10): the row's target is goblin2, the creature it was spawned for."
         },
         {
           "type": "cell",
@@ -765,7 +765,7 @@
             "type": "ref",
             "object": "goblin2"
           },
-          "note": "{..., owner: it.owner or it}: the creature's owner, here the creature itself (an unowned creature would own its row itself, M6-D20)."
+          "note": "FORMULAS §10: \"Each row's `owner` is its target's `owner`, or the target itself when that is empty\"; goblin2 owns itself, so the row's owner is goblin2 (M6-D20)."
         },
         {
           "type": "cell",
@@ -785,7 +785,7 @@
             "type": "ref",
             "object": "fb1"
           },
-          "note": "card = container."
+          "note": "\"card = container\" (FORMULAS §10): the row was spawned into fb1's contents."
         },
         {
           "type": "cell",
@@ -795,14 +795,14 @@
             "type": "number",
             "value": 0
           },
-          "note": "goblin2's dex_save is 0."
+          "note": "\"save_bonus = target.dex_save\" (FORMULAS §10): goblin2's dex_save is 0."
         },
         {
           "type": "action",
           "object": "row_g1",
           "action": "Roll save",
           "enabled": true,
-          "note": "[Roll save] when: save_roll = empty."
+          "note": "\"[Roll save] when: save_roll = empty\" (FORMULAS §10): no save yet."
         },
         {
           "type": "log_groups",
@@ -853,19 +853,19 @@
             "type": "ref",
             "object": "goblin1"
           },
-          "note": "A row's target is a literal written at spawn; the zone moving does not touch it."
+          "note": "FIXTURES §9: \"Moving the zone afterwards changes `targets` but not the rows\"; a row's target is a literal written at spawn."
         },
         {
           "type": "action",
           "object": "fb1",
           "action": "Lock targets",
           "enabled": false,
-          "note": "Still locked; the new targets cannot be locked in."
+          "note": "\"[Lock targets] when: not locked\" (FORMULAS §10): still locked, so the new targets cannot be locked in."
         },
         {
           "type": "log_groups",
           "count": 4,
-          "note": "A move is one group."
+          "note": "FIXTURES §8: \"`set`, `override`, `clear_override`, `move`, and `spawn` are one group each\"."
         }
       ]
     },
@@ -913,7 +913,7 @@
           "object": "fb1",
           "action": "Roll damage",
           "enabled": false,
-          "note": "when: locked and damage = empty; damage is set."
+          "note": "\"[Roll damage] when: locked and damage = empty\" (FORMULAS §10): damage is set."
         },
         {
           "type": "action",
@@ -951,7 +951,7 @@
         {
           "type": "log_groups",
           "count": 5,
-          "note": "One group for the action."
+          "note": "FIXTURES §8: \"An `invoke` is one group for the whole action\"."
         }
       ]
     },
@@ -975,7 +975,7 @@
             "dropped": [],
             "total": 13
           },
-          "note": "roll(1d20) -> save_roll, from the script."
+          "note": "FORMULAS §10 Roll save: \"roll(1d20) -> save_roll\"; the roll result is written as given by the script (FIXTURES §5): 13."
         },
         {
           "type": "cell",
@@ -985,7 +985,7 @@
             "type": "boolean",
             "value": true
           },
-          "note": "passed = save_roll + save_bonus >= card.dc: 13 + 2 = 15 >= 14."
+          "note": "\"passed = save_roll + save_bonus >= card.dc\" (FORMULAS §10): 13 + 2 = 15 >= 14."
         },
         {
           "type": "cell",
@@ -995,26 +995,26 @@
             "type": "number",
             "value": 13
           },
-          "note": "damage_dealt = if(passed, floor(card.damage / 2), ...): floor(27 / 2) = floor(13.5) = 13."
+          "note": "\"damage_dealt = if(passed, floor(card.damage / 2), card.damage)\" (FORMULAS §10): floor(27 / 2) = floor(13.5) = 13; FIXTURES §9: \"the halved value is a number because `floor` is arithmetic\"."
         },
         {
           "type": "action",
           "object": "row_g1",
           "action": "Roll save",
           "enabled": false,
-          "note": "when: save_roll = empty; the save is rolled."
+          "note": "\"[Roll save] when: save_roll = empty\" (FORMULAS §10): the save is rolled."
         },
         {
           "type": "action",
           "object": "fb1",
           "action": "Apply all",
           "enabled": false,
-          "note": "goblin2's row has no save yet, so all(rows.save_roll != empty) is false."
+          "note": "\"[Apply all] when: locked and damage != empty and all(rows.save_roll != empty) and not applied\" (FORMULAS §10): goblin2's row has no save yet; FIXTURES §9: \"Apply all disabled until every row has a save\"."
         },
         {
           "type": "log_groups",
           "count": 6,
-          "note": "One group for the action."
+          "note": "FIXTURES §8: \"An `invoke` is one group for the whole action\"."
         }
       ]
     },
@@ -1038,7 +1038,7 @@
             "dropped": [],
             "total": 9
           },
-          "note": "roll(1d20) -> save_roll, from the script."
+          "note": "FORMULAS §10 Roll save: \"roll(1d20) -> save_roll\"; the roll result is written as given by the script (FIXTURES §5): 9."
         },
         {
           "type": "cell",
@@ -1048,7 +1048,7 @@
             "type": "boolean",
             "value": false
           },
-          "note": "9 + 0 = 9 < 14."
+          "note": "\"passed = save_roll + save_bonus >= card.dc\" (FORMULAS §10): 9 + 0 = 9 < 14."
         },
         {
           "type": "cell",
@@ -1068,12 +1068,12 @@
           "object": "fb1",
           "action": "Apply all",
           "enabled": true,
-          "note": "Every row has a save: locked, damage set, all(rows.save_roll != empty), not applied."
+          "note": "\"[Apply all] when: locked and damage != empty and all(rows.save_roll != empty) and not applied\" (FORMULAS §10): every row has a save, so all hold now."
         },
         {
           "type": "log_groups",
           "count": 7,
-          "note": "One group for the action."
+          "note": "FIXTURES §8: \"An `invoke` is one group for the whole action\"."
         }
       ]
     },
@@ -1094,7 +1094,7 @@
             "type": "number",
             "value": 13
           },
-          "note": "goblin1 passed: 0 + floor(27 / 2) = 13."
+          "note": "FORMULAS §10 Apply all: \"each(rows, add(it.target.damage_taken, it.damage_dealt))\": goblin1 passed, 0 + floor(27 / 2) = 13; FIXTURES §9: \"the applied `damage_taken` is a number because `add` is\"."
         },
         {
           "type": "cell",
@@ -1104,7 +1104,7 @@
             "type": "number",
             "value": 30
           },
-          "note": "goblin2 failed: 3 + 27 = 30."
+          "note": "FORMULAS §10 Apply all: \"each(rows, add(it.target.damage_taken, it.damage_dealt))\": goblin2 failed, 3 + 27 = 30; for add \"a roll counts as its total\" (FORMULAS §8.3)."
         },
         {
           "type": "cell",
@@ -1114,7 +1114,7 @@
             "type": "number",
             "value": 0
           },
-          "note": "goblin3 has no row; the zone covering it after lock does not matter."
+          "note": "FIXTURES §9: \"Moving the zone afterwards changes `targets` but not the rows\"; goblin3 has no row, so Apply all leaves it alone."
         },
         {
           "type": "cell",
@@ -1124,7 +1124,7 @@
             "type": "number",
             "value": 0
           },
-          "note": "The caster was never in the circle."
+          "note": "FORMULAS §10 Apply all writes only through \"each(rows, ...)\"; the caster was never in the circle and has no row."
         },
         {
           "type": "cell",
@@ -1134,14 +1134,14 @@
             "type": "boolean",
             "value": true
           },
-          "note": "set(applied, true)."
+          "note": "FORMULAS §10 Apply all: \"set(applied, true)\"."
         },
         {
           "type": "action",
           "object": "fb1",
           "action": "Apply all",
           "enabled": false,
-          "note": "when: ... and not applied."
+          "note": "\"[Apply all] when: locked and damage != empty and all(rows.save_roll != empty) and not applied\" (FORMULAS §10): applied is true."
         },
         {
           "type": "log_includes",
@@ -1169,7 +1169,7 @@
               "value": 30
             }
           },
-          "note": "The resulting sum, not the increment 27."
+          "note": "FIXTURES §7: for `add`, \"the resulting sum, not the increment\": 30, not 27."
         },
         {
           "type": "log_includes",
@@ -1183,7 +1183,7 @@
               "value": true
             }
           },
-          "note": "The same group holds the set(applied, true)."
+          "note": "FORMULAS §8.1: an action is \"Logged as one entry\"; the set(applied, true) is in group 7 with the adds."
         },
         {
           "type": "log_groups",
@@ -1213,7 +1213,7 @@
             "type": "number",
             "value": -5
           },
-          "note": "save_bonus = target.dex_save follows the target."
+          "note": "\"save_bonus = target.dex_save\" (FORMULAS §10) follows the target: -5."
         },
         {
           "type": "cell",
@@ -1223,7 +1223,7 @@
             "type": "boolean",
             "value": false
           },
-          "note": "13 + -5 = 8 < 14."
+          "note": "\"passed = save_roll + save_bonus >= card.dc\" (FORMULAS §10): 13 + -5 = 8 < 14."
         },
         {
           "type": "cell",
@@ -1246,7 +1246,7 @@
             "type": "number",
             "value": 13
           },
-          "note": "Nothing re-applies: damage_taken is a literal written by the action."
+          "note": "FORMULAS §10: \"After Apply all, the log holds what was applied\"; damage_taken is a literal the action wrote, so nothing re-applies when the row drifts."
         },
         {
           "type": "log_includes",
@@ -1274,12 +1274,12 @@
               "value": 30
             }
           },
-          "note": "Likewise goblin2's applied write."
+          "note": "FIXTURES §8: \"Fireball needs an absolute index to show that an earlier Apply group is unchanged after a later edit\"; likewise goblin2's write."
         },
         {
           "type": "log_groups",
           "count": 9,
-          "note": "A set is one group."
+          "note": "FIXTURES §8: \"`set`, `override`, `clear_override`, `move`, and `spawn` are one group each\"."
         }
       ]
     },
@@ -1296,13 +1296,13 @@
           "type": "exists",
           "object": "zone1",
           "exists": false,
-          "note": "remove(zone): the zone left the card's contents, so it is removed explicitly."
+          "note": "FORMULAS §10 Discard: \"remove(zone)\"; \"Dragging the zone onto the map moves it out of the card's `contents`, so Discard removes it explicitly\"."
         },
         {
           "type": "exists",
           "object": "fb1",
           "exists": false,
-          "note": "remove(this)."
+          "note": "FORMULAS §10 Discard: \"remove(this)\"."
         },
         {
           "type": "exists",
@@ -1314,25 +1314,25 @@
           "type": "exists",
           "object": "row_g2",
           "exists": false,
-          "note": "Recursively, with the card."
+          "note": "FORMULAS §8.3 remove: \"Delete the object and its `contents`, recursively\"; row_g2 goes with the card."
         },
         {
           "type": "contents",
           "object": "aldric_binder",
           "contents": ["fireball", "save_row_t"],
-          "note": "Only the spawned card left the binder; the templates remain."
+          "note": "DESIGN §4.5: \"templates are not mutated by play (4.7)\"; only the spawned card left the binder."
         },
         {
           "type": "exists",
           "object": "fireball_zone",
           "exists": true,
-          "note": "The template's own zone is not the spawned copy and is untouched."
+          "note": "DESIGN §4.1: \"the card on the table gets its own copy of the zone\"; removing the copy leaves the template's own zone."
         },
         {
           "type": "exists",
           "object": "goblin1",
           "exists": true,
-          "note": "Removing rows does not remove their (non-owning) targets."
+          "note": "DESIGN §4.1: \"All other reference cells (`target`, `owner`, `attacker`) are non-owning: they point, they do not hold\"; removing the rows leaves their targets."
         },
         {
           "type": "cell",
@@ -1342,12 +1342,12 @@
             "type": "number",
             "value": 13
           },
-          "note": "Applied damage stays after the card is gone."
+          "note": "FORMULAS §10: \"After Apply all, the log holds what was applied\"; damage_taken is goblin1's own literal and stays after the card is gone."
         },
         {
           "type": "log_groups",
           "count": 10,
-          "note": "One group for the action."
+          "note": "FIXTURES §8: \"An `invoke` is one group for the whole action\"."
         },
         { "type": "replay" }
       ]
