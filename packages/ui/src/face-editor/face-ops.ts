@@ -417,6 +417,22 @@ export function addCellElement(
   return addElement(base, "full", { type: "value", cell, rect });
 }
 
+/**
+ * Adds a value element for `cell` to the full list where the inspector's
+ * Add puts a new value row (`blankElement`): 2 × 0.6 at the full frame's
+ * top-left, shrunk to a smaller frame. A null face starts from
+ * `defaultLayoutFor(view)`. A cell dropped on a collapsed row (whose frame
+ * maps to no point of the full list) uses this (vtt-qf5.46).
+ */
+export function appendCellElement(
+  face: FaceLayout | null,
+  view: ObjectView,
+  cell: string,
+): FaceOpResult {
+  const [fx, fy] = faceFrameFor(view, "full");
+  return addCellElement(face, view, cell, [fx, fy]);
+}
+
 /** The one op replacing `object`'s whole layout (`null` removes it). */
 export function setFaceOps(object: ObjectId, face: FaceLayout | null): WireOp[] {
   return [{ type: "set_face", object, face }];

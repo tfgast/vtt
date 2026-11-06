@@ -716,7 +716,10 @@ as the default face places its list, even while `contents` is empty
 - Clicking a row (or an expanded child's empty area) selects that contained
   object for the inspector.
 - A cell dragged from the inspector onto an object adds a value element
-  (layout mode).
+  (layout mode). Dropped on a contained object drawn as a collapsed row,
+  whose frame maps to no point of the full face, it is appended to the full
+  list where the inspector's Add puts a new value row (2 × 0.6 at the
+  frame's top-left; on an object without a face, after Create face's layout).
 
 **Ink and text.** Ink is the cell `ink` (strokes in object-local board
 units, origin at the anchor, y down, unrotated), drawn with one fixed pen

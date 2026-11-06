@@ -15,11 +15,14 @@
  * frame with the hit's `toLocal` (the inverse of the accumulated transform
  * along its `path`) and the effects are one `set_face` write of vtt-1xv.18's
  * `addCellElement(face, view, cell, localPoint)`, stamped at the drop.
- * Anything else (another mime, malformed data, another object, a row
- * showing a collapsed face, view-as, no active board) is not handled (null),
- * so the event goes on to the active tool.
+ * When the hit object is contained and its row shows its collapsed face,
+ * whose frame maps to no point of the full list, the write is
+ * `appendCellElement`: the element goes where the inspector's Add puts a
+ * new value row, at the full frame's top-left (vtt-qf5.46). Anything else
+ * (another mime, malformed data, another object, view-as, no active board)
+ * is not handled (null), so the event goes on to the active tool.
  */
-import type { ObjectId, Point } from "@vtt/schema";
+import type { ObjectId } from "@vtt/schema";
 import type { FaceHit } from "../face/face-contracts";
 import { faceHitAt, pathContents } from "../face/face-hit";
 import { attachFaces, type FaceScene, type FaceSceneState } from "../face/face-scene";
@@ -29,7 +32,7 @@ import type { Effect } from "../interaction/effects";
 import type { DataDropEvent, DataDropHandler } from "../interaction/runtime";
 import type { ReducerInput } from "../interaction/tool";
 import type { Scene } from "../scene/scene";
-import { addCellElement, layoutOfView, setFaceOps } from "./face-ops";
+import { addCellElement, appendCellElement, layoutOfView, setFaceOps } from "./face-ops";
 import { layoutLabel, objectLabel } from "./layout-tool";
 
 /** The drag type of an inspector cell row. */
@@ -74,15 +77,16 @@ function isFaceScene(scene: Scene): scene is FaceScene {
 let dropCounter = 0;
 
 /**
- * The hit's object drawn with its full face: a board object, or a
- * contained one whose row shows its full list.
+ * How the hit's object is drawn: "full" for a board object or a contained
+ * one whose row shows its full list, "collapsed" for a contained one whose
+ * row shows its collapsed face, null when the path does not resolve.
  */
-function showsFullFace(scene: FaceScene, hit: FaceHit): boolean {
-  if (hit.path.length === 0) return true;
+function drawnAs(scene: FaceScene, hit: FaceHit): "full" | "collapsed" | null {
+  if (hit.path.length === 0) return "full";
   const lists = pathContents(scene, hit.path);
   const holder = lists.at(-1);
-  if (holder === undefined || lists.length !== hit.path.length) return false;
-  return holder.entries.find((e) => e.id === hit.object)?.list === "full";
+  if (holder === undefined || lists.length !== hit.path.length) return null;
+  return holder.entries.find((e) => e.id === hit.object)?.list ?? null;
 }
 
 /**
@@ -104,11 +108,18 @@ export function createCellDropHandler(options: CellDropOptions): DataDropHandler
     if (data === null) return null;
     const scene = facesOf(input);
     const hit = faceHitAt(scene, event.board, input.camera);
-    if (hit === null || hit.object !== data.object || !showsFullFace(scene, hit)) return null;
+    if (hit === null || hit.object !== data.object) return null;
+    const drawn = drawnAs(scene, hit);
+    if (drawn === null) return null;
     const view = input.views(data.object);
     if (view === null) return null;
-    const local: Point = apply(hit.toLocal, event.board);
-    const result = addCellElement(layoutOfView(view), view, data.cell, local);
+    // A collapsed row's frame maps to no point of the full list: the element
+    // goes where the inspector's Add puts a new value row (vtt-qf5.46).
+    const layout = layoutOfView(view);
+    const result =
+      drawn === "full"
+        ? addCellElement(layout, view, data.cell, apply(hit.toLocal, event.board))
+        : appendCellElement(layout, view, data.cell);
     if (!result.ok) {
       return [
         { type: "notice", level: "warning", text: `The face was not changed: ${result.message}` },
