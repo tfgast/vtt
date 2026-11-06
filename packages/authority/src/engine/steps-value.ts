@@ -6,7 +6,8 @@
  * - `set(path, v)`: `writeValue` (an override on a formula cell; `tag`
  *   takes a list of text and `name` text, by the primitive's type checks).
  * - `add(path, v)`: the current value (read-your-writes) and `v` each a
- *   number, a roll (its total) or `empty` (0); writes the sum as a number.
+ *   number, a roll (its total) or `empty` (0); writes the sum as a number,
+ *   recording the addend on the cell effect (`addWrite`, M6-D22).
  * - `append(path, v)`: the current value a list or `empty` (as `[]`);
  *   writes it with `v` appended as one item.
  * - `roll(d) -> path`: `d` a dice value; `rollInto` (cause `roll`).
@@ -22,7 +23,7 @@
  * `empty`; a current value that is an error refuses with its code.
  */
 import type { PathNode, Step } from "@vtt/formula";
-import { MAX_EACH_ITEMS, num, type Result, type Value } from "@vtt/schema";
+import { MAX_EACH_ITEMS, type Result, type Value } from "@vtt/schema";
 import { Rejected } from "../store/transaction";
 import type { StepContext, StepHandlerEntry, StepOutcome } from "./invoke";
 
@@ -106,7 +107,7 @@ function add(ctx: StepContext, step: Step): StepOutcome {
       message: `add needs a number, a roll or empty to add, found ${v.type}`,
     });
   }
-  ctx.primitives.writeValue(t.object, t.cell, num(a + b));
+  ctx.primitives.addWrite(t.object, t.cell, a + b, b);
   return OK;
 }
 

@@ -1,5 +1,6 @@
 import {
   addBoard,
+  addWrite,
   clearOverride,
   DocumentStore,
   deleteCell,
@@ -395,6 +396,30 @@ describe("clearOverride", () => {
     const store = DocumentStore.fromSnapshot(scene());
     run(store, (tx) => clearOverride(tx, "goblin", "ac"));
     expect(cellOf(store, "goblin", "ac")).toEqual(formula("10 + dex"));
+  });
+});
+
+describe("addWrite", () => {
+  test("writes the sum as writeValue does, recording the addend (M6-D22)", () => {
+    const store = DocumentStore.fromSnapshot(scene());
+    const effects = run(store, (tx) => addWrite(tx, "goblin", "save", 14, 14));
+    expect(effects).toEqual([
+      {
+        type: "cell",
+        object: "goblin",
+        cell: "save",
+        before: null,
+        after: { content: num(14) },
+        cause: "edit",
+        added: 14,
+      },
+    ]);
+  });
+
+  test("overrides a formula cell", () => {
+    const store = DocumentStore.fromSnapshot(scene());
+    run(store, (tx) => addWrite(tx, "goblin", "hp", 4, -3));
+    expect(cellOf(store, "goblin", "hp")?.override).toEqual(num(4));
   });
 });
 

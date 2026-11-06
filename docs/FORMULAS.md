@@ -561,7 +561,7 @@ evaluating to an error refuses `step_error` with that code.
 | Step | Accepts | Writes | Errors |
 |---|---|---|---|
 | `set(path, v)` | any storable value | `writeValue` (an override on a formula cell); `tag` takes a list of text via `setTag`; `name` takes text | `id`, `contents`, `container`, `board`, `is_zone`, `template`, `shape` → `protected_cell`; a record → `#TYPE` |
-| `add(path, v)` | current value and `v` each a number, a roll (its total) or `empty` (0) | the resulting number | anything else `#TYPE` |
+| `add(path, v)` | current value and `v` each a number, a roll (its total) or `empty` (0) | the resulting number; the cell effect records `v`'s amount as `added` (DESIGN M6-D22) | anything else `#TYPE` |
 | `append(path, v)` | current value a list or `empty` (as `[]`) | the list with `v` appended as one item | other current value `#TYPE` |
 | `roll(d) -> path` | a dice value | the roll result (cause `roll`) | not dice `#TYPE` |
 | `shuffle(r)` | one reference | its contents reordered by a drawn permutation | |

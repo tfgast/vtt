@@ -114,7 +114,7 @@ describe("the Attack card", () => {
       "GM: Seed",
     ]);
     expect(sentencesOf(item("GM: Apply"))).toEqual([
-      "Set Goblin.damage_taken to 8 (was 0)",
+      "Added 8 to Goblin.damage_taken (now 8)",
       "Set Attack.applied to true (was false)",
     ]);
     expect(sentencesOf(item("GM: Roll damage"))).toEqual(["Rolled 1d8+3 → 8 into Attack.dmg"]);

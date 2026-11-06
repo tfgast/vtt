@@ -115,7 +115,7 @@ const FIELD_EFFECT = by("field", {
 });
 
 const EFFECT = by("type", {
-  cell: tagged("object", "cell", ["before", CELL], ["after", CELL], "cause"),
+  cell: tagged("object", "cell", ["before", CELL], ["after", CELL], "cause", "added"),
   cell_visibility: tagged("object", "cell", ["before", VALUE], ["after", VALUE]),
   field: FIELD_EFFECT,
   place: tagged("object", ["before", LOCATION], ["after", LOCATION]),

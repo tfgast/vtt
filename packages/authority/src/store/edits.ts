@@ -15,6 +15,7 @@ import {
   isStructuralLiteral,
   isValidId,
   isValue,
+  num,
   type ObjectId,
   type Rejection,
   type RollValue,
@@ -92,8 +93,11 @@ function cellEffect(
   before: Cell | null,
   after: Cell | null,
   cause: CellEffect["cause"] = "edit",
+  added?: number,
 ): CellEffect {
-  return { type: "cell", object, cell, before, after, cause };
+  const e: CellEffect = { type: "cell", object, cell, before, after, cause };
+  if (added !== undefined) e.added = added;
+  return e;
 }
 
 /** A dense array of strings; a hole fails (`every` would skip it). */
@@ -130,6 +134,7 @@ function writeLiteral(
   value: Value,
   cause: CellEffect["cause"],
   replace = false,
+  added?: number,
 ): void {
   const o = requireObject(tx, id);
   const spec = guardContentWrite(o, cell);
@@ -153,7 +158,7 @@ function writeLiteral(
     !replace && before !== null && before.content.type === "formula"
       ? { content: before.content, override: value }
       : { content: value };
-  tx.record(cellEffect(id, cell, before, after, cause));
+  tx.record(cellEffect(id, cell, before, after, cause, added));
 }
 
 /**
@@ -175,6 +180,22 @@ export function writeValue(tx: Transaction, obj: ObjectId, cell: string, value: 
  */
 export function replaceFormula(tx: Transaction, obj: ObjectId, cell: string, value: Value): void {
   writeLiteral(tx, obj, cell, value, "edit", true);
+}
+
+/**
+ * An `add` step's write (FORMULAS.md §8.3; M6-D22): `writeValue` of the
+ * number `sum`, recording `added`, the number added, on the cell effect.
+ */
+export function addWrite(
+  tx: Transaction,
+  obj: ObjectId,
+  cell: string,
+  sum: number,
+  added: number,
+): void {
+  if (typeof added !== "number" || !Number.isFinite(added))
+    invalid(`not a number added to "${cell}"`);
+  writeLiteral(tx, obj, cell, num(sum), "edit", false, added);
 }
 
 /** As `writeValue`, recording a roll result with cause `roll`. */

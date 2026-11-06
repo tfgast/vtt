@@ -107,6 +107,20 @@ describe("cell effects", () => {
     after: CellStateView | null,
     cause: "edit" | "roll" = "edit",
   ): EffectView => ({ type: "cell", object: "goblin", cell: "damage_taken", before, after, cause });
+  /** An add step's write of `amount`. */
+  const added = (
+    before: CellStateView | null,
+    after: CellStateView,
+    amount: number,
+  ): EffectView => ({
+    type: "cell",
+    object: "goblin",
+    cell: "damage_taken",
+    before,
+    after,
+    cause: "edit",
+    added: amount,
+  });
 
   test("a literal write", () => {
     expect(one(cell(n(0), n(8)))).toEqual(["Set Goblin.damage_taken to 8 (was 0)"]);
@@ -140,6 +154,34 @@ describe("cell effects", () => {
         cause: "roll",
       }),
     ).toEqual(["Rolled hidden into Attack.roll"]);
+  });
+
+  test("a roll value set by an edit reads its total", () => {
+    const roll = lit({
+      type: "roll",
+      expr: "8d6",
+      dice: [6, 5, 4, 3, 2, 1, 6, 1],
+      dropped: [],
+      total: 28,
+    });
+    expect(one(cell(n(0), roll))).toEqual(["Set Goblin.damage_taken to 28 (was 0)"]);
+  });
+
+  test("an add reads 'Added n to … (now v)' (M6-D22)", () => {
+    expect(one(added(n(6), n(20), 14))).toEqual(["Added 14 to Goblin.damage_taken (now 20)"]);
+    expect(one(added(null, n(0), 0))).toEqual(["Added 0 to Goblin.damage_taken (now 0)"]);
+  });
+
+  test("a negative add reads 'Subtracted n from … (now v)'", () => {
+    expect(one(added(n(20), n(17), -3))).toEqual([
+      "Subtracted 3 from Goblin.damage_taken (now 17)",
+    ]);
+  });
+
+  test("an add onto a formula cell reads its override as the new value", () => {
+    expect(one(added(f("x"), f("x", 9), 2.5))).toEqual([
+      "Added 2.5 to Goblin.damage_taken (now 9)",
+    ]);
   });
 
   test("a formula", () => {

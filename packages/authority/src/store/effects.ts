@@ -167,7 +167,11 @@ export type HistoricalInverse =
 /** The swap of an effect's before and after, for the kinds where that is the reversal. */
 function swapped(e: Effect): Effect {
   switch (e.type) {
-    case "cell":
+    case "cell": {
+      // The reversal of an add is a plain write back, not an add (M6-D22).
+      const { added: _, ...rest } = e;
+      return { ...rest, before: e.after, after: e.before };
+    }
     case "cell_visibility":
     case "field":
     case "place":

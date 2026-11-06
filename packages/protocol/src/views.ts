@@ -306,6 +306,7 @@ export const EffectViewSchema = looseNoProto(
       before: CellStateViewSchema.nullable(),
       after: CellStateViewSchema.nullable(),
       cause: z.enum(["edit", "roll"]),
+      added: z.number().optional(),
     }),
     z.object({
       type: z.literal("cell_visibility"),

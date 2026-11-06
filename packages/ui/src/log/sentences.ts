@@ -6,7 +6,9 @@
  * readable by the viewer). Values are formatted with `formatValue` in
  * compact mode. `allocate` and `retire` effects have no sentence. A move
  * onto a board folds the same object's `position` write of the group into
- * its sentence ("Moved Goblin onto Crypt at (3, 4)").
+ * its sentence ("Moved Goblin onto Crypt at (3, 4)"). An `add` step's write
+ * (a cell effect with `added`) reads "Added 14 to G1.damage_taken (now 20)",
+ * or "Subtracted 3 from … (now 17)" for a negative amount (M6-D22).
  */
 import type {
   CellStateView,
@@ -226,6 +228,15 @@ function cellSentence(e: Extract<EffectView, { type: "cell" }>, ctx: Context): s
   if (after === null) {
     return before === null ? `Deleted ${where}` : `Deleted ${where}${was(before, ctx)}`;
   }
+  // An add step's write (M6-D22): the amount added and the resulting value.
+  const now = after.kind === "literal" ? after.value : after.override;
+  if (e.added !== undefined && now !== undefined) {
+    const amount = number(Math.abs(e.added));
+    const result = `(now ${value(now, ctx)})`;
+    return e.added < 0
+      ? `Subtracted ${amount} from ${where} ${result}`
+      : `Added ${amount} to ${where} ${result}`;
+  }
   if (before?.kind === "formula" && after.kind === "formula" && before.source === after.source) {
     if (after.override !== undefined) {
       const old = before.override === undefined ? "" : ` (was ${value(before.override, ctx)})`;
@@ -285,10 +296,12 @@ function at(position: CellStateView | null): string {
   if (v.type !== "list" || v.items.length !== 2) return "";
   const [x, y] = v.items;
   if (x?.type !== "number" || y?.type !== "number") return "";
-  const n = (k: number) =>
-    formatValue({ type: "number", value: k }, { mode: "compact", refLabel: () => null }).text;
-  return ` at (${n(x.value)}, ${n(y.value)})`;
+  return ` at (${number(x.value)}, ${number(y.value)})`;
 }
+
+/** A number in compact form. */
+const number = (k: number) =>
+  formatValue({ type: "number", value: k }, { mode: "compact", refLabel: () => null }).text;
 
 /** "A", "A and B", "A, B and C", "A, B, C and 2 more". */
 function list(names: readonly string[]): string {

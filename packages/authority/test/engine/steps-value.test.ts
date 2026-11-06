@@ -145,7 +145,7 @@ describe("the Attack card (FORMULAS §10)", () => {
       expect(r3.group.effects.filter((e) => e.type === "cell")).toHaveLength(2);
       expect(r3.created).toEqual([]);
     }
-    // The roll is written with cause `roll`; add writes a number with cause `edit`.
+    // The roll is written with cause `roll`; add writes a number with cause `edit` and its addend.
     expect(groups[0]?.effects).toEqual([
       expect.objectContaining({ type: "cell", cell: "roll", cause: "roll" }),
     ]);
@@ -155,6 +155,7 @@ describe("the Attack card (FORMULAS §10)", () => {
       cell: "damage_taken",
       after: { content: num(8) },
       cause: "edit",
+      added: 8,
     });
   });
 
@@ -345,6 +346,33 @@ describe("add", () => {
     expect(go(table).outcome.ok).toBe(true);
     expect(value(table, "o", "n")).toEqual(num(3));
   });
+
+  test("records the addend on its cell effect: a number, a roll's total, empty as 0 (M6-D22)", () => {
+    const table = tableWith(["add(a, -3)", "add(b, r)", "add(a, empty)"], {
+      a: c(num(20)),
+      b: f("1 + 1"),
+      r: c(roll("1d6", [4], 4)),
+    });
+    expect(go(table).outcome.ok).toBe(true);
+    const effects = table.store.history.groups()[0]?.effects ?? [];
+    expect(effects).toEqual([
+      expect.objectContaining({ cell: "a", after: { content: num(17) }, added: -3 }),
+      expect.objectContaining({
+        cell: "b",
+        after: { content: { type: "formula", source: "1 + 1" }, override: num(6) },
+        added: 4,
+      }),
+      expect.objectContaining({ cell: "a", after: { content: num(17) }, added: 0 }),
+    ]);
+  });
+
+  test("set and append record no addend", () => {
+    const table = tableWith(["set(a, 1)", "append(xs, 1)"], { xs: c(list([])) });
+    expect(go(table).outcome.ok).toBe(true);
+    for (const e of table.store.history.groups()[0]?.effects ?? []) {
+      expect(e).not.toHaveProperty("added");
+    }
+  });
 });
 
 describe("append", () => {
@@ -506,5 +534,9 @@ describe("undo", () => {
     const after = table.store.toSnapshot();
     expect(after.objects).toEqual(before.objects);
     expect(value(table, "o", "a")).toEqual(num(1));
+    // The undo's cell effects are plain writes back: none carries the addend.
+    for (const e of table.store.history.groups()[1]?.effects ?? []) {
+      expect(e).not.toHaveProperty("added");
+    }
   });
 });
