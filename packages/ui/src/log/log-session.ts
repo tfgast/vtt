@@ -97,10 +97,11 @@ export interface LogSession {
   /** The current snapshot; the same object until something changes. */
   getSnapshot(): LogSnapshot;
   /**
-   * Loads the next older page (rebuilding stale pages first, in order).
+   * Loads the next `pages` (default 1) older pages, stopping early at the
+   * start of the retained log (rebuilding stale pages first, in order).
    * Resolves once the requests settle; never rejects.
    */
-  loadOlder(): Promise<void>;
+  loadOlder(pages?: number): Promise<void>;
   /** The panel shows older page `page` (1-based): stale pages up to it are rebuilt, in order. */
   showPage(page: number): void;
   /** Resolves once no subscription or page request is in flight. */
@@ -217,7 +218,7 @@ class Log implements LogSession {
     return this.#snapshot;
   }
 
-  loadOlder(): Promise<void> {
+  loadOlder(pages = 1): Promise<void> {
     if (this.#closed || this.#held === null) return Promise.resolve();
     if (this.#chain === null) {
       this.#chain = {
@@ -232,7 +233,7 @@ class Log implements LogSession {
     }
     const chain = this.#chain;
     if (chain.ended && chain.pages.every((p) => p.fresh)) return this.idle();
-    chain.more++;
+    chain.more += Math.max(1, Math.floor(pages));
     this.#refresh();
     return this.#pump();
   }

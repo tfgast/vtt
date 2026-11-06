@@ -245,7 +245,10 @@ describe(`play B: ${WALKTHROUGH_STEPS.slice(11, 15)
     const g4Die = prep.goblinDice[3] as ObjectId;
     expect(refs(g4View, "contents")).toEqual([g4Die]);
     expect(value(await view(c, g4Die), "owner")).toEqual(ref(g4));
-    // The Log tab: the Apply group marked undone, the delete too; scrolled back to the agent.
+    // The Log tab: the Apply group marked undone, the delete too; the Actor filter, set to any
+    // agent, lists the agent's groups back to Fireball's and nothing else (vtt-qf5.58).
+    expect(o.agentShown.every((gr) => gr.actor === "walkthrough-agent")).toBe(true);
+    expect(o.agentShown.map((gr) => gr.label)).toContain("Fireball for Aldric");
     const applies = o.logShown.filter((gr) => gr.label === "Apply" && gr.actor === "Aldric");
     expect(applies[0]?.undone).toBe(true);
     expect(applies.slice(1).every((gr) => !gr.undone)).toBe(true);

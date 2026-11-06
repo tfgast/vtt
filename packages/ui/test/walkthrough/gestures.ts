@@ -36,7 +36,8 @@
  *   up; a gesture whose write is refused times out naming the notices.
  * - The Log tab: `logGroups` reads it and throws while it is closed;
  *   `logLoadOlder` opens it when closed (waiting for the newest group) and
- *   presses "Load older" when offered. Inspector gestures switch to the
+ *   presses "Load older" when offered; `logFilterActor` chooses an Actor
+ *   filter option and waits for its search. Inspector gestures switch to the
  *   Inspector tab and reopen the Log tab afterwards when it was open; every
  *   gesture that commits waits for the open Log tab to show the newest
  *   group, so `logGroups` is current after any awaited gesture.
@@ -1772,6 +1773,31 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
           sentences: [...items].map((s) => s.textContent ?? ""),
         };
       });
+    },
+
+    async logFilterActor(option) {
+      if (!logOpen()) await openLog();
+      const select = within(inspector()).getByRole("combobox", {
+        name: "Actor",
+      }) as HTMLSelectElement;
+      const found = [...select.options].find((o) => o.textContent === option);
+      if (found === undefined) {
+        const offered = [...select.options].map((o) => o.textContent).join(", ");
+        throw new Error(`logFilterActor: no Actor option "${option}" (offered: ${offered})`);
+      }
+      await user.selectOptions(select, found);
+      // Done when the search settled: All has no status; another actor's says how far it went.
+      await until(
+        () => {
+          const status = within(inspector()).queryByRole("status", { name: "Log search" });
+          const text = status?.textContent ?? "";
+          const settled = found.value === "all" ? status === null : !text.startsWith("Searching");
+          return settled && logList()?.querySelector("li[data-refreshing]") === null;
+        },
+        "the Actor filter's search",
+        CHROME_MS,
+      );
+      await settle(20);
     },
 
     async logLoadOlder() {

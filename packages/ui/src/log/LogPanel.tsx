@@ -6,8 +6,16 @@
  * - Newest first: the log session's window, bridge and older pages, each
  *   group a header ("GM: Apply") and one sentence per effect
  *   (`describeGroup`). Groups of stale pages are marked "refreshing".
- * - Filters: actor (all, GM, agent, character), kind (all, actions, edits,
- *   undos) and text (the actor, the label and the captured names).
+ * - Filters: actor (all, GM, any agent, each agent seen by name, any
+ *   character, each character seen; vtt-qf5.58), kind (all, actions, edits,
+ *   undos) and text (the actor, the label and the captured names). Choosing
+ *   an actor other than All loads older groups, in batches of
+ *   `LOG_FILTER_PAGES` pages one after another, until the start of the log,
+ *   so every group by that actor is listed in one action; chosen before the
+ *   window subscription is live, it starts once it is. The search stops
+ *   early only when a batch loads nothing (a failed request; "Load older"
+ *   resumes it), when the filter changes, or when the panel closes. A status
+ *   line says how far back the search went.
  * - A sentence links to the object it touched: selected when the current
  *   view has it, else a notice "<name> no longer exists or is hidden".
  * - In the GM view, "Undo" on every group that is neither undone nor an
@@ -40,7 +48,7 @@ import { sessionNotices } from "../session/writes";
 import type { UiStore } from "../state/ui-state";
 import { describeError, describeRejection } from "../values/rejections";
 import { createLogSession, type LogEntry, type LogSession } from "./log-session";
-import { describeGroup, type GroupDescription, groupSearchText } from "./sentences";
+import { actorName, describeGroup, type GroupDescription, groupSearchText } from "./sentences";
 
 export interface LogPanelProps {
   session: TableSession;
@@ -49,7 +57,18 @@ export interface LogPanelProps {
   log?: LogSession;
 }
 
-export type LogActorFilter = "all" | "gm" | "agent" | "character";
+/**
+ * `agents` and `characters` match any agent or character; `agent:<name>`
+ * one agent by name (empty for an unnamed agent), `character:<id>` one
+ * character.
+ */
+export type LogActorFilter =
+  | "all"
+  | "gm"
+  | "agents"
+  | "characters"
+  | `agent:${string}`
+  | `character:${string}`;
 export type LogKindFilter = "all" | "actions" | "edits" | "undos";
 
 export interface LogFilter {
@@ -64,9 +83,37 @@ const KIND_OF: Record<Exclude<LogKindFilter, "all">, GroupView["kind"]> = {
   undos: "undo",
 };
 
+/** Older pages the actor filter's search asks for per `loadOlder` call. */
+export const LOG_FILTER_PAGES = 20;
+
+/** The actor filter value naming exactly `actor`. */
+export function logActorKey(actor: GroupView["actor"]): LogActorFilter {
+  switch (actor.type) {
+    case "gm":
+      return "gm";
+    case "agent":
+      return `agent:${actor.name ?? ""}`;
+    case "character":
+      return `character:${actor.id}`;
+  }
+}
+
+function actorMatches(actor: GroupView["actor"], filter: LogActorFilter): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "agents":
+      return actor.type === "agent";
+    case "characters":
+      return actor.type === "character";
+    default:
+      return logActorKey(actor) === filter;
+  }
+}
+
 /** Whether `group` passes `filter`. */
 export function logFilterMatches(group: GroupView, filter: LogFilter): boolean {
-  if (filter.actor !== "all" && group.actor.type !== filter.actor) return false;
+  if (!actorMatches(group.actor, filter.actor)) return false;
   if (filter.kind !== "all" && group.kind !== KIND_OF[filter.kind]) return false;
   const text = filter.text.trim().toLowerCase();
   return text === "" || groupSearchText(group).includes(text);
@@ -94,6 +141,15 @@ const LINK_STYLE: CSSProperties = {
   cursor: "pointer",
   color: "inherit",
 };
+
+/** The actors seen in the loaded groups, by filter value, each with its display name. */
+interface SeenActors {
+  readonly agents: ReadonlyMap<LogActorFilter, string>;
+  readonly characters: ReadonlyMap<LogActorFilter, string>;
+}
+
+const byName = (a: [LogActorFilter, string], b: [LogActorFilter, string]) =>
+  a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]);
 
 interface Row {
   readonly entry: LogEntry;
@@ -150,6 +206,96 @@ function LogView({ session, ui, log }: { session: TableSession; ui: UiStore; log
         description: describeGroup(entry.group, snap.viewer, { boardName }),
       }));
   }, [snap, filter, boards]);
+
+  // Actors seen since the viewer was last changed; kept as the entries change.
+  const viewerKey = snap.viewer.type === "gm" ? "gm" : `character:${snap.viewer.id}`;
+  const seenRef = useRef<{
+    viewer: string;
+    agents: Map<LogActorFilter, string>;
+    characters: Map<LogActorFilter, string>;
+  }>({
+    viewer: viewerKey,
+    agents: new Map(),
+    characters: new Map(),
+  });
+  const seen: SeenActors = useMemo(() => {
+    if (seenRef.current.viewer !== viewerKey) {
+      seenRef.current = { viewer: viewerKey, agents: new Map(), characters: new Map() };
+    }
+    const { agents, characters } = seenRef.current;
+    for (const { group } of snap.entries) {
+      const actor = group.actor;
+      if (actor.type === "gm") continue;
+      const into = actor.type === "agent" ? agents : characters;
+      const key = logActorKey(actor);
+      if (!into.has(key)) into.set(key, actorName(actor, group.names));
+    }
+    return { agents: new Map(agents), characters: new Map(characters) };
+  }, [snap.entries, viewerKey]);
+  const actorLabel = (key: LogActorFilter): string => {
+    if (key === "agents") return "any agent";
+    if (key === "characters") return "any character";
+    if (key === "gm") return "the GM";
+    return seen.agents.get(key) ?? seen.characters.get(key) ?? key.slice(key.indexOf(":") + 1);
+  };
+
+  // Choosing an actor loads older groups, batch after batch, until the start of
+  // the log. A batch that loads no new page (a failed request) stops the search;
+  // a new run (another actor, Load older, a new viewer) or All or unmounting
+  // cancels the running one before its next batch.
+  const filtering = filter.actor !== "all";
+  const [search, setSearch] = useState<"idle" | "running" | "stopped">("idle");
+  const searchRun = useRef(0);
+  const runSearch = useCallback(() => {
+    const run = ++searchRun.current;
+    setSearch("running");
+    void (async () => {
+      for (;;) {
+        const before = log.getSnapshot();
+        await log.loadOlder(LOG_FILTER_PAGES);
+        if (searchRun.current !== run) return;
+        const after = log.getSnapshot();
+        if (!after.canLoadOlder) break;
+        const progressed =
+          after.pages.length > before.pages.length || after.generation !== before.generation;
+        if (!progressed) {
+          setSearch("stopped");
+          return;
+        }
+      }
+      if (searchRun.current === run) setSearch("idle");
+    })();
+  }, [log]);
+  // The search waits for the window subscription: before it is live, loadOlder
+  // has nothing to page from, so the search starts (or restarts) once it is.
+  const live = snap.live;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new viewer drops older pages, so the search reruns
+  useEffect(() => {
+    if (filter.actor === "all") {
+      setSearch("idle");
+      return;
+    }
+    if (!live) {
+      setSearch("running");
+      return;
+    }
+    runSearch();
+    return () => {
+      searchRun.current++;
+    };
+  }, [filter.actor, runSearch, viewerKey, live]);
+  const oldest = snap.entries.at(-1)?.group.index ?? "none";
+  const searchStatus = !filtering
+    ? null
+    : search === "running"
+      ? `Searching older groups… (searched back to group ${oldest})`
+      : search === "stopped"
+        ? `Search stopped at group ${oldest}. Load older to continue.`
+        : !snap.canLoadOlder
+          ? `Every group by ${actorLabel(filter.actor)} is listed.`
+          : snap.loading
+            ? `Searching older groups… (searched back to group ${oldest})`
+            : `Search stopped at group ${oldest}. Load older to continue.`;
 
   const gmView = snap.viewer.type === "gm" && current.viewer.type === "gm";
   const notices = sessionNotices(session);
@@ -286,8 +432,22 @@ function LogView({ session, ui, log }: { session: TableSession; ui: UiStore; log
           >
             <option value="all">All</option>
             <option value="gm">GM</option>
-            <option value="agent">Agent</option>
-            <option value="character">Character</option>
+            <optgroup label="Agents">
+              <option value="agents">Any agent</option>
+              {[...seen.agents].sort(byName).map(([key, name]) => (
+                <option key={key} value={key}>
+                  {name}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Characters">
+              <option value="characters">Any character</option>
+              {[...seen.characters].sort(byName).map(([key, name]) => (
+                <option key={key} value={key}>
+                  {name}
+                </option>
+              ))}
+            </optgroup>
           </select>
         </label>
         <label>
@@ -372,8 +532,13 @@ function LogView({ session, ui, log }: { session: TableSession; ui: UiStore; log
           );
         })}
       </ol>
+      {searchStatus === null ? null : (
+        <p role="status" aria-label="Log search">
+          {searchStatus}
+        </p>
+      )}
       {snap.canLoadOlder ? (
-        <button type="button" onClick={() => void log.loadOlder()}>
+        <button type="button" onClick={() => (filtering ? runSearch() : void log.loadOlder())}>
           Load older
         </button>
       ) : null}

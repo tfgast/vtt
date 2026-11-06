@@ -14,6 +14,8 @@ import {
   type ExtensionContext,
   type InteractionStamp,
   invokeExtension,
+  LOG_FILTER_PAGES,
+  LOG_PAGE_SIZE,
   LogPanel,
   requestInvoke,
   sessionNotices,
@@ -435,6 +437,138 @@ describe("with an IntersectionObserver", () => {
   });
 });
 
+describe("the actor filter", () => {
+  test("lists GM, every agent and character seen, and any agent or character", async () => {
+    const { authority, gm, session } = await setup();
+    const sage = await authority.client("Sage", "agent");
+    await commit(sage, [{ type: "set_value", object: "note", cell: "n", value: num(1) }], "Note");
+    await caughtUp(session, sage);
+    const r = await session.client.transact(
+      [{ type: "set_value", object: "note", cell: "n", value: num(2) }],
+      { label: "Touch", actor: { type: "character", id: "aldric" } },
+    );
+    if (r.status !== "committed") throw new Error(JSON.stringify(r));
+    await caughtUp(session, gm);
+    await mount(session);
+    await until(() => groupItems().length === 3, "three groups");
+    const select = screen.getByRole("combobox", { name: "Actor" }) as HTMLSelectElement;
+    const options = [...select.options].map((o) => [o.value, o.textContent]);
+    expect(options).toEqual([
+      ["all", "All"],
+      ["gm", "GM"],
+      ["agents", "Any agent"],
+      ["agent:Sage", "Sage"],
+      ["characters", "Any character"],
+      ["character:aldric", "Aldric"],
+    ]);
+  });
+
+  test("choosing the agent lists all its groups, older ones too, and no GM group, in one action", async () => {
+    const { authority, gm, pool, session } = await setup();
+    const sage = await authority.client("Sage", "agent");
+    const early = await commit(
+      sage,
+      [{ type: "set_value", object: "note", cell: "a", value: num(1) }],
+      "Early",
+    );
+    await commit(sage, [{ type: "set_value", object: "note", cell: "b", value: num(1) }], "Plan");
+    await commitMany(pool, 300, "note", "n", "Step");
+    await until(() => sage.revision >= gm.revision, "Sage to catch up");
+    await commit(sage, [{ type: "set_value", object: "note", cell: "c", value: num(1) }], "Late");
+    await caughtUp(session, sage);
+    await mount(session);
+    await until(() => groupItems().length === 200, "the window");
+    expect(groupItems().map((el) => el.getAttribute("aria-label"))).toContain("Sage: Late");
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Actor" }), "agent:Sage");
+    const headers = () => groupItems().map((el) => el.getAttribute("aria-label"));
+    await until(() => headers().length === 3, "Sage's three groups");
+    expect(headers()).toEqual(["Sage: Late", "Sage: Plan", "Sage: Early"]);
+    expect(item("Sage: Early").dataset.logIndex).toBe(String(early.index));
+    await until(() => screen.queryByText(/^Every group by Sage is listed/) !== null, "the end");
+    expect(screen.queryByRole("button", { name: "Load older" })).toBeNull();
+  });
+
+  test("choosing the agent searches on past the first batch of 20 pages to the start of the log", async () => {
+    const { authority, gm, pool, session } = await setup();
+    const sage = await authority.client("Sage", "agent");
+    await commit(sage, [{ type: "set_value", object: "note", cell: "a", value: num(1) }], "Old");
+    await until(() => sage.revision >= gm.revision, "Sage to catch up");
+    // More writers than the default four: the authority limits requests per connection and second.
+    const many = [...pool];
+    for (let k = 4; k < 12; k++) many.push(await authority.client(`writer ${k}`));
+    await commitMany(many, LOG_FILTER_PAGES * LOG_PAGE_SIZE + 210, "note", "n", "Step");
+    await until(() => sage.revision >= gm.revision, "Sage to catch up");
+    await commit(sage, [{ type: "set_value", object: "note", cell: "c", value: num(1) }], "New");
+    await caughtUp(session, sage);
+    await mount(session);
+    await until(() => groupItems().length === 200, "the window");
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Actor" }), "agent:Sage");
+    await until(
+      () => screen.queryByText(/^Every group by Sage is listed/) !== null,
+      "the end",
+      30_000,
+    );
+    expect(groupItems().map((el) => el.getAttribute("aria-label"))).toEqual([
+      "Sage: New",
+      "Sage: Old",
+    ]);
+    expect(screen.queryByRole("button", { name: "Load older" })).toBeNull();
+  }, 60_000);
+
+  test("'Any agent' chosen while the log subscription is pending searches once it is live", async () => {
+    const { authority, gm, pool, session } = await setup();
+    const sage = await authority.client("Sage", "agent");
+    await commit(sage, [{ type: "set_value", object: "note", cell: "a", value: num(1) }], "Old");
+    await commitMany(pool, 260, "note", "n", "Step");
+    await caughtUp(session, gm);
+    // Hold the log panel's subscription until the actor is chosen.
+    let open = () => {};
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const subscribe = session.client.subscribe.bind(session.client);
+    const spy = vi.spyOn(session.client, "subscribe").mockImplementation(async (params) => {
+      await gate;
+      return subscribe(params);
+    });
+    render(<LogPanel session={session} ui={createUiStore({ session })} />);
+    await until(() => spy.mock.calls.length > 0, "the log subscription request");
+    expect(document.querySelector("[data-log-live]")).toBeNull();
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Actor" }), "agents");
+    open();
+    await until(
+      () => screen.queryByText(/^Every group by any agent is listed/) !== null,
+      "the end",
+    );
+    expect(groupItems().map((el) => el.getAttribute("aria-label"))).toEqual(["Sage: Old"]);
+    spy.mockRestore();
+  });
+
+  test("'Any agent' finds an agent that only acted before the window", async () => {
+    const { authority, gm, pool, session } = await setup();
+    const sage = await authority.client("Sage", "agent");
+    await commit(sage, [{ type: "set_value", object: "note", cell: "a", value: num(1) }], "Old");
+    await commitMany(pool, 260, "note", "n", "Step");
+    await caughtUp(session, gm);
+    await mount(session);
+    await until(() => groupItems().length === 200, "the window");
+    const select = screen.getByRole("combobox", { name: "Actor" }) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).not.toContain("agent:Sage");
+
+    const user = userEvent.setup();
+    await user.selectOptions(select, "agents");
+    await until(() => groupItems().length === 1, "the agent's group");
+    expect(groupItems().map((el) => el.getAttribute("aria-label"))).toEqual(["Sage: Old"]);
+    expect([...select.options].map((o) => o.value)).toContain("agent:Sage");
+  });
+});
+
 describe("links and filters", () => {
   test("clicking a sentence selects the object, or says it is gone", async () => {
     const { gm, session } = await setup();
@@ -476,7 +610,9 @@ describe("links and filters", () => {
     const headers = () => groupItems().map((el) => el.getAttribute("aria-label"));
     const user = userEvent.setup();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Actor" }), "agent");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Actor" }), "agent:Sage");
+    await until(() => headers().join() === "Sage: Heal", "Sage's group");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Actor" }), "agents");
     expect(headers()).toEqual(["Sage: Heal"]);
     await user.selectOptions(screen.getByRole("combobox", { name: "Actor" }), "gm");
     expect(headers()).toHaveLength(4);

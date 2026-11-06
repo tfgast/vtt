@@ -590,8 +590,10 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 7. Press Ctrl+Z. This works in view-as.
 8. View as GM. Click G4 and press Delete. G4 and its die disappear.
 9. Press Ctrl+Z.
-10. Open the Log tab. Press Load older until the agent's step-5 changes
-    are listed.
+10. Open the Log tab. Set its Actor filter to Any agent (or to the
+    agent's name, when it is listed). The log loads older entries on its
+    own and lists only the agent's changes, back to step 5.
+11. Set the Actor filter back to All.
 
 You should see:
 
@@ -599,9 +601,11 @@ You should see:
   card's Apply enabled again. One undo reversed the whole Apply.
 - After the second Ctrl+Z: G4 is back, with its die in its list (its
   count badge reads 1).
-- In the Log tab: the "Apply" entry and the "Delete G4" entry are marked
-  undone, and older entries lead back to the agent's (the walkthrough's is
-  "Fireball for Aldric").
+- In the Log tab, filtered to Any agent: only the agent's entries, back
+  to its step-5 changes (the walkthrough's include "Fireball for Aldric"),
+  and the line under the list reads "Every group by any agent is listed."
+- Back on All: the "Apply" entry and the "Delete G4" entry are marked
+  undone.
 
 The walkthrough rolled 18 (total 23) and 5 damage.
 
