@@ -11,6 +11,8 @@
  * focus is (M6-D11): a Space pressed in a text field (`isTextField`: a
  * text-taking input, a textarea or contenteditable) is ignored (and never
  * prevented, so it types), and a Space released anywhere ends a held Space.
+ * A Space pressed with focus inside the container carries `canvasFocused`.
+ * A key_down `onEvent` answers with `true` is prevented (vtt-qf5.26).
  */
 import type { Point } from "@vtt/schema";
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
@@ -38,7 +40,12 @@ export interface BoardCanvasProps<S extends Scene = Scene> {
   scene: S;
   toolOverlays: readonly ToolOverlay[];
   camera: Camera;
-  onEvent: (event: InteractionEvent) => void;
+  /**
+   * Receives every event. Returning `true` for a key_down (the runtime's
+   * `dispatch` does when a tool answered the key, vtt-qf5.26) prevents the
+   * key's browser default, so a Tab the face focus takes stays on the canvas.
+   */
+  onEvent: (event: InteractionEvent) => unknown;
   /**
    * Called once on mount; the renderer is disposed on unmount. Defaults to the
    * Canvas2D renderer over the canvas's 2D context with an `ImageCache` that
@@ -232,8 +239,23 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
         modifiers: modifiers(e),
       });
     };
-    const keyEvent = (type: "key_down" | "key_up", e: KeyboardEvent, textField: boolean) =>
-      emit({ type, key: e.key, code: e.code, modifiers: modifiers(e), inTextField: textField });
+    /** Emits a key event; a key_down the receiver answers with `true` is prevented. */
+    const keyEvent = (
+      type: "key_down" | "key_up",
+      e: KeyboardEvent,
+      textField: boolean,
+      canvasFocused?: boolean,
+    ) => {
+      const handled = emit({
+        type,
+        key: e.key,
+        code: e.code,
+        modifiers: modifiers(e),
+        inTextField: textField,
+        ...(canvasFocused === true ? { canvasFocused } : {}),
+      });
+      if (type === "key_down" && handled === true) e.preventDefault();
+    };
     // Space is the window listener's.
     const key = (type: "key_down" | "key_up") => (e: KeyboardEvent) => {
       if (!isSpaceKey(e)) keyEvent(type, e, inTextField(e.target));
@@ -242,7 +264,9 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
       if (!isSpaceKey(e)) return;
       // Text-taking fields only: a focused checkbox or button still lets Space pan.
       if (type === "key_down" && isTextField(e.target)) return;
-      keyEvent(type, e, false);
+      const focused =
+        type === "key_down" && e.target instanceof Node && container.contains(e.target);
+      keyEvent(type, e, false, focused);
     };
     const onWindowKeyDown = onSpace("key_down");
     const onWindowKeyUp = onSpace("key_up");

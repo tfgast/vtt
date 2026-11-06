@@ -58,9 +58,10 @@ shared by tests and review). See `docs/PROTOCOL.md` for the wire contract.
   `packages/ui/test/support/authority.ts`. No browser automation in v1's
   test suite.
 - Every package must have at least one test file. Vitest only fails an
-  entirely empty run, so an inline reporter in the root config fails
-  `pnpm test` when any selected project globs zero test files (path filters
-  keep all projects selected; `--project` narrows the set).
+  entirely empty run, so a reporter in the root config
+  (`vitest.reporters.ts`) fails `pnpm test` when any selected project globs
+  zero test files (path filters keep all projects selected; `--project`
+  narrows the set). In watch mode it only logs the empty project.
 - README.md (quick start, agent hookup, keys) and docs/FIRST-SESSION.md (the
   playtest guide, kept in step with the walkthrough tests) are maintained
   docs: a change that alters what they describe updates them in the same

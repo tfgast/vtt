@@ -60,6 +60,12 @@ export type Effect =
    */
   | { type: "open_editor"; stamp: InteractionStamp; object: ObjectId; cell?: string; rect?: Bounds }
   | { type: "close_editor" }
+  /**
+   * The key event being reduced is answered by the tool (vtt-qf5.26): the
+   * runtime's `dispatch` reports it, and `BoardCanvas` prevents the key's
+   * browser default (Tab moving focus off the canvas). Nothing else runs.
+   */
+  | { type: "key_handled" }
   /** A named runtime extension (M5 Q1 A1/A2); with a stamp it settles back as `extension`. */
   | { type: "extension"; name: string; stamp?: InteractionStamp; payload: unknown };
 

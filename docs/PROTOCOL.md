@@ -380,12 +380,15 @@ type FaceElement =
   | { type: "button"; action: string; rect: Rect; label?: string; show_when?: string; min_size?: number }
   | { type: "contents"; rect: Rect; entries?: "collapsed" | "full"; show_when?: string; min_size?: number; when_selected?: boolean };
 type Rect = [x: number, y: number, w: number, h: number];   // finite, w and h > 0
-type FaceStyle = { size?: "small" | "normal" | "large" | "huge"; align?: "left" | "center" | "right"; caption?: boolean };
+type FaceStyle = { size?: "small" | "normal" | "large" | "huge"; align?: "left" | "center" | "right"; caption?: boolean; format?: FaceNumberFormat };
+type FaceNumberFormat = { sign?: "always" | "auto"; decimals?: number };   // decimals an integer 0–10 (FORMULAS.md §11)
 ```
 
 At most `max_face_elements` (200) elements per list and one `contents`
-element per list; `show_when` is non-blank and at most 10,000 characters. A
-layout breaking these is rejected `invalid`.
+element per list; `show_when` is non-blank and at most 10,000 characters;
+`style.format.decimals` is an integer 0–10. A layout breaking these is
+rejected `invalid`; an unknown `format` key or `sign` is a malformed layout
+(`bad_request`).
 
 `when_selected` (M6-D12) is optional on contents elements only and must be a
 boolean (anything else, or the key on another element kind, is a malformed

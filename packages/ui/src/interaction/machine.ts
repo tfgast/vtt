@@ -13,7 +13,10 @@
  *   `camera` effects from `panBy` (the grabbed board point follows the
  *   pointer) until that pointer is up; none of its events reach the tool.
  * - Escape → the active tool's `cancel(state, "escape")`. Space and Escape
- *   keys are the machine's and never reach a tool.
+ *   keys are the machine's, except that a Space key_down with focus on the
+ *   canvas (`canvasFocused`) that starts a held Space also reaches the
+ *   active tool, which may activate a focused face target with it
+ *   (vtt-qf5.26); Space is held either way.
  * - Key events from text fields are dropped.
  * - A change of the active board or viewer (`syncInput`, also run first by
  *   `reduce`) and a tool switch (`setTool`) cancel the active tool first.
@@ -286,8 +289,13 @@ function route(
     }
     case "key_down":
     case "key_up":
-      if (isSpace(event))
-        return { state: { ...state, space: event.type === "key_down" }, effects: [] };
+      if (isSpace(event)) {
+        const held = { ...state, space: event.type === "key_down" };
+        if (event.type === "key_down" && !state.space && event.canvasFocused === true) {
+          return deliver(held, state.tool, event, input, registry);
+        }
+        return { state: held, effects: [] };
+      }
       if (event.key === "Escape") {
         return event.type === "key_down"
           ? cancelActive(state, "escape", registry)

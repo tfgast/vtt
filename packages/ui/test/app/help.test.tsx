@@ -114,6 +114,11 @@ describe("the tables", () => {
       },
       { gesture: "Gear", effect: "edit a template" },
       {
+        gesture: "Tab or Shift+Tab, one object selected",
+        effect:
+          "ring its next or previous face button, field or chevron; Enter or Space presses it",
+      },
+      {
         gesture: "Drag a cell row from the inspector onto an object (layout mode)",
         effect: "show the cell on the face",
       },

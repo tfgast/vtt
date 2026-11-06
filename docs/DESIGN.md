@@ -547,7 +547,9 @@ object's layout is its field `face?: FaceLayout`:
   height of the shape's local bounding box, measured from its origin, in
   the same write; the collapsed list and `min_size` are unchanged.
 - `style = {size?: "small" | "normal" | "large" | "huge"; align?: "left" |
-  "center" | "right"; caption?: boolean}`.
+  "center" | "right"; caption?: boolean; format?: {sign?: "always" |
+  "auto"; decimals?: number}}`. `format` writes a number value's face text
+  (FORMULAS.md §11); `decimals` is an integer 0–10.
 - At most 200 elements per list and one `contents` element per list;
   `show_when` non-blank, at most 10,000 characters.
 - `when_selected` (contents elements only, M6-D12) is a boolean; absent
@@ -783,6 +785,13 @@ editor share one input grammar:
   the cycle counts through the double-click's own two plain clicks, which
   still select the first object before the double-click selects it back
   (M6-D21).
+- Keyboard (vtt-qf5.26): with exactly one board object selected, Tab and
+  Shift+Tab ring its face targets in reading order (buttons, editor
+  elements a click could edit, then each list entry's chevron and gear,
+  an expanded entry's own targets after its chevron), wrapping, without
+  moving browser focus off the canvas; Enter or Space presses the ringed
+  target exactly as a click does. Escape clears the ring before anything
+  else; a pointer press or a selection change clears it too.
 - Objects move between boards by dropping a drag on a board tab, or with
   "Move selection to board…" (M6-D27). A drag released over another
   board's tab is one write: a move puts the dragged objects on that board

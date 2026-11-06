@@ -31,10 +31,8 @@ export interface PointerFields {
 
 export type PointerEventType = "pointer_down" | "pointer_move" | "pointer_up" | "pointer_cancel";
 
-/** One object type for an intersection (keeps optional keys optional). */
-type Flat<O> = { [K in keyof O]: O[K] };
-
-type Tagged<T extends string, F> = { [K in "type" | keyof F]: K extends keyof F ? F[K] : T };
+/** `F` with a `type` tag, flattened; optional fields of `F` stay optional. */
+type Tagged<T extends string, F> = { [K in keyof ({ type: T } & F)]: ({ type: T } & F)[K] };
 
 /**
  * A board tab under the pointer at a release (vtt-qf5.35; DESIGN.md §4.6 On
@@ -52,7 +50,7 @@ export interface BoardTabDrop {
  * tab (the tab strip is DOM chrome outside the canvas), and on no other event.
  */
 export type PointerInteractionEvent = {
-  [T in PointerEventType]: Flat<Tagged<T, PointerFields> & { boardTab?: BoardTabDrop }>;
+  [T in PointerEventType]: Tagged<T, PointerFields & { boardTab?: BoardTabDrop }>;
 }[PointerEventType];
 
 /**
@@ -65,6 +63,12 @@ export interface KeyFields {
   code: string;
   modifiers: Modifiers;
   inTextField: boolean;
+  /**
+   * Space only (heard on the window, M6-D11): true when focus is inside the
+   * canvas or its overlay, so a tool may answer it (vtt-qf5.26); absent
+   * when focus is elsewhere.
+   */
+  canvasFocused?: boolean;
 }
 
 /** The result of an async effect, dispatched as `settled` with its stamp's `interactionId`. */

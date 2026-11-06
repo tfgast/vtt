@@ -1153,3 +1153,25 @@ describe("execute (vtt-1xv.19)", () => {
     expect(h.notices).toEqual([]);
   });
 });
+
+describe("key_handled (vtt-qf5.26)", () => {
+  test("dispatch reports a key a tool answered with key_handled, and runs nothing for it", () => {
+    const answering = (log: Log): Tool<Phase> => ({
+      ...scriptedTool("select", log),
+      reduce(state, event, input) {
+        log.push({ tool: "select", kind: "event", event, interactionId: input.interactionId });
+        const handled = event.type === "key_down" && event.key === "Tab";
+        return { state, effects: handled ? [{ type: "key_handled" }] : [] };
+      },
+    });
+    const h = setup({
+      tool: "select",
+      tools: (log) => [answering(log), scriptedTool("token", log)],
+    });
+    expect(h.runtime.dispatch(keyDown("Tab"))).toBe(true);
+    expect(h.runtime.dispatch(keyDown("Enter"))).toBe(false);
+    expect(h.runtime.dispatch(pointer("pointer_down", [1, 2]))).toBe(false);
+    expect(h.writes).toEqual([]);
+    expect(h.notices).toEqual([]);
+  });
+});
