@@ -395,9 +395,8 @@ describe("text tool", () => {
     const field = await screen.findByRole("textbox", { name: "Edit text" });
     await waitFor(() => expect(document.activeElement).toBe(field));
     // Typing commits with a base revision that includes the creation: no stale_write.
-    // An empty text cell is prefilled as its literal, `""` (vtt-3l6.13's input grammar).
-    expect((field as HTMLTextAreaElement).value).toBe('""');
-    await userEvent.clear(field);
+    // An empty text cell opens blank, not as its literal `""` (vtt-qf5.43): typing needs no clearing.
+    expect((field as HTMLTextAreaElement).value).toBe("");
     await userEvent.type(field, "trap on the third stair{Enter}");
     await until(
       () => (c.content(id, "text") as { value?: string } | undefined)?.value !== "",
@@ -409,6 +408,23 @@ describe("text tool", () => {
         .list()
         .filter((n) => n.kind === "stale"),
     ).toEqual([]);
+  });
+
+  test("committing the blank editor of a new text object writes nothing (vtt-qf5.43)", async () => {
+    const c = await setup();
+    act(() => c.ui.setTool("text"));
+    pointer("pointerDown", c.canvas, [-3, 3]);
+    pointer("pointerUp", c.canvas, [-3, 3]);
+    await until(() => c.created("text").length === 1, "the text object");
+    const [id] = c.created("text") as [string];
+    const field = await screen.findByRole("textbox", { name: "Edit text" });
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    const revision = c.session.getSnapshot().revision;
+    await userEvent.type(field, "{Enter}");
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Edit text" })).toBeNull());
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(c.session.getSnapshot().revision).toBe(revision);
+    expect(c.content(id, "text")).toEqual(text(""));
   });
 
   test("with Shift held the text tool stays active", async () => {
