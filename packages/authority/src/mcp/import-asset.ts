@@ -6,11 +6,11 @@
  * authority's HTTP origin (the connection's WebSocket URL with `http:`, same
  * host and port) with the connection's current bearer token. Registered
  * through the connection gate; added to `createMcpServer` as an extension:
- * `createMcpServer({client, extensions: [importAssetTool({credentials})]})`.
+ * `createMcpServer({client, extensions: [importAssetTool()]})`.
  *
- * `ProtocolClient` does not expose its credentials, so the caller supplies
- * them; `ConnectionCredentials` tracks them for a client that starts with an
- * explicit pair and refreshes them through discovery (`vtt-mcp`).
+ * The credentials default to `ProtocolClient.credentials`, the pair the
+ * connection uses, which follows every discovery refresh recovery hands to
+ * `reopen`.
  */
 import { open, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
@@ -26,37 +26,12 @@ export interface AssetCredentials {
   token: string;
 }
 
-/**
- * The connection's current credentials: the initial pair, then every pair a
- * tracked discovery source yields. Recovery (`enableRecovery`) hands each
- * pair it reads to `ProtocolClient.reopen`, which keeps it, so the latest
- * pair read is the pair the connection uses; a null read (no session file)
- * keeps the previous pair, as recovery does.
- */
-export class ConnectionCredentials {
-  #current: AssetCredentials;
-
-  constructor(initial: AssetCredentials) {
-    this.#current = { url: initial.url, token: initial.token };
-  }
-
-  current(): AssetCredentials {
-    return { ...this.#current };
-  }
-
-  /** Wraps a discovery source so every non-null pair it yields becomes current. */
-  track<T extends AssetCredentials>(source: () => Promise<T | null>): () => Promise<T | null> {
-    return async () => {
-      const read = await source();
-      if (read !== null) this.#current = { url: read.url, token: read.token };
-      return read;
-    };
-  }
-}
-
 export interface ImportAssetToolOptions {
-  /** The connection's current credentials, read at every call. */
-  credentials: () => AssetCredentials;
+  /**
+   * The connection's current credentials, read at every call; default: the
+   * client's `credentials` getter.
+   */
+  credentials?: () => AssetCredentials;
   /** The directory a relative `path` resolves against; default `process.cwd()`. */
   cwd?: string;
   /** Reads a regular file's bytes; default: `fs` (a seam for tests). */
@@ -179,7 +154,7 @@ async function serverMessage(res: Response): Promise<string | undefined> {
 }
 
 /** The `import_asset` tool as an `McpExtension` (PROTOCOL.md §11). */
-export function importAssetTool(options: ImportAssetToolOptions): McpExtension {
+export function importAssetTool(options: ImportAssetToolOptions = {}): McpExtension {
   return (server, client) => {
     const handler = async (input: ImportAssetToolInput): Promise<CallToolResult> => {
       const file = resolve(options.cwd ?? process.cwd(), input.path);
@@ -190,7 +165,7 @@ export function importAssetTool(options: ImportAssetToolOptions): McpExtension {
       const gate = client.connectionError();
       if (gate !== null) return toolError({ code: gate.code, message: gate.message });
 
-      const { url, token } = options.credentials();
+      const { url, token } = options.credentials?.() ?? client.credentials;
       const headers: Record<string, string> = {
         "Content-Type": "application/octet-stream",
         Authorization: `Bearer ${token}`,

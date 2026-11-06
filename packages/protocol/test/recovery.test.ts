@@ -461,6 +461,7 @@ describe("credentials", () => {
     expect(server.peer.hello).toMatchObject({ token: "tok2", client: { instance: "inst-1" } });
     expect(server.peer.url).toBe("ws://127.0.0.1:4748/ws");
     expect(client.ready).toBe(true);
+    expect(client.credentials).toEqual({ url: "ws://127.0.0.1:4748/ws", token: "tok2" });
   });
 
   test.each([
@@ -489,6 +490,7 @@ describe("credentials", () => {
     expect(server.peer.url).toBe(URL_);
     expect(server.peer.hello).toMatchObject({ token: "tok" });
     expect(client.ready).toBe(true);
+    expect(client.credentials).toEqual({ url: URL_, token: "tok" });
   });
 
   test("a 4401 on an attempt is not terminal: the next attempt re-reads", async () => {

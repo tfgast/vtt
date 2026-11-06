@@ -12,7 +12,6 @@ import { join, relative } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport, type McpServer } from "@modelcontextprotocol/server";
 import {
-  ConnectionCredentials,
   createAssetHttpHandler,
   createMcpServer,
   type HttpHandler,
@@ -90,11 +89,11 @@ async function start(
     token?: string;
     port?: number;
     connect?: boolean;
-    /** The tool's credentials; default: the server's url and token. */
+    /** The tool's credentials; default: the client's `credentials` getter. */
     credentials?: () => { url: string; token: string };
     /** The tool's file read (given the client), to act during the read. */
     readFile?: (client: ProtocolClient) => (file: string) => Promise<Uint8Array<ArrayBuffer>>;
-    /** Discovery: recovery reads credentials from this source (given the server), tracked for the tool. */
+    /** Discovery: recovery reads credentials from this source (given the server). */
     discovery?: (server: RunningServer) => () => Promise<{
       url: string;
       token: string;
@@ -119,12 +118,11 @@ async function start(
     onWarning: () => undefined,
   });
   closers.push(() => client.close());
-  const tracked = new ConnectionCredentials({ url: server.url, token: server.token });
   const mcpServer: McpServer = createMcpServer({
     client,
     extensions: [
       importAssetTool({
-        credentials: options.credentials ?? (() => tracked.current()),
+        ...(options.credentials === undefined ? {} : { credentials: options.credentials }),
         ...(options.readFile === undefined ? {} : { readFile: options.readFile(client) }),
       }),
     ],
@@ -140,9 +138,7 @@ async function start(
   if (options.connect !== false) {
     const stop = enableRecovery(client, {
       reconnect: { initialMs: 10, maxMs: 50, factor: 2 },
-      ...(options.discovery === undefined
-        ? {}
-        : { credentials: tracked.track(options.discovery(server)) }),
+      ...(options.discovery === undefined ? {} : { credentials: options.discovery(server) }),
     });
     closers.push(stop);
     await until(() => client.ready, 5000, "the client to be ready");
@@ -339,6 +335,7 @@ describe("importing a file", () => {
       table_id: host.tableId,
     };
     await until(() => s.client.ready, 10000, "the reconnect through discovery");
+    expect(s.client.credentials).toEqual({ url: second.url, token: "second-token" });
 
     const file = join(dir, "map.png");
     await writeFile(file, png());
@@ -373,24 +370,5 @@ describe("the connection gate", () => {
     await writeFile(file, png());
     expectError(await s.call({ path: file }), "disconnected");
     expect(s.uploads()).toBe(0);
-  });
-});
-
-describe("ConnectionCredentials", () => {
-  test("tracks every pair a discovery source yields and ignores null reads", async () => {
-    const tracked = new ConnectionCredentials({ url: "ws://127.0.0.1:1/ws", token: "a" });
-    let next: { url: string; token: string; table_path: null; table_id: null } | null = {
-      url: "ws://127.0.0.1:2/ws",
-      token: "b",
-      table_path: null,
-      table_id: null,
-    };
-    const source = tracked.track(async () => next);
-    expect(tracked.current()).toEqual({ url: "ws://127.0.0.1:1/ws", token: "a" });
-    expect(await source()).toEqual(next);
-    expect(tracked.current()).toEqual({ url: "ws://127.0.0.1:2/ws", token: "b" });
-    next = null;
-    expect(await source()).toBeNull();
-    expect(tracked.current()).toEqual({ url: "ws://127.0.0.1:2/ws", token: "b" });
   });
 });
