@@ -264,6 +264,20 @@ describe("BoardCanvas", () => {
       }
     });
 
+    test("a Space pressed with a checkbox focused still reaches onEvent", () => {
+      const { events } = setup();
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      document.body.appendChild(box);
+      try {
+        box.focus();
+        fireEvent.keyDown(box, SPACE);
+        expect(events).toEqual([spaceEvent("key_down")]);
+      } finally {
+        box.remove();
+      }
+    });
+
     test("a Space released in a text field still ends a held Space", () => {
       const { events } = setup();
       const input = document.createElement("input");

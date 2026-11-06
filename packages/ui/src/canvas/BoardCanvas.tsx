@@ -8,11 +8,13 @@
  *
  * Keys come from the container (focus inside the canvas or its overlay),
  * except Space, which is heard on the window so Space-drag pans wherever
- * focus is (M6-D11): a Space pressed in a text field is ignored (and never
+ * focus is (M6-D11): a Space pressed in a text field (`isTextField`: a
+ * text-taking input, a textarea or contenteditable) is ignored (and never
  * prevented, so it types), and a Space released anywhere ends a held Space.
  */
 import type { Point } from "@vtt/schema";
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
+import { isTextField } from "../app/keybindings";
 import type { Viewport } from "../interaction/contracts";
 import type { InteractionEvent, Modifiers } from "../interaction/events";
 import type { ToolOverlay } from "../interaction/overlays";
@@ -227,7 +229,8 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
     };
     const onSpace = (type: "key_down" | "key_up") => (e: KeyboardEvent) => {
       if (!isSpaceKey(e)) return;
-      if (type === "key_down" && inTextField(e.target)) return;
+      // Text-taking fields only: a focused checkbox or button still lets Space pan.
+      if (type === "key_down" && isTextField(e.target)) return;
       keyEvent(type, e, false);
     };
     const onWindowKeyDown = onSpace("key_down");
