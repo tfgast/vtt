@@ -141,6 +141,9 @@ Then the four characters, one at a time:
 6. Drag the Character entry out of the GM binder onto the GM board, to the
    right of the binder. The walkthrough makes Dara first at `[16, 0]`, then
    Corin at `[14, 0]`, Brenna at `[12, 0]` and Aldric last at `[10, 0]`.
+   Drag the Character entry while its row is collapsed. If you opened it
+   with the chevron, that made a working copy inside the binder: drag that
+   copy's picture out instead, it becomes the character.
 7. Double-click the new token's name and type the character's name.
 8. Click the token to show its contents list, then expand the sheet entry
    with its chevron. While the token is not selected, its count badge

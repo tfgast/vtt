@@ -86,7 +86,9 @@ export interface FacePolicy {
 /**
  * A gesture `withFaces` offers each pointer down's hit to, in order: `start`
  * claims it (non-null state), after which every event goes to `reduce`
- * until it returns a null state; `cancel` ends it unfinished.
+ * until it returns a null state; `cancel` ends it unfinished. `withFaces`
+ * also offers a press that moved beyond `FACE_CLICK_PX` to `start`, with
+ * that `pointer_move` as the event (vtt-nb8.30).
  */
 export interface FaceGesture<S> {
   id: string;

@@ -10,6 +10,15 @@
  * expanded row (a `body` hit with a non-empty `path`); the dragged object is
  * that entry or child, and its container the row's.
  *
+ * A press anywhere else in a row that is not a control of its own (its
+ * drawn object's value elements, editor elements the viewer may not type
+ * into, the empty space of its nested lists, its chevron or gear) stays `withFaces`'s until it moves beyond
+ * `FACE_CLICK_PX`; `withFaces` then offers it to `start` with that
+ * `pointer_move` (vtt-nb8.30), and the gesture claims it as that row's
+ * object, already dragging, the intent captured at that move. So a click
+ * or double-click there behaves as before, and a drag from the drawn face
+ * drags the entry out. A nested list's entries stay the nested objects'.
+ *
  * - Released within `ENTRY_DRAG_THRESHOLD_PX` of the pointer down: a click,
  *   selecting the object (`select [id]`, no write).
  * - Beyond it: a drag showing a `drag_ghost` at the pointer. The intent is
@@ -108,13 +117,32 @@ function rotationOf(view: ObjectView | null): number {
   return v?.type === "number" && Number.isFinite(v.value) ? v.value : 0;
 }
 
-/** The dragged object and its container for a hit the gesture claims, else null. */
-function claimed(hit: FaceHit): { dragged: ObjectId; from: ObjectId } | null {
+/**
+ * The dragged object and its container for a hit the gesture claims, else
+ * null. At pointer down: an `entry` hit, or a `body` hit with a path. On a
+ * press handed off after it moved (`moved`, vtt-nb8.30): also the row's own
+ * `value`, `editor`, `chevron` and `gear` hits with a path, and the empty
+ * space of its own nested list (a `contents` hit with a path), each the
+ * row's object (`hit.object`) in the path's last container.
+ */
+function claimed(hit: FaceHit, moved: boolean): { dragged: ObjectId; from: ObjectId } | null {
   const t = hit.target;
   if (t.type === "entry") return { dragged: t.id, from: t.container };
   const last = hit.path[hit.path.length - 1];
-  if (t.type === "body" && last !== undefined) return { dragged: hit.object, from: last.container };
-  return null;
+  if (last === undefined) return null;
+  const row = { dragged: hit.object, from: last.container };
+  switch (t.type) {
+    case "body":
+      return row;
+    case "value":
+    case "editor":
+    case "chevron":
+    case "gear":
+    case "contents":
+      return moved ? row : null;
+    default:
+      return null;
+  }
 }
 
 /** The drop's effects: one write with the pointer-down stamp, or none. */
@@ -187,8 +215,10 @@ export function entryDragGesture(options: EntryDragOptions = {}): FaceGesture<un
   const gesture: FaceGesture<EntryDragState> = {
     id: ENTRY_DRAG_GESTURE,
     start(hit, event, input, stamp) {
-      if (event.type !== "pointer_down") return null;
-      const claim = claimed(hit);
+      // A pointer down, or a press `withFaces` hands off once it moved (vtt-nb8.30).
+      if (event.type !== "pointer_down" && event.type !== "pointer_move") return null;
+      const moved = event.type === "pointer_move";
+      const claim = claimed(hit, moved);
       if (claim === null) return null;
       const view = input.views(claim.dragged);
       if (view === null) return null;
@@ -201,7 +231,7 @@ export function entryDragGesture(options: EntryDragOptions = {}): FaceGesture<un
         from: claim.from,
         intent: { copy: view.is_template && !alt, alt },
         stamp,
-        dragging: false,
+        dragging: moved,
         shape: shapeOf(view),
         rotation: rotationOf(view),
         altHover: null,
