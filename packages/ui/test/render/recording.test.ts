@@ -66,6 +66,46 @@ describe("RecordingContext", () => {
     expect(call?.extent).toEqual({ minX: -1, minY: -1, maxX: 11, maxY: 1 });
   });
 
+  test("lineJoin and lineCap are recorded in the style and restored by restore", () => {
+    const ctx = new RecordingContext();
+    expect(ctx.lineJoin).toBe("miter");
+    expect(ctx.lineCap).toBe("butt");
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(10, 0);
+    ctx.stroke();
+    expect(ctx.paints.at(-1)?.style).toMatchObject({ lineJoin: "round", lineCap: "round" });
+    ctx.restore();
+    expect(ctx.lineJoin).toBe("miter");
+    expect(ctx.lineCap).toBe("butt");
+    ctx.stroke();
+    expect(ctx.paints.at(-1)?.style).toMatchObject({ lineJoin: "miter", lineCap: "butt" });
+  });
+
+  test("transform multiplies onto the current transform and is recorded as one call", () => {
+    const ctx = new RecordingContext();
+    ctx.setTransform(2, 0, 0, 2, 10, 20);
+    ctx.transform(0, 1, -1, 0, 3, 4);
+    expect(ctx.getTransform()).toEqual([0, 2, -2, 0, 16, 28]);
+    expect(ctx.calls.at(-1)).toMatchObject({ name: "transform", args: [0, 1, -1, 0, 3, 4] });
+    expect(ctx.calls.at(-1)?.transform).toEqual([0, 2, -2, 0, 16, 28]);
+  });
+
+  test("roundRect adds its box to the path and is recorded with its radii", () => {
+    const ctx = new RecordingContext();
+    ctx.translate(5, 5);
+    ctx.beginPath();
+    ctx.roundRect(0, 0, 10, 4, 2);
+    ctx.fill();
+    expect(ctx.calls.find((c) => c.name === "roundRect")?.args).toEqual([0, 0, 10, 4, 2]);
+    const fill = ctx.paints.at(-1);
+    expect(fill?.path).toEqual(["roundRect"]);
+    expect(fill?.extent).toEqual({ minX: 5, minY: 5, maxX: 15, maxY: 9 });
+  });
+
   test("measureText is deterministic", () => {
     const ctx = new RecordingContext();
     ctx.font = "10px sans-serif";
