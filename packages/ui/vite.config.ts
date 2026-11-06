@@ -16,18 +16,21 @@
  *   and its `Host` check passes. The target is resolved when the config
  *   loads; restart `pnpm dev` if the authority moves to another port.
  *
- * The authority's modules are imported by relative path: Vite's config
- * loader externalizes bare imports, and Node cannot load `@vtt/authority`'s
- * TypeScript source (extensionless imports), while relative imports are
- * bundled into the config. Only these two small modules are pulled in.
+ * The workspace packages are imported by name, so the config must be loaded
+ * with Vite's module runner (`--configLoader runner` on the `dev` and `build`
+ * scripts; `configLoader: "runner"` through the JS API; M6-D41): the default
+ * bundling loader externalizes bare imports, and Node cannot load
+ * `@vtt/authority`'s TypeScript source (extensionless imports).
  */
 import react from "@vitejs/plugin-react";
+import {
+  injectSession,
+  readSessionFile,
+  type SessionCredentials,
+  sessionFilePath,
+} from "@vtt/authority";
+import { DEFAULT_PORT } from "@vtt/protocol";
 import { defineConfig, type Plugin } from "vite";
-import { injectSession, type SessionCredentials } from "../authority/src/server/http-ui";
-import { readSessionFile, sessionFilePath } from "../authority/src/server/session-file";
-
-/** `vtt-serve`'s default port (PROTOCOL.md §2), the proxy target without any session. */
-const DEFAULT_AUTHORITY_PORT = 4747;
 
 /**
  * The credentials the dev page gets: `VTT_URL` and `VTT_TOKEN` when both are
@@ -71,8 +74,9 @@ export function vttSession(env: NodeJS.ProcessEnv = process.env): Plugin {
 
 export default defineConfig(() => {
   const session = devSession();
+  // Without any session, `vtt-serve`'s default port (PROTOCOL.md §2).
   const target =
-    session === null ? `http://127.0.0.1:${DEFAULT_AUTHORITY_PORT}` : authorityOrigin(session.url);
+    session === null ? `http://127.0.0.1:${DEFAULT_PORT}` : authorityOrigin(session.url);
   return {
     plugins: [react(), vttSession()],
     build: { assetsDir: "ui-assets" },

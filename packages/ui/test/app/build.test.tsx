@@ -24,6 +24,7 @@ test("vite build() of the UI succeeds into a temp outDir", async () => {
   await build({
     root: UI,
     configFile: join(UI, "vite.config.ts"),
+    configLoader: "runner",
     mode: "production",
     logLevel: "silent",
     build: { outDir, emptyOutDir: true },
