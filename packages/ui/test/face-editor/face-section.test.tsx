@@ -460,6 +460,33 @@ describe("a new element (vtt-nb8.25)", () => {
     );
     expect(newMark(element(4))).toBeNull();
   });
+
+  test("two Adds before the first acknowledgement: each reveals its own row (vtt-qf5.63)", async () => {
+    const user = userEvent.setup();
+    const gate = gatedSocket();
+    const { authority, session, transacts } = await setup("tok", { WebSocket: gate.WebSocket });
+    const r = session.getSnapshot().revision;
+    gate.hold();
+    await user.click(within(section()).getByRole("button", { name: "Add value" }));
+    await applied(authority, r + 1);
+    // The first result is held: the rows still show three elements.
+    await user.click(within(section()).getByRole("button", { name: "Add button" }));
+    expect(transacts()).toHaveLength(1);
+    gate.release();
+    await until(() => faceOf(session)?.elements.length === 5, "both additions");
+    expect(faceOf(session)?.elements[3]?.type).toBe("value");
+    expect(faceOf(session)?.elements[4]?.type).toBe("button");
+    await until(
+      () => within(section()).queryByRole("listitem", { name: "Element 5" }) !== null,
+      "the second new row",
+    );
+    const label = within(element(5)).getByRole("textbox", { name: "Label" });
+    await until(() => document.activeElement === label, "the second row's focused Label");
+    expect(newMark(element(5))).not.toBeNull();
+    for (const n of [1, 2, 3, 4]) expect(newMark(element(n))).toBeNull();
+    expect(transacts()).toHaveLength(2);
+    expect(staleShown(session)).toBe(false);
+  });
 });
 
 describe("view-as", () => {
