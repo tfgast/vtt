@@ -6,7 +6,8 @@
  * (temp file + exclusive `link`; never overwriting, a longer hash on a
  * collision), and added to the host's asset list so the next save
  * lists them. The path returned and listed is relative to the table's
- * directory, with `/` separators. Garbage collection is not done (v1).
+ * directory, with `/` separators. Nothing is collected automatically;
+ * `TableHost.collectAssets` unlists unreferenced assets on command (M6-D32).
  */
 import { createHash, randomBytes } from "node:crypto";
 import { link, mkdir, open, readFile, rm } from "node:fs/promises";
@@ -110,7 +111,8 @@ export function assertAssetSize(length: number): void {
  * directory), reusing that file when it already holds exactly these bytes;
  * when it holds other bytes, the hash is lengthened (16, 24, … 64 hex
  * digits) until a free or identical name is found, so no asset is ever
- * overwritten. Then calls `host.addAsset` with the relative path.
+ * overwritten. Then calls `host.addAsset` with the relative path. Publishing
+ * and listing run on the host's asset queue (`withAssetLock`).
  */
 export async function importAsset(
   host: TableHost,
@@ -136,12 +138,16 @@ export async function importAsset(
   const hash = createHash("sha256").update(bytes).digest("hex");
   const dirName = `${basename(tablePath)}.assets`;
   const assetsDir = join(dirname(tablePath), dirName);
-  const fileName = await publish(assetsDir, bytes, (length) => {
-    return `${slug}-${hash.slice(0, length)}.${type.ext}`;
+  // On the host's asset queue, so a collection cannot delete the file
+  // between publishing (which may reuse an existing file) and listing it.
+  return host.withAssetLock(async () => {
+    const fileName = await publish(assetsDir, bytes, (length) => {
+      return `${slug}-${hash.slice(0, length)}.${type.ext}`;
+    });
+    const path = `${dirName}/${fileName}`;
+    host.addAsset(path);
+    return { path };
   });
-  const path = `${dirName}/${fileName}`;
-  host.addAsset(path);
-  return { path };
 }
 
 /** The hash lengths tried, in order: hash8 (PROTOCOL.md §1), then longer on a collision. */

@@ -13,18 +13,28 @@
  * assets: an imported path is listed in the file's assets from the next save).
  */
 /// <reference types="node" />
+import { basename, dirname, resolve } from "node:path";
 import type { Snapshot } from "@vtt/schema";
 import { type DiceSource, RandomDiceSource } from "../engine/dice";
 import { Table } from "../engine/table";
 import { type LoadedTable, loadTable, nodeFs, type PersistFs, saveTable } from "../persist/io";
 import { InvalidAssetPathError } from "../persist/serialize";
 import { DocumentStore } from "../store/document-store";
+import { referencedAssets } from "./asset-refs";
 import { canonicalTablePath, readOrCreateTableId } from "./identity";
 import { acquireTableLock, type TableLock } from "./lock";
 import { newTableSnapshot } from "./new-table";
 
 /** How a save ended (DESIGN.md §7, Saving). */
 export type SaveStatus = "saved" | "saved_not_durable" | "failed";
+
+/** What `TableHost.collectAssets` unlisted and deleted (M6-D32). */
+export interface CollectAssetsResult {
+  /** The listed paths nothing referenced, now unlisted, in list order. */
+  unreferenced: string[];
+  /** Those whose files were deleted from the table's assets directory. */
+  deleted: string[];
+}
 
 /** A save's result, as emitted to `onSave` listeners. */
 export interface SaveEvent {
@@ -297,6 +307,76 @@ export class TableHost {
     this.#assetsGeneration++;
     this.#onCommit();
   }
+
+  // -------------------------------------------------------------------------
+  // Asset collection on command (vtt-qf5.12; DESIGN.md §7, Revisions and
+  // assets; M6-D32). Never called by saving.
+
+  /**
+   * Removes from the asset list every listed path that nothing references
+   * (`referencedAssets`: no string in a live object or in a retained group's
+   * effects contains it), so the next save no longer lists it; with
+   * `delete`, also deletes each such file that lies directly in the table's
+   * `<table basename>.assets/` directory and that no kept path resolves to.
+   * A change increments `assetsGeneration` and schedules the autosave as
+   * `addAsset` does. An in-memory table collects the list only. Returns the
+   * unlisted paths (`unreferenced`, in list order) and the files actually
+   * deleted (`deleted`; a file already missing is not reported, and one
+   * that cannot be deleted is logged and left in place). Runs on the asset
+   * queue (`withAssetLock`), after any import in progress.
+   */
+  collectAssets(options: { delete?: boolean } = {}): Promise<CollectAssetsResult> {
+    return this.withAssetLock(() => this.#collectAssets(options));
+  }
+
+  /** The tail of the asset queue: imports and collections run one at a time. */
+  #assetQueue: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Runs `fn` after every earlier asset-queue task has settled, and before any
+   * later one starts. `importAsset` (publishing a file and listing it) and
+   * `collectAssets` go through it, so a collection never deletes a file that an
+   * import reused and re-listed while a deletion was in flight.
+   */
+  withAssetLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.#assetQueue.then(fn, fn);
+    this.#assetQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  async #collectAssets(options: { delete?: boolean }): Promise<CollectAssetsResult> {
+    const listed = this.#assets;
+    const kept = new Set(referencedAssets(this.table.store, listed));
+    const unreferenced = listed.filter((a) => !kept.has(a));
+    if (unreferenced.length === 0) return { unreferenced: [], deleted: [] };
+    this.#assets = Object.freeze(listed.filter((a) => kept.has(a)));
+    this.#assetsGeneration++;
+    this.#onCommit();
+
+    const deleted: string[] = [];
+    const tablePath = this.path;
+    if (options.delete !== true || tablePath === null) return { unreferenced, deleted };
+    const base = dirname(tablePath);
+    const assetsDir = resolve(base, `${basename(tablePath)}.assets`);
+    const keptFiles = new Set([...kept].map((a) => resolve(base, a)));
+    for (const asset of unreferenced) {
+      const file = resolve(base, asset);
+      if (dirname(file) !== assetsDir || keptFiles.has(file)) continue;
+      // A path listed again since (addAsset outside the queue) keeps its file.
+      if (this.#assets.some((a) => resolve(base, a) === file)) continue;
+      try {
+        await this.#fs.unlink(file);
+        deleted.push(asset);
+      } catch (err) {
+        if (codeOf(err) !== "ENOENT") {
+          console.error(`TableHost: could not delete the asset ${file}: ${describe(err)}`);
+        }
+      }
+    }
+    return { unreferenced, deleted };
+  }
+
+  // -------------------------------------------------------------------------
 
   /**
    * Registers a listener for save results. Every result a `save()` call

@@ -1,6 +1,7 @@
 export const PACKAGE = "@vtt/authority";
 
 export * from "./engine/index";
+export * from "./host/asset-refs";
 export * from "./host/assets";
 export * from "./host/examples";
 export * from "./host/identity";
