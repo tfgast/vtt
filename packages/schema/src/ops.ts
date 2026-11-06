@@ -36,7 +36,8 @@ export type CellState = Cell | null;
  * for an override the override, for a roll the roll result (cause `roll`).
  * `added` is present only on an `add` step's write: the number it added (a
  * roll counted as its total, `empty` as 0), so the log can say "Added 14"
- * (M6-D22). Undo's reversal of an add carries none.
+ * (M6-D22). Undo's reversal of an add carries none, and undo's reversal of
+ * any cell effect has cause `edit`: a write back, not a roll.
  */
 export interface CellEffect {
   type: "cell";

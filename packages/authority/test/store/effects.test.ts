@@ -239,6 +239,13 @@ describe("user undo", () => {
     expect(s.toSnapshot()).toEqual(table());
   });
 
+  test("undoing a roll write is a plain write back, with cause edit (vtt-qf5.68)", () => {
+    const rollWrite: Effect = { ...E.cellWrite, cause: "roll" };
+    const { s, undo } = undoAfter(rollWrite);
+    expect(undo).toEqual([{ ...E.cellWrite, before: lit(3), after: lit(7), cause: "edit" }]);
+    expect(s.toSnapshot()).toEqual(table());
+  });
+
   test("undoing a create removes the objects and retires their ids", () => {
     const create = E.createSubtreeOnBoard;
     const { s, undo } = undoAfter(create);
