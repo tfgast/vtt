@@ -1190,10 +1190,15 @@ newer work.
 Every UI write carries the revision its interaction began on (drag start,
 editor open, formula bar focus, or the click for instantaneous commands),
 never the latest one, so a conflicting write committed since the
-interaction began makes it `stale_write` (5.2). One exception: the inspector
+interaction began makes it `stale_write` (5.2). Two exceptions: the inspector
 Face section's edits are queued, and each carries the later of its own
 captured revision and the latest own face write's committed revision,
-because each field is its own interaction. Stale writes and uncertain
+because each field is its own interaction; and action invocations (face
+buttons, the default action, the inspector's Run) are queued per session,
+each sent after the viewer's own earlier invocation is acknowledged and
+stamped past the own invocations that committed directly on top of its
+captured revision, so a fast second press is not stale against the first
+(M6-D18). Stale writes and uncertain
 outcomes are shown to the GM and never retried automatically.
 
 **Replay and rewind.** Replaying a group applies its recorded effects and sets

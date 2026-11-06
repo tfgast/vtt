@@ -151,14 +151,15 @@ function rejectionText(
   return withGuard(text, whenOf(session.objectView(payload.object), rejection.action));
 }
 
-/** How many own commits a session's queue remembers for restamping. */
-const OWN_COMMITS_KEPT = 64;
-
 /** A session's invocation queue (M6-D18; see the module comment). */
 interface InvokeQueue {
   /** Settles when the latest queued invocation is acknowledged; null when none is pending. */
   tail: Promise<void> | null;
-  /** Own commits made directly on top of their base: base revision → committed revision. */
+  /**
+   * Own commits made directly on top of their base: base revision → committed
+   * revision. Never pruned: a queued press may need every link back to its
+   * stamp, and the map is per session (two numbers per own press).
+   */
   readonly own: Map<number, number>;
 }
 
@@ -185,11 +186,6 @@ function restamp(queue: InvokeQueue, base: number): number {
 function recordOwn(queue: InvokeQueue, base: number, revision: number): void {
   if (revision !== base + 1) return;
   queue.own.set(base, revision);
-  while (queue.own.size > OWN_COMMITS_KEPT) {
-    const oldest = queue.own.keys().next().value;
-    if (oldest === undefined) break;
-    queue.own.delete(oldest);
-  }
 }
 
 /**
