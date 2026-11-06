@@ -11,6 +11,7 @@ import type { FaceElementView, FaceView, ObjectView, WireResult, WireValue } fro
 import type { ObjectId, Point, Rect, Shape } from "@vtt/schema";
 import {
   altHoverAt,
+  apply,
   attachFaces,
   buildFaceScene,
   buildScene,
@@ -23,6 +24,7 @@ import {
   type FacePrimitive,
   type FaceScene,
   faceHitAt,
+  itemTransform,
   type TextPrimitive,
 } from "@vtt/ui";
 import { describe, expect, test } from "vitest";
@@ -46,6 +48,7 @@ interface Spec {
   container?: string;
   faceUp?: boolean;
   zone?: boolean;
+  rotation?: number;
 }
 
 function mk(id: string, s: Spec = {}): ObjectView {
@@ -72,6 +75,7 @@ function mk(id: string, s: Spec = {}): ObjectView {
     cells.container = { value: EMPTY, kind: "structural" };
   }
   if (s.container) cells.container = { value: ref(s.container), kind: "structural" };
+  if (s.rotation !== undefined) cells.rotation = { value: num(s.rotation), kind: "literal" };
   const view: ObjectView = {
     id,
     is_template: false,
@@ -365,5 +369,27 @@ describe("altHoverAt: the Alt-hover region", () => {
     expect(hover([20, 0], ["die"])).toBeNull();
     expect(hover([30, 0], ["die"])).toBeNull();
     expect(hover([0, 0], ["goblin"])).toBeNull();
+  });
+
+  test("a rotated object's list is tested in its own frame, not by its bounding box", () => {
+    const turned = token("goblin", [0, 0], ["sword"], { rotation: 45 });
+    const all = [turned, sword, die];
+    const m = new Map(all.map((v) => [v.id, v]));
+    const s = buildScene({ views: all, covers: [], board: BOARD, viewer: { type: "gm" } });
+    const hover = (point: Point) =>
+      altHoverAt({
+        scene: s,
+        views: (id) => m.get(id) ?? null,
+        previous: "goblin",
+        point,
+        camera: CAMERA,
+        alt: true,
+        dragged: ["die"],
+      });
+    // Inside the rotated list's bounding box, outside both the footprint and the list itself.
+    expect(hover([-2.4, 2.4])).toBeNull();
+    // The list's centre, local (0, 1.5), as drawn.
+    const inside = apply(itemTransform({ anchor: [0, 0], rotation: 45 }), [0, 1.5]);
+    expect(hover(inside)).toBe("goblin");
   });
 });

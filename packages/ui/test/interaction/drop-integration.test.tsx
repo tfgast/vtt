@@ -756,6 +756,41 @@ describe("a when_selected list (vtt-nb8.35, M6-D12)", () => {
     expect(contentsOf(w, "tok")).toEqual(["gem1"]);
   });
 
+  test("an entry Alt-dragged from a binder row onto an unselected token, then onto its revealed list, drops inside", async () => {
+    const w = await world();
+    w.fire("pointerDown", rowAt(0, TOP, 1), true);
+    w.fire("pointerMove", [40, -10], true);
+    expect(w.ui.getState().altHover).toBeNull();
+    expect(tokList(w)).toBe(false);
+    w.fire("pointerMove", [80, 0.2], true);
+    expect(w.ui.getState().altHover).toBe("tok");
+    expect(tokList(w)).toBe(true);
+    w.fire("pointerMove", IN_LIST, true);
+    expect(w.ui.getState().altHover).toBe("tok");
+    w.fire("pointerUp", IN_LIST, true);
+    await until(() => contentsOf(w, "tok").includes("acard"), "acard in the token");
+    expect(contentsOf(w, "tok")).toEqual(["gem1", "acard"]);
+    expect(contentsOf(w, "bnd_a")).toEqual(["tcard", "xcard"]);
+    expect(w.ui.getState().altHover).toBeNull();
+  });
+
+  test("an entry drag's revealed list hides again when Alt is released, and the entry lands on the board", async () => {
+    const w = await world();
+    w.fire("pointerDown", rowAt(0, TOP, 1), true);
+    w.fire("pointerMove", [80, 0.2], true);
+    expect(tokList(w)).toBe(true);
+    w.fire("pointerMove", IN_LIST, true);
+    expect(tokList(w)).toBe(true);
+    act(() => {
+      fireEvent.keyUp(w.canvas, { key: "Alt", code: "AltLeft", altKey: false });
+    });
+    expect(w.ui.getState().altHover).toBeNull();
+    expect(tokList(w)).toBe(false);
+    w.fire("pointerUp", IN_LIST, false);
+    await until(() => w.object("acard")?.board === BOARD, "acard on the board");
+    expect(contentsOf(w, "tok")).toEqual(["gem1"]);
+  });
+
   test("after clicking a row of a selected token's list (selecting the child), the other rows still hit", async () => {
     const w = await world();
     w.click([80, 0.5]);

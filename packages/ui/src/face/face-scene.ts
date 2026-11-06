@@ -19,7 +19,7 @@ import {
   type ViewLookup,
 } from "./face-model";
 import type { FaceStateStore } from "./face-state";
-import { type Affine, aabb, itemTransform } from "./face-transform";
+import { type Affine, apply, invert, itemTransform } from "./face-transform";
 
 export type FaceScene = Scene & {
   /** Each board item's full-list face, by id; absent for a face-down item with nothing on its face. */
@@ -159,8 +159,8 @@ function whenSelectedRect(view: ObjectView | null | undefined): Rect | null {
   return e === undefined || !e.shown ? null : e.rect;
 }
 
-function inBounds(p: Point, b: Bounds): boolean {
-  return p[0] >= b.minX && p[0] <= b.maxX && p[1] >= b.minY && p[1] <= b.maxY;
+function inRect(p: Point, r: Rect): boolean {
+  return p[0] >= r[0] && p[0] <= r[0] + r[2] && p[1] >= r[1] && p[1] <= r[1] + r[3];
 }
 
 export interface AltHoverInput {
@@ -182,7 +182,8 @@ export interface AltHoverInput {
  * The object an Alt-held drag hovers after this pointer event (DESIGN.md
  * §4.6 Only when selected, M6-D12), for `AttachFacesOptions.altHover`.
  * Without Alt, null. The hover holds while the pointer stays in `previous`'s
- * footprint or its revealed list's rect (so a drag from the object onto its
+ * footprint or its revealed list's rect, tested in the object's rotated
+ * local frame (so a drag from the object onto its
  * list keeps the list); otherwise it starts on the first non-dragged object
  * whose footprint is under the pointer (`hitsAt` order, as the Alt drop
  * picks its target) when that object is not a zone and its face shows a
@@ -198,7 +199,8 @@ export function altHoverAt(input: AltHoverInput): ObjectId | null {
     if (item !== undefined) {
       if (hits.includes(previous)) return previous;
       const r = whenSelectedRect(views(previous));
-      if (r !== null && inBounds(point, aabb(r, itemTransform(item)))) return previous;
+      // The list's rect in the object's frame, so a rotated list is tested as drawn.
+      if (r !== null && inRect(apply(invert(itemTransform(item)), point), r)) return previous;
     }
   }
   const first = hits[0];
