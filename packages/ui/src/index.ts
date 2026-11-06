@@ -33,6 +33,7 @@ export * from "./inspector/ContentsList";
 export * from "./inspector/Inspector";
 export * from "./inspector/ObjectHeader";
 export * from "./inspector/ObjectList";
+export * from "./inspector/object-drop";
 export * from "./inspector/ShapeControl";
 export * from "./inspector/tracing";
 export * from "./inspector/ViewersPicker";

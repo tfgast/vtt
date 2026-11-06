@@ -78,6 +78,7 @@ import { createInPlaceEditorPort, requestFormulaBarFocus } from "./formula-bar/e
 import { FormulaBar } from "./formula-bar/FormulaBar";
 import { InPlaceEditor } from "./formula-bar/InPlaceEditor";
 import { Inspector } from "./inspector/Inspector";
+import { createObjectDropHandler } from "./inspector/object-drop";
 import { startTracing } from "./inspector/tracing";
 import type { RuntimeInputs, UploadedAsset, Viewport } from "./interaction/contracts";
 import { registerCreationTools } from "./interaction/create-tools";
@@ -366,7 +367,7 @@ function Shell(props: AppProps & { ui: UiStore }) {
           [EDIT_CREATED]: editCreatedHandler({ editor, inputs }),
         },
       },
-      dataDropHandlers: [createCellDropHandler({ faceState })],
+      dataDropHandlers: [createCellDropHandler({ faceState }), createObjectDropHandler()],
     });
     return { policy, registry, runtime };
   });
