@@ -286,6 +286,9 @@ export function checkScenario(scenario: ScenarioShape, ctx: Ctx): void {
         case "object_visible":
           requireViewer(e.viewer, [...path, "viewer"], "viewer");
           break;
+        case "face_element":
+          if (e.viewer !== undefined) requireViewer(e.viewer, [...path, "viewer"], "viewer");
+          break;
         case "log_includes":
           if (!inStep) issue(path, "log_includes needs a step; the log is empty after setup");
           requireObject(e.effect.object, [...path, "effect", "object"]);

@@ -837,6 +837,49 @@ describe("faces (M5, M5-D15)", () => {
         }),
       /./,
     ));
+  test("face_element's viewer is the gm or a character", () => {
+    rejects(
+      (s) =>
+        expectAfter(s, {
+          type: "face_element",
+          object: "aldric",
+          element: 0,
+          viewer: "bag",
+          shown: true,
+        }),
+      /viewer must be "gm" or a character, got "bag"/,
+    );
+    rejects(
+      (s) =>
+        expectAfter(s, {
+          type: "face_element",
+          object: "aldric",
+          element: 0,
+          viewer: "nobody",
+          shown: true,
+        }),
+      /viewer must be "gm" or a character, got "nobody"/,
+    );
+  });
+  test("face_element accepts the gm or a character as viewer", () => {
+    const s = base();
+    withFace(s, face());
+    expectAfter(s, {
+      type: "face_element",
+      object: "aldric",
+      element: 0,
+      viewer: "gm",
+      shown: true,
+    });
+    expectAfter(s, {
+      type: "face_element",
+      object: "aldric",
+      element: 0,
+      viewer: "aldric",
+      shown: true,
+    });
+    expect(issues(s)).toEqual([]);
+  });
   test("face_element names a known object", () =>
     rejects(
       (s) => expectAfter(s, { type: "face_element", object: "ghost", element: 0, shown: true }),
