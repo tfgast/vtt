@@ -691,8 +691,13 @@ editor share one input grammar:
 - For a non-template drag, Alt held at the drop onto an object (not a zone)
   puts the dragged objects into its `contents`; a plain drop places them on
   the board, where they stack (4.3).
-- Alt+click cycles through the objects under the pointer, so a zone under a
-  map image can be selected.
+- A click picks the first object under the pointer in hit order: objects
+  other than zones, then zones, then backdrops (non-zones whose bounding box
+  contains the bounding box of a zone under the pointer), each group by
+  descending z, then later drawn first (M6-D10). So a token in a room is
+  picked before the room, and the room before the map it lies on.
+  Alt+click cycles through the objects under the pointer in the same order,
+  so anything there can be selected.
 - Objects move between boards with "Move selection to board…", not by
   dragging.
 
@@ -1656,3 +1661,4 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M6-D6. The MCP server sends `instructions` at `initialize`. DESIGN §5.2; PROTOCOL §11. | A bring-your-own agent should find the templates and the write rules without being told by the GM. |
 | 2026-11-05 | M6-D7. Example images (`crypt-map.png`, `goblin.png`) ship in `@vtt/fixtures/assets`, generated in-repo. | §8.4 step 3 needs a map; generated art has no licence question. |
 | 2026-11-05 | M6-D8. A group's `names` are the touched objects' plus, when the actor is a character, that character's, captured at commit (before removal if the group removes it). Gm and agent actors add nothing. Character group views filter `names` as before. Amends the operation group entry above. DESIGN §7; PROTOCOL §7.6. | The log must name the character the GM drove (M5-D1) and keep names as they were (4.8); a view-as Apply touches only the card and its target, so the header showed the character's id. |
+| 2026-11-06 | M6-D10. Hit order is three buckets of the objects under the pointer, each by descending z then descending draw index: non-zones that are not backdrops, then zones, then backdrops, a backdrop being a non-zone whose bounding rect contains the bounding rect of at least one zone under the pointer. Containment wins over z across buckets. Board clicks, drags, double-clicks, Alt+click cycling, marquee order and face hits (`hitOrder` in `scene/hit-test.ts`) all use it. Amends the old non-zones-before-zones rule. DESIGN §4.6. | Playtest 1 steps 3 and 12: a room zone drawn over the map could not be clicked, renamed or dragged without Alt+click; tokens inside a zone must still be picked before it. |
