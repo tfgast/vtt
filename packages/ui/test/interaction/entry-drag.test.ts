@@ -165,6 +165,7 @@ function input(over: Partial<ToolInput> = {}): ToolInput {
     selection: [],
     views: (id) => BY_ID.get(id) ?? null,
     interactionId: "i1",
+    snap: false,
     ...over,
   };
 }
@@ -206,7 +207,7 @@ interface Rig {
   drag(from: Point, via: Point[], mods?: Modifiers[]): Effect[];
 }
 
-function rig(faceState = createFaceStateStore()): Rig {
+function rig(faceState = createFaceStateStore(), base: Partial<ToolInput> = {}): Rig {
   const tool = withFaces(createSelectTool({ dropOverride: createFaceDropOverride(faceState) }), {
     faceState,
     policy: defaultFacePolicy,
@@ -216,7 +217,7 @@ function rig(faceState = createFaceStateStore()): Rig {
   const r: Rig = {
     faceState,
     send(event, over = {}) {
-      const out = tool.reduce(state, event, input(over));
+      const out = tool.reduce(state, event, input({ ...base, ...over }));
       state = out.state;
       return out.effects;
     },
@@ -452,6 +453,64 @@ describe("drags", () => {
     expect(r.wheel([0, 18])).toEqual([]);
     expect(r.wheel([200, 200])).toEqual([]);
     expect(r.faceState.scrollOffset("ba", 0)).toBe(0);
+  });
+});
+
+describe("snap (M6-D13)", () => {
+  const snapRig = () => rig(createFaceStateStore(), { snap: true });
+  const boardTo = (position: Point) => ({ type: "board", board: BOARD, position });
+
+  test("a working copy dragged out onto the board with snap on lands on half units", () => {
+    expect(
+      writes(
+        snapRig().drag(A0, [
+          [10, 10],
+          [12.3, 10.8],
+        ]),
+      ),
+    ).toMatchObject([
+      { stamp: STAMP, ops: [{ type: "move", object: "a0", to: boardTo([12.5, 11]) }] },
+    ]);
+  });
+
+  test("a template copy dragged out onto the board with snap on spawns on half units", () => {
+    expect(writes(snapRig().drag(TA, [[10.2, 10.3]]))).toMatchObject([
+      { ops: [{ type: "spawn", template: "ta", to: boardTo([10, 10.5]) }] },
+    ]);
+  });
+
+  test("Alt at the drop does not change snapping", () => {
+    const out = snapRig().drag(TA, [[10.2, 10.3]], [ALT_MODS, ALT_MODS, ALT_MODS]);
+    expect(writes(out)).toMatchObject([
+      { ops: [{ type: "move", object: "ta", to: boardTo([10, 10.5]) }] },
+    ]);
+  });
+
+  test("with snap off the drop lands at the pointer", () => {
+    expect(writes(rig().drag(A0, [[12.3, 10.8]]))).toMatchObject([
+      { ops: [{ type: "move", object: "a0", to: boardTo([12.3, 10.8]) }] },
+    ]);
+    expect(writes(rig().drag(TA, [[10.2, 10.3]]))).toMatchObject([
+      { ops: [{ type: "spawn", template: "ta", to: boardTo([10.2, 10.3]) }] },
+    ]);
+  });
+
+  test("a drop onto another contents list is unaffected by snap", () => {
+    expect(writes(snapRig().drag(A0, [rowAt(20, 17, 1)]))).toEqual([
+      {
+        type: "write",
+        stamp: STAMP,
+        ops: [{ type: "move", object: "a0", to: { type: "container", container: "bc", index: 1 } }],
+        label: "Put a0 into bc",
+        continuations: [],
+      },
+    ]);
+  });
+
+  test("a drop onto an editor element is unaffected by snap", () => {
+    expect(writes(snapRig().drag(A0, [TARGET]))).toMatchObject([
+      { ops: [{ type: "set_value", object: "card", cell: "target", value: ref("a0") }] },
+    ]);
   });
 });
 

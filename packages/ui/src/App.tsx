@@ -447,12 +447,13 @@ function CanvasPane({ runtime, registry, faceState, createRenderer }: CanvasPane
   const highlight = useUi((s) => s.highlight);
   const camera = useUi((s) => s.camera);
   const altHover = useUi((s) => s.altHover);
+  const snap = useUi((s) => s.snap);
   const faceVersion = useFaceStateVersion(faceState);
   // biome-ignore lint/correctness/useExhaustiveDependencies: viewVersion keys the board view's live maps, faceVersion the face state
   const scene = useMemo(() => {
     const view = session.boardView();
     if (view === null) return EMPTY_SCENE;
-    return buildFaceScene(
+    const built = buildFaceScene(
       {
         views: view.objects.values(),
         covers: [...view.covers.values()],
@@ -465,6 +466,8 @@ function CanvasPane({ runtime, registry, faceState, createRenderer }: CanvasPane
       },
       { faceState, altHover },
     );
+    // The grid shows while Snap is on (M6-D13).
+    return snap ? { ...built, grid: true } : built;
   }, [
     session,
     viewVersion,
@@ -476,6 +479,7 @@ function CanvasPane({ runtime, registry, faceState, createRenderer }: CanvasPane
     faceState,
     faceVersion,
     altHover,
+    snap,
   ]);
   const setViewport = useCallback((viewport: Viewport) => ui.setViewport(viewport), [ui]);
 

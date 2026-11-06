@@ -99,6 +99,10 @@ describe("the tables", () => {
       { gesture: "Drag one template", effect: "drop a copy" },
       { gesture: "Alt held at drag start", effect: "move the template instead of copying it" },
       { gesture: "Alt held at drop onto an object", effect: "put the dragged objects inside it" },
+      {
+        gesture: "Snap on (toolbar, the default)",
+        effect: "a moved or dropped object lands on a half unit; the grid shows",
+      },
       { gesture: "Drop on a card's editor field", effect: "set that cell to the dropped object" },
       { gesture: "Drop on a list", effect: "insert there" },
       { gesture: "Drop a template on a binder", effect: "give that binder a template" },

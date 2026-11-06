@@ -28,7 +28,9 @@
  *   (drop-targets.ts): an editor element → a reference; the own container's
  *   contents → nothing; another contents element → give a template, spawn
  *   or move there; the board → a spawn (selected) or a move to the pointer
- *   on `stamp.board`.
+ *   on `stamp.board`, the dropped anchor snapped to the nearest half-unit
+ *   point with `input.snap` at the release (`snapPoint`, M6-D13; Alt
+ *   changes nothing). Drops onto lists and editor elements are not snapped.
  * - Alt-hover (DESIGN.md §4.6 Only when selected, M6-D12), as the select
  *   tool keeps it: each drag move recomputes `altHoverAt` (an Alt key
  *   release clears it), emitted as `alt_hover` when it changes; the drop
@@ -46,7 +48,7 @@ import { dropTargetAt } from "../face/face-hit";
 import { altHoverAt, type FaceSceneState } from "../face/face-scene";
 import type { InteractionStamp } from "./contracts";
 import { faceSceneFor, objectName, resolveFaceDrop } from "./drop-targets";
-import type { Effect } from "./effects";
+import { type Effect, snapPoint } from "./effects";
 import type { InteractionEvent, PointerInteractionEvent } from "./events";
 import type { ToolOverlay } from "./overlays";
 import type { DropIntent } from "./select-tool";
@@ -161,7 +163,8 @@ function drop(
   if (out.kind === "nothing") return [];
   if (out.kind === "write") return [{ type: "write" as const, stamp, ...out.write }];
   const name = objectName(input.views(state.dragged), state.dragged);
-  const to = { type: "board" as const, board: stamp.board, position: point };
+  const position = snapPoint(point, input.snap === true);
+  const to = { type: "board" as const, board: stamp.board, position };
   const effect: Effect = state.intent.copy
     ? {
         type: "write",

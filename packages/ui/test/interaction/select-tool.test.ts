@@ -20,6 +20,7 @@ import {
   SELECT_DRAG_THRESHOLD_PX,
   type SelectToolOptions,
   selectTool,
+  snapPoint,
   type ToolInput,
   type ToolState,
   toScreen,
@@ -101,6 +102,7 @@ function makeInput(over: Partial<ReducerInput> = {}): ToolInput {
     camera: CAMERA,
     selection: [],
     views: (id) => BY_ID.get(id) ?? null,
+    snap: false,
     ...over,
     interactionId: `i${seq}`,
   };
@@ -133,7 +135,7 @@ function offset(board: Point, px: number): Point {
 }
 
 /** Drives one tool: keeps its state and a selection that follows `select` effects. */
-function driver(options?: SelectToolOptions) {
+function driver(options?: SelectToolOptions, base: Partial<ReducerInput> = {}) {
   const tool = options === undefined ? selectTool : createSelectTool(options);
   let state: ToolState = tool.init({});
   let selection: ObjectId[] = [];
@@ -160,7 +162,7 @@ function driver(options?: SelectToolOptions) {
       const out = tool.reduce(
         state as never,
         event,
-        makeInput({ selection: [...selection], revision, ...over }),
+        makeInput({ ...base, selection: [...selection], revision, ...over }),
       );
       state = out.state as ToolState;
       return apply(out.effects);
@@ -823,5 +825,63 @@ describe("the Alt-hover of a drag (M6-D12)", () => {
     const out = d.send(pointer("pointer_up", LIST_POINT, ALT), over);
     expect(seen).toEqual(["pouch"]);
     expect(hovers(out)).toEqual([null]);
+  });
+});
+
+describe("snap (M6-D13)", () => {
+  const SNAP = { snap: true };
+
+  test("snapPoint rounds each axis to the nearest half unit, and only when on", () => {
+    expect(snapPoint([1.3, -1.8], true)).toEqual([1.5, -2]);
+    expect(snapPoint([0.2, -0.2], true)).toEqual([0, 0]);
+    expect(Object.is(snapPoint([-0.2, 0], true)[0], -0)).toBe(false);
+    expect(snapPoint([1.3, -1.8], false)).toEqual([1.3, -1.8]);
+  });
+
+  test("a move with snap on lands the grabbed anchor on half units; the rest keeps its offset", () => {
+    const d = driver(undefined, SNAP);
+    d.selection = ["tok", "die"];
+    const effects = d.drag([1.1, 1.1], [1.4, 1.9]);
+    const write = onlyWrite(effects);
+    expect(write.ops).toEqual([boardMove("tok", [1.5, 2]), boardMove("die", [2.5, -1])]);
+    const held = of(effects, "previews").find((e) => e.hold !== undefined);
+    expect(held?.previews.get("tok")).toEqual({ position: [1.5, 2] });
+    expect(held?.previews.get("die")).toEqual({ position: [2.5, -1] });
+  });
+
+  test("the grabbed object is the one under the pointer, not the first dragged", () => {
+    const d = driver(undefined, SNAP);
+    d.selection = ["tok", "die"];
+    const write = onlyWrite(d.drag([2.1, -2.1], [2.3, -1.6]));
+    // die (2, -2) + (0.2, 0.5) = (2.2, -1.5) → (2, -1.5); tok by the same (0, 0.5).
+    expect(write.ops).toEqual([boardMove("tok", [1, 1.5]), boardMove("die", [2, -1.5])]);
+  });
+
+  test("a move with snap off lands where it is dropped", () => {
+    const d = driver();
+    d.selection = ["tok", "die"];
+    const write = onlyWrite(d.drag([1.1, 1.1], [1.4, 1.9]));
+    closePoint((write.ops[0] as { to: { position: Point } }).to.position, [1.3, 1.8]);
+    closePoint((write.ops[1] as { to: { position: Point } }).to.position, [2.3, -1.2]);
+  });
+
+  test("a template copy dragged on the canvas with snap on spawns on half units", () => {
+    const d = driver(undefined, SNAP);
+    const write = onlyWrite(d.drag([-8, -8], [-5.3, -5.2]));
+    expect(write.ops).toEqual([
+      {
+        type: "spawn",
+        template: "tpl",
+        to: { type: "board", board: BOARD, position: [-5.5, -5] },
+      },
+    ]);
+  });
+
+  test("Alt at the drop over an object still contains, snap or not", () => {
+    const d = driver(undefined, SNAP);
+    const write = onlyWrite(d.drag([1, 1], [2.1, -2.1], { up: ALT }));
+    expect(write.ops).toEqual([
+      { type: "move", object: "tok", to: { type: "container", container: "die" } },
+    ]);
   });
 });

@@ -1,7 +1,9 @@
 /**
  * The toolbar (vtt-3l6.17; DESIGN.md §7 Platform, §8.1): the registered
  * tools (vtt-3l6.22's `ToolRegistry`; M5 adds ink, text and layout,
- * vtt-1xv.23), the fog toggle of the zone tools, the
+ * vtt-1xv.23), the fog toggle of the zone tools, the Snap toggle (M6-D13:
+ * `UiState.snap`, per session; moves and board drops snap to half units
+ * and the grid shows), the
  * view-as menu (vtt-3l6.10), Undo and Save (vtt-3l6.21), and the "?"
  * button of the keyboard and gesture help (vtt-nb8.8). Shortcuts in titles
  * come from `KEY_BINDINGS`.
@@ -94,6 +96,7 @@ export function Toolbar({ registry, onHelp }: ToolbarProps) {
   const tool = useUi((s) => s.tool);
   // Re-render when the preference changes while no zone tool is active.
   const [, setTick] = useState(0);
+  const snap = useUi((s) => s.snap);
   const fog = isZoneTool(tool.id) ? (tool.options as { fog: boolean }).fog : zoneFog(ui);
 
   return (
@@ -123,6 +126,14 @@ export function Toolbar({ registry, onHelp }: ToolbarProps) {
             }}
           />
           Fog
+        </label>
+        <label title="Moves and drops snap to half units; the grid shows">
+          <input
+            type="checkbox"
+            checked={snap}
+            onChange={(e) => ui.setSnap(e.currentTarget.checked)}
+          />
+          Snap
         </label>
       </div>
       <ViewAsMenu />

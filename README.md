@@ -105,6 +105,7 @@ viewing as a character; it never reverses the agent's work.
 | Drag one template | drop a copy |
 | Alt held at drag start | move the template instead of copying it |
 | Alt held at drop onto an object | put the dragged objects inside it |
+| Snap on (toolbar, the default) | a moved or dropped object lands on a half unit; the grid shows |
 | Drop on a card's editor field | set that cell to the dropped object |
 | Drop on a list | insert there |
 | Drop a template on a binder | give that binder a template |
