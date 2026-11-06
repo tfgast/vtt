@@ -80,6 +80,53 @@ describe("canonicalTablePath", () => {
     expect(() => canonicalTablePath(join(missingDir, "t.json"))).toThrow(missingDir);
   });
 
+  test("a dangling symlink resolves to its target, relative to the link's directory", async () => {
+    const real = join(dir, "real");
+    await mkdir(real);
+    await symlink(join("real", "target.json"), join(dir, "alias.json"));
+    expect(canonicalTablePath(join(dir, "alias.json"))).toBe(join(real, "target.json"));
+  });
+
+  test("a chain of dangling symlinks is followed to the last target", async () => {
+    await symlink("b.json", join(dir, "a.json"));
+    await symlink("c.json", join(dir, "b.json"));
+    expect(canonicalTablePath(join(dir, "a.json"))).toBe(join(dir, "c.json"));
+  });
+
+  test("a dangling symlink in a symlinked directory resolves against the real directory", async () => {
+    const real = join(dir, "real");
+    await mkdir(join(real, "sub"), { recursive: true });
+    await symlink(join(real, "sub"), join(dir, "linkdir"));
+    await symlink(join("..", "up.json"), join(real, "sub", "alias.json"));
+    expect(canonicalTablePath(join(dir, "linkdir", "alias.json"))).toBe(join(real, "up.json"));
+  });
+
+  test("a dangling symlink whose target directory is missing is an error naming both", async () => {
+    const alias = join(dir, "alias.json");
+    const missingDir = join(dir, "nope");
+    await symlink(join(missingDir, "t.json"), alias);
+    expect(() => canonicalTablePath(alias)).toThrow(missingDir);
+    expect(() => canonicalTablePath(alias)).toThrow(`symlink ${alias}`);
+  });
+
+  test("a symlink loop is an error naming the path", async () => {
+    const a = join(dir, "a.json");
+    await symlink("b.json", a);
+    await symlink("a.json", join(dir, "b.json"));
+    expect(() => canonicalTablePath(a)).toThrow(`table path ${a} is a symlink loop`);
+  });
+
+  test("a symlink loop reported only by readlinkSync is caught", () => {
+    const fs = {
+      realpathSync: (p: string) => {
+        if (p === "/x") return "/x";
+        throw fault("ENOENT");
+      },
+      readlinkSync: (p: string) => (p === "/x/a.json" ? "b.json" : "a.json"),
+    };
+    expect(() => canonicalTablePath("/x/a.json", fs)).toThrow("is a symlink loop");
+  });
+
   test("uses the injected realpathSync", () => {
     const seen: string[] = [];
     const fs = {

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readlink, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GM_BOARD_ID, loadTable, newTableSnapshot, TableHost } from "@vtt/authority";
@@ -62,5 +62,43 @@ describe("TableHost.open on a missing file", () => {
     await expect(TableHost.open(path, { autosave: false })).rejects.toThrow(path);
     expect(await readdir(dir)).not.toContain("table.json");
     expect(await readdir(dir)).not.toContain("table.json.lock");
+  });
+
+  test("createIfMissing through a dangling symlink creates the target and keeps the link", async () => {
+    const alias = join(dir, "alias.json");
+    await symlink("table.json", alias);
+    const host = await TableHost.open(alias, { createIfMissing: true, autosave: false });
+    hosts.push(host);
+    expect(host.path).toBe(path);
+    expect((await lstat(alias)).isSymbolicLink()).toBe(true);
+    expect(await readlink(alias)).toBe("table.json");
+    expect(await realpath(alias)).toBe(path);
+    expect((await loadTable(alias)).store.toSnapshot()).toEqual(newTableSnapshot());
+    expect(await readdir(dir)).toContain("table.json.lock");
+    expect(await readdir(dir)).not.toContain("alias.json.lock");
+  });
+
+  test("createIfMissing follows a directory link in the target before its `..`", async () => {
+    const real = join(dir, "real");
+    await mkdir(join(real, "sub"), { recursive: true });
+    await symlink(join("real", "sub"), join(dir, "dirlink"));
+    const alias = join(dir, "alias.json");
+    await symlink("dirlink/../target.json", alias);
+    const host = await TableHost.open(alias, { createIfMissing: true, autosave: false });
+    hosts.push(host);
+    expect(host.path).toBe(join(real, "target.json"));
+    expect(await realpath(alias)).toBe(join(real, "target.json"));
+    expect(await readdir(dir)).not.toContain("target.json");
+    expect((await loadTable(alias)).store.toSnapshot()).toEqual(newTableSnapshot());
+  });
+
+  test("createIfMissing through a dangling symlink into a missing directory refuses", async () => {
+    const alias = join(dir, "alias.json");
+    await symlink(join(dir, "nope", "table.json"), alias);
+    await expect(TableHost.open(alias, { createIfMissing: true, autosave: false })).rejects.toThrow(
+      `table directory ${join(dir, "nope")} (target of symlink ${alias})`,
+    );
+    expect((await lstat(alias)).isSymbolicLink()).toBe(true);
+    expect((await readdir(dir)).sort()).toEqual(["alias.json"]);
   });
 });
