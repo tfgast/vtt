@@ -45,6 +45,10 @@
  * - anything else (entry rows and contained bodies no gesture claims, a
  *   press that moved beyond `FACE_CLICK_PX`'s release, keys) → the wrapped tool.
  *
+ * A primary pointer down taken here (a press or a gesture's start) reaches
+ * the wrapped tool only as `Tool.consumedPress` at its point, so a click on
+ * a face elsewhere forgets an Alt+click cycle (vtt-qf5.69, M6-D21).
+ *
  * Hand-off (vtt-nb8.30): a chevron or gear press, and a primary pointer down
  * on a face hit that went to the wrapped tool, is offered to `gestures`
  * again with its first `pointer_move` beyond `FACE_CLICK_PX` (the hit and
@@ -260,6 +264,12 @@ export function withFaces<TPhase, K extends ToolId>(
     return { state: withPhase(state, { innerOverlays, gestureOverlays }), effects: out };
   }
 
+  /** Tells the wrapped tool of a primary press at `screen` it never sees (vtt-qf5.69). */
+  function consumed(state: State, screen: Point): State {
+    if (tool.consumedPress === undefined) return state;
+    return withInner(state, tool.consumedPress(innerOf(state), screen));
+  }
+
   /** Passes `event` to the wrapped tool. */
   function delegate(state: State, event: InteractionEvent, input: ToolInput): Result {
     let next = state;
@@ -390,7 +400,7 @@ export function withFaces<TPhase, K extends ToolId>(
     const hit = stamp === null ? null : faceHitAt(facesOf(input), event.board, input.camera);
     if (stamp === null || hit === null) return delegate(state, event, input);
     const started = startGesture(hit, event, input, stamp);
-    if (started !== null) return gestureStep(state, started, []);
+    if (started !== null) return gestureStep(consumed(state, event.screen), started, []);
     const t = hit.target;
     const pressed =
       t.type === "button" ||
@@ -408,7 +418,7 @@ export function withFaces<TPhase, K extends ToolId>(
       stamp,
       moved: false,
     };
-    return { state: withPhase(state, { press }), effects: [] };
+    return { state: withPhase(consumed(state, event.screen), { press }), effects: [] };
   }
 
   function pressEvent(
@@ -583,6 +593,9 @@ export function withFaces<TPhase, K extends ToolId>(
     },
     doubleClickTarget(state, event, input) {
       return tool.doubleClickTarget?.(innerOf(state), event, input) ?? null;
+    },
+    consumedPress(state, screen) {
+      return consumed(state, screen);
     },
     cancel(state, reason: CancelReason): Result {
       const { gesture, press } = phaseOf(state);

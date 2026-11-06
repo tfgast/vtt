@@ -36,7 +36,8 @@
  * `previews`, and the release one write with that stamp and previews held by
  * it. Escape, a board, viewer or tool change and `pointer_cancel` end a
  * handle drag with no write. Every event that hits no handle while no handle
- * drag is in progress goes to the wrapped tool unchanged.
+ * drag is in progress goes to the wrapped tool unchanged; a press that
+ * grabs a handle reaches it only as `Tool.consumedPress` (vtt-qf5.69).
  *
  * Overlays: the wrapped tool's `overlays` effects are replaced by its
  * overlays plus the handles overlay, so neither erases the other. Handles
@@ -761,7 +762,13 @@ export function withHandles<TPhase, K extends ToolId>(
       camera: input.camera,
       viewport: input.viewport,
     };
-    return present(withPhase(state, { ...phase, drag, hoverCursor: null }), [], input);
+    // The wrapped tool never sees this press (vtt-qf5.69).
+    const told =
+      tool.consumedPress === undefined
+        ? state
+        : withInner(state, tool.consumedPress(innerOf(state), event.screen));
+    const inner = plain(told).phase.inner;
+    return present(withPhase(told, { ...phase, inner, drag, hoverCursor: null }), [], input);
   }
 
   function dragEvent(
@@ -938,6 +945,10 @@ export function withHandles<TPhase, K extends ToolId>(
     },
     doubleClickTarget(state, event, input) {
       return tool.doubleClickTarget?.(innerOf(state), event, input) ?? null;
+    },
+    consumedPress(state, screen) {
+      const consumed = tool.consumedPress;
+      return consumed === undefined ? state : withInner(state, consumed(innerOf(state), screen));
     },
     cancel(state, reason: CancelReason): Result {
       const { drag } = plain(state).phase;

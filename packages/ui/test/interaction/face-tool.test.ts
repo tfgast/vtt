@@ -1108,14 +1108,16 @@ describe("double-click after Alt+click cycling (vtt-qf5.50, M6-D21)", () => {
     });
     let state = faces.init({});
     let n = 0;
+    let selection: ObjectId[] = [];
     const run = (e: InteractionEvent) => {
       n++;
       const out = faces.reduce(
         state,
         e,
-        input({ ...over, revision: 5 + n, interactionId: `i${n}` }),
+        input({ ...over, selection, revision: 5 + n, interactionId: `i${n}` }),
       );
       state = out.state;
+      for (const x of out.effects) if (x.type === "select") selection = [...x.ids];
       return out.effects;
     };
     const click = (at: Point, mods = NO_MODS) => [
@@ -1123,7 +1125,7 @@ describe("double-click after Alt+click cycling (vtt-qf5.50, M6-D21)", () => {
       ...run(withMods(ptr("pointer_up", at), mods)),
     ];
     const doubleClick = (at: Point) => [...click(at), ...click(at), ...run(dbl(at))];
-    return { faces, click, doubleClick, state: () => state };
+    return { faces, run, click, doubleClick, state: () => state };
   }
 
   test("the cycled zone under a d20 is edited, not the d20's default action run", () => {
@@ -1156,6 +1158,44 @@ describe("double-click after Alt+click cycling (vtt-qf5.50, M6-D21)", () => {
     // 0.2 board units is 12.8 px at zoom 1 (64 px per unit), still on `total`.
     const away: Point = [TOTAL[0] + 0.2, TOTAL[1]];
     expect(invokesIn(r.doubleClick(away))).toHaveLength(1);
+  });
+
+  test("a face-button click on another object forgets the cycle (vtt-qf5.69)", () => {
+    const r = real();
+    r.click(TOTAL, ALT);
+    expect(r.click(TOTAL, ALT)).toContainEqual({ type: "select", ids: ["vault"] });
+    // The card's Roll button: the face tool takes the press, the select tool never sees it.
+    const roll = r.click(ROLL);
+    expect(roll.some((e) => e.type === "select")).toBe(false);
+    expect(invokesIn(roll)).toHaveLength(1);
+    const effects = r.doubleClick(TOTAL);
+    expect(editorsIn(effects)).toEqual([]);
+    // The top hit's double-click: the d20's default action (Roll), not the vault's editor.
+    expect(invokesIn(effects)).toHaveLength(1);
+    expect(r.faces.doubleClickTarget?.(r.state(), dbl(TOTAL) as never, input(over))).toBeNull();
+  });
+
+  test("a face-button click on another object ends an open cycle: Alt+click starts afresh", () => {
+    const r = real();
+    expect(r.click(TOTAL, ALT)).toContainEqual({ type: "select", ids: ["d20"] });
+    r.click(ROLL);
+    // Continuing would cycle on to the vault; a fresh cycle starts at the d20.
+    expect(r.click(TOTAL, ALT)).toContainEqual({ type: "select", ids: ["d20"] });
+  });
+
+  test("a handle press on the selected object forgets the cycle (vtt-qf5.69)", () => {
+    const r = real();
+    r.click(TOTAL, ALT);
+    r.click(TOTAL, ALT);
+    // The vault is selected: a corner of its resize handles, grabbed and released in place.
+    const corner: Point = [32, 2];
+    const down = r.run(ptr("pointer_down", corner));
+    expect(down.some((e) => e.type === "select")).toBe(false);
+    expect(r.state().phase.inner).toEqual(expect.objectContaining({ drag: expect.anything() }));
+    r.run(ptr("pointer_up", corner));
+    const effects = r.doubleClick(TOTAL);
+    expect(editorsIn(effects)).toEqual([]);
+    expect(invokesIn(effects)).toHaveLength(1);
   });
 
   test("the decorator forwards doubleClickTarget", () => {
