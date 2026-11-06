@@ -26,7 +26,11 @@
  * is a newline), else an `input`. Enter and blur commit with the stamp's
  * `baseRevision` (unchanged input writes nothing, except over a formula cell
  * without an override, where any literal is an override: M4-D6); Escape
- * cancels.
+ * cancels. A blur from the window losing focus (alt-tab, switching to another
+ * app; `document.hasFocus()` false at blur) commits nothing: the editor stays
+ * open with its draft, and focus coming back to the field resumes it; if the
+ * window comes back with focus elsewhere, the editor closes without writing
+ * (vtt-qf5.59, as the formula bar's vtt-nb8.21).
  *
  * It closes without committing when a cover comes over its rectangle, when
  * the viewer changes, when the active board is no longer `stamp.board`, when
@@ -211,6 +215,8 @@ export function InPlaceEditor({ session, ui, camera, scene }: InPlaceEditorProps
   const fieldRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   /** Whether the editor shown by the last render is open; blur commits only then. */
   const liveRef = useRef<Draft | null>(null);
+  /** Whether the open draft was kept over the window losing focus (vtt-qf5.59). */
+  const keptOverWindowBlur = useRef(false);
 
   // -- opening
 
@@ -295,11 +301,32 @@ export function InPlaceEditor({ session, ui, camera, scene }: InPlaceEditorProps
   // Focus on open, caret at the end.
   const openedSeq = shown?.request.seq;
   useLayoutEffect(() => {
+    keptOverWindowBlur.current = false;
     const field = fieldRef.current;
     if (openedSeq === undefined || field === null) return;
     field.focus({ preventScroll: true });
     field.setSelectionRange(field.value.length, field.value.length);
   }, [openedSeq]);
+
+  // The window came back: a kept draft whose field did not get focus back closes, unwritten.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onWindowFocus = () => {
+      clearTimeout(timer);
+      // After this task, so the field's own focus (restored by the browser) has fired.
+      timer = setTimeout(() => {
+        if (!keptOverWindowBlur.current) return;
+        keptOverWindowBlur.current = false;
+        const live = liveRef.current;
+        if (live !== null && document.activeElement !== fieldRef.current) close(live);
+      }, 0);
+    };
+    window.addEventListener("focus", onWindowFocus);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", onWindowFocus);
+    };
+  }, [close]);
 
   // -- committing
 
@@ -358,9 +385,15 @@ export function InPlaceEditor({ session, ui, camera, scene }: InPlaceEditorProps
       const { error: _error, ...rest } = shown;
       setDraft({ ...rest, text: e.target.value });
     },
+    onFocus: () => {
+      keptOverWindowBlur.current = false;
+    },
     onBlur: () => {
       // Only the editor that is open now commits (not one being removed).
-      if (liveRef.current === shown) commit(shown);
+      if (liveRef.current !== shown) return;
+      // The window losing focus blurs the field too: keep the draft for when it returns.
+      if (!document.hasFocus()) keptOverWindowBlur.current = true;
+      else commit(shown);
     },
   };
 
