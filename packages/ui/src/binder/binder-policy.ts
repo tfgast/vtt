@@ -121,7 +121,9 @@ type RevealInputs = Pick<ReducerInput, "scene" | "views" | "viewer">;
 
 /**
  * Scrolls the last list of `path` so `id`'s row shows (`revealOffset`);
- * false when that list or the row is not drawn (yet).
+ * false when that list or the row is not drawn (yet). Faces are resolved
+ * with `id` selected, as every caller selects it, so a `when_selected` list
+ * holding it is drawn (M6-D12).
  */
 function reveal(
   faceState: FaceStateStore,
@@ -133,6 +135,7 @@ function reveal(
   if (last === undefined) return false;
   const faces = attachFaces(input.scene, input.views, faceState, {
     gm: input.viewer.type === "gm",
+    selection: [id],
   });
   const list = pathContents(faces, path)[path.length - 1];
   if (list === undefined || !list.entries.some((e) => e.id === id)) return false;
@@ -289,6 +292,7 @@ export function binderPolicy(options: BinderPolicyOptions): BinderPolicy {
       // Only a collapsed template entry makes or reuses a working copy.
       const faces = attachFaces(ctx.input.scene, ctx.input.views, faceState, {
         gm: ctx.input.viewer.type === "gm",
+        selection: ctx.input.selection,
       });
       const list = pathContents(faces, hit.path)[hit.path.length - 1];
       if (list?.entries.find((e) => e.id === id)?.expanded === true) return null;

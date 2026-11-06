@@ -47,6 +47,8 @@ export type Effect =
   /** Replaces the tool overlays. */
   | { type: "overlays"; overlays: ToolOverlay[] }
   | { type: "hover"; id: ObjectId | null; zone: ObjectId | null }
+  /** The object an Alt-held drag hovers, whose `when_selected` lists show (M6-D12); null ends it. */
+  | { type: "alt_hover"; id: ObjectId | null }
   | { type: "notice"; level: NoticeLevel; text: string }
   | ({ type: "set_tool" } & SetToolRequest)
   | { type: "pick_file"; stamp: InteractionStamp; accept: string }

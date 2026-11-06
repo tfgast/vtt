@@ -37,7 +37,7 @@ import { dropTargetAt } from "../face/face-hit";
 import type { FaceDrawing } from "../face/face-model";
 import { attachFaces, type FaceScene, type FaceSceneState } from "../face/face-scene";
 import type { Continuation } from "./effects";
-import type { DropIntent, DropOverride, DropOverrideResult } from "./select-tool";
+import type { DropContext, DropIntent, DropOverride, DropOverrideResult } from "./select-tool";
 import type { ReducerInput } from "./tool";
 
 /** The tag that makes a container a binder (DESIGN.md §4.7). */
@@ -94,7 +94,10 @@ export function faceSceneFor(
 }
 
 export interface FaceDropOverrideOptions {
-  /** The current Alt-hover of the drag being dropped (`altHoverAt`), read at the drop. */
+  /**
+   * The current Alt-hover of the drag being dropped (`altHoverAt`), read at
+   * the drop when the caller passes no `DropContext` (the select tool does).
+   */
   altHover?: () => ObjectId | null;
 }
 
@@ -243,10 +246,11 @@ export function createFaceDropOverride(
   faceState?: FaceSceneState,
   options: FaceDropOverrideOptions = {},
 ): DropOverride {
-  return (input, point, draggedIds, intent) => {
+  return (input, point, draggedIds, intent, context) => {
     if (draggedIds.length !== 1) return null;
     const dragged = draggedIds[0] as ObjectId;
-    const faces = faceSceneFor(input, faceState, { altHover: options.altHover?.() ?? null });
+    const altHover = context?.altHover ?? options.altHover?.() ?? null;
+    const faces = faceSceneFor(input, faceState, { altHover });
     const target = dropTargetAt(faces, point, input.camera, [dragged]);
     const from = containerOf(input.views(dragged));
     const out = resolveFaceDrop(input, faces, target, { dragged, intent, from });
@@ -263,4 +267,5 @@ export const faceDropOverride: (
   point: Point,
   draggedIds: ObjectId[],
   intent: DropIntent,
+  context?: DropContext,
 ) => DropOverrideResult | null = createFaceDropOverride();

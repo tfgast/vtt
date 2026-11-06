@@ -24,6 +24,11 @@
  *   another non-zone object, one `move` per object into its `contents`
  *   (M4-D9); else one `move` per object onto the active board, back to front
  *   so the landing rule keeps their stacking order.
+ * - Alt-hover (DESIGN.md §4.6 Only when selected, M6-D12): during a drag,
+ *   each pointer move (and an Alt key release) recomputes `altHoverAt`, kept
+ *   in the drag gesture and emitted as an `alt_hover` effect when it
+ *   changes; the drop recomputes it at the release point and passes it to
+ *   the `dropOverride`; the drop and any cancel clear it.
  * - Double-click on an object: `open_editor`.
  * - Keys: `selectKeyEffects` (keys.ts), when no gesture is in progress.
  * - Cancel (Escape, board or viewer change, tool switch, `pointer_cancel`)
@@ -31,6 +36,7 @@
  */
 import type { ObjectView, WireOp } from "@vtt/protocol";
 import type { Bounds, ObjectId, Point, Shape } from "@vtt/schema";
+import { altHoverAt } from "../face/face-scene";
 import { hitsAt, marqueeHit } from "../scene/hit-test";
 import type { DrawItem, Scene, ScenePreview } from "../scene/scene";
 import type { InteractionStamp, Previews } from "./contracts";
@@ -70,17 +76,25 @@ export interface DropOverrideResult {
   continuations?: Continuation[];
 }
 
+/** What the select tool knows at the drop beyond the intent. */
+export interface DropContext {
+  /** The drag's Alt-hover at the release (`altHoverAt`; M6-D12). */
+  altHover: ObjectId | null;
+}
+
 /**
  * Consulted first at the drop of every drag (M5 Q1 A4): the input at the
- * drop, the drop's board point, the dragged ids (back to front) and the
- * intent captured at pointer down. A non-null result replaces the drop's ops,
- * label and continuations (same stamp, same held previews).
+ * drop, the drop's board point, the dragged ids (back to front), the
+ * intent captured at pointer down and the drop context. A non-null result
+ * replaces the drop's ops, label and continuations (same stamp, same held
+ * previews).
  */
 export type DropOverride = (
   input: ReducerInput,
   point: Point,
   draggedIds: ObjectId[],
   intent: DropIntent,
+  context?: DropContext,
 ) => DropOverrideResult | null;
 
 export interface SelectToolOptions {
@@ -131,7 +145,14 @@ export type SelectGesture =
       modifiers: Modifiers;
       plan: DragPlan | null;
     }
-  | { kind: "drag"; pointerId: number; grab: Point; plan: DragPlan }
+  | {
+      kind: "drag";
+      pointerId: number;
+      grab: Point;
+      plan: DragPlan;
+      /** The object an Alt-held drag hovers (M6-D12), or null. */
+      altHover: ObjectId | null;
+    }
   | { kind: "marquee"; pointerId: number; start: Point; shift: boolean };
 
 export interface SelectPhase {
@@ -260,15 +281,38 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
       ? []
       : [{ type: "hover", id: next.id, zone: next.zone }];
 
+  /** The drag's Alt-hover after `event` (`altHoverAt`). */
+  const nextAltHover = (
+    g: Extract<SelectGesture, { kind: "drag" }>,
+    event: PointerInteractionEvent,
+    input: ToolInput,
+  ): ObjectId | null =>
+    altHoverAt({
+      scene: input.scene,
+      views: input.views,
+      previous: g.altHover,
+      point: event.board,
+      camera: input.camera,
+      alt: event.modifiers.alt,
+      dragged: g.plan.items.map((item) => item.id),
+    });
+
   /** The drop's ops, label and continuations. */
   function dropWrite(
     plan: DragPlan,
     delta: Point,
     event: PointerInteractionEvent,
     input: ToolInput,
+    altHover: ObjectId | null,
   ): { ops: WireOp[]; label: string; continuations: Continuation[] } {
     const ids = plan.items.map((item) => item.id);
-    const override = dropOverride?.(input, event.board, ids, { copy: plan.spawn, alt: plan.alt });
+    const override = dropOverride?.(
+      input,
+      event.board,
+      ids,
+      { copy: plan.spawn, alt: plan.alt },
+      { altHover },
+    );
     if (override != null) {
       return {
         ops: override.ops,
@@ -380,7 +424,7 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
       }
       const plan = g.plan;
       const next = withPhase(state, {
-        gesture: { kind: "drag", pointerId: g.pointerId, grab: g.board, plan },
+        gesture: { kind: "drag", pointerId: g.pointerId, grab: g.board, plan, altHover: null },
       });
       const out = pointerMove(next, event, input);
       const select: Effect[] = plan.select === null ? [] : [{ type: "select", ids: plan.select }];
@@ -398,11 +442,15 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
       };
     }
     const delta: Point = [event.board[0] - g.grab[0], event.board[1] - g.grab[1]];
+    const altHover = nextAltHover(g, event, input);
+    const hoverChange: Effect[] =
+      altHover === g.altHover ? [] : [{ type: "alt_hover", id: altHover }];
     return {
-      state,
+      state: altHover === g.altHover ? state : withPhase(state, { gesture: { ...g, altHover } }),
       effects: [
         { type: "previews", previews: dragPreviews(g.plan, delta) },
         { type: "overlays", overlays: [ghost(g.plan, delta)] },
+        ...hoverChange,
       ],
     };
   }
@@ -463,13 +511,15 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
     }
     const { plan } = g;
     const delta: Point = [event.board[0] - g.grab[0], event.board[1] - g.grab[1]];
-    const { ops, label, continuations } = dropWrite(plan, delta, event, input);
+    const altHover = nextAltHover(g, event, input);
+    const { ops, label, continuations } = dropWrite(plan, delta, event, input, altHover);
     return {
       state: ended.state,
       effects: [
         { type: "write", stamp: plan.stamp, ops, label, continuations },
         { type: "previews", previews: dragPreviews(plan, delta), hold: { stamp: plan.stamp } },
         { type: "overlays", overlays: [] },
+        ...(g.altHover === null ? [] : [{ type: "alt_hover", id: null } as const]),
         ...ended.effects,
       ],
     };
@@ -491,6 +541,7 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
           effects: [
             { type: "previews", previews: EMPTY_PREVIEWS },
             { type: "overlays", overlays: [] },
+            ...(g.altHover === null ? [] : [{ type: "alt_hover", id: null } as const]),
           ],
         };
     }
@@ -531,6 +582,17 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
         case "key_down": {
           if (state.phase.gesture.kind !== "idle") return { state, effects: [] };
           return { state, effects: selectKeyEffects(event, input) ?? [] };
+        }
+        case "key_up": {
+          // Releasing Alt ends a drag's Alt-hover (M6-D12).
+          const g = state.phase.gesture;
+          if (g.kind !== "drag" || g.altHover === null || event.modifiers.alt) {
+            return { state, effects: [] };
+          }
+          return {
+            state: withPhase(state, { gesture: { ...g, altHover: null } }),
+            effects: [{ type: "alt_hover", id: null }],
+          };
         }
         default:
           return { state, effects: [] };

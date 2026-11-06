@@ -759,3 +759,69 @@ describe("dropOverride (M5 Q1 A4)", () => {
     expect(r.calls).toEqual([]);
   });
 });
+
+describe("the Alt-hover of a drag (M6-D12)", () => {
+  // A pouch token at (30, 0) with a when_selected list [-1.5, 0.9, 3, 1.2] below it.
+  const pouch: ObjectView = {
+    ...obj("pouch", [30, 0], 3, circle(0.9), { name: "Pouch" }),
+    face: {
+      elements: [
+        { type: "contents", rect: [-1.5, 0.9, 3, 1.2], index: 0, shown: true, when_selected: true },
+      ],
+    },
+  };
+  const views = [...VIEWS, pouch];
+  const byId = new Map(views.map((v) => [v.id, v]));
+  const over: Partial<ReducerInput> = {
+    scene: buildScene({ views, covers: [], board: BOARD, viewer: GM }),
+    views: (id) => byId.get(id) ?? null,
+  };
+  const LIST_POINT: Point = [29, 1.9];
+  const hovers = (effects: Effect[]) => of(effects, "alt_hover").map((e) => e.id);
+
+  function start(d: ReturnType<typeof driver>, overrides: Partial<ReducerInput>): void {
+    d.send(pointer("pointer_down", [2, -2], ALT), overrides);
+    d.send(pointer("pointer_move", [10, -2], ALT), overrides);
+  }
+
+  test("entering the footprint with Alt emits it once; the list rect keeps it; leaving both ends it", () => {
+    const d = driver();
+    start(d, over);
+    expect(hovers(d.send(pointer("pointer_move", [30, 0.2], ALT), over))).toEqual(["pouch"]);
+    expect(hovers(d.send(pointer("pointer_move", LIST_POINT, ALT), over))).toEqual([]);
+    expect(hovers(d.send(pointer("pointer_move", [40, 5], ALT), over))).toEqual([null]);
+  });
+
+  test("an Alt key release ends it; so does a cancel", () => {
+    const d = driver();
+    start(d, over);
+    d.send(pointer("pointer_move", [30, 0.2], ALT), over);
+    const up: InteractionEvent = {
+      type: "key_up",
+      key: "Alt",
+      code: "AltLeft",
+      modifiers: NO_MODS,
+      inTextField: false,
+    };
+    expect(hovers(d.send(up, over))).toEqual([null]);
+
+    const e = driver();
+    start(e, over);
+    e.send(pointer("pointer_move", [30, 0.2], ALT), over);
+    expect(hovers(e.cancel("escape"))).toEqual([null]);
+  });
+
+  test("the drop passes the Alt-hover at the release to the drop override and clears it", () => {
+    const seen: (ObjectId | null)[] = [];
+    const dropOverride: DropOverride = (_i, _p, _ids, _intent, context) => {
+      seen.push(context?.altHover ?? null);
+      return null;
+    };
+    const d = driver({ dropOverride });
+    start(d, over);
+    d.send(pointer("pointer_move", [30, 0.2], ALT), over);
+    const out = d.send(pointer("pointer_up", LIST_POINT, ALT), over);
+    expect(seen).toEqual(["pouch"]);
+    expect(hovers(out)).toEqual([null]);
+  });
+});
