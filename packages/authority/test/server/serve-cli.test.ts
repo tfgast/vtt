@@ -250,6 +250,9 @@ describe("vtt-serve start-up", () => {
       [],
       [file, "--port", "nope"],
       [file, "--port", "70000"],
+      [file, "--keep-last", "-1"],
+      [file, "--keep-last", "two"],
+      [file, "--keep-last"],
     ]) {
       const p = serve(args);
       expect(await exitOf(p), args.join(" ")).toEqual({ code: 1, signal: null });
@@ -316,6 +319,19 @@ describe("vtt-serve shutdown", () => {
     const snap = (await loadTable(file)).store.toSnapshot();
     expect(snap.revision).toBe(1);
     expect(Object.keys(snap.objects)).toEqual(["orc"]);
+  });
+
+  test("--keep-last 1 compacts the log to its last group at the final save", async () => {
+    const p = serve([file, "--port", "0", "--print-session", "--empty", "--keep-last", "1"]);
+    const client = await connect(await printed(p));
+    await createOrc(client, "orc1");
+    await createOrc(client, "orc2");
+    await createOrc(client, "orc3");
+    expect(await stop(p)).toEqual({ code: 0, signal: null });
+    const { store } = await loadTable(file);
+    expect(store.history.toLog()).toMatchObject({ first_index: 2, undo_barrier: 2 });
+    expect(store.history.groups().map((g) => g.index)).toEqual([2]);
+    expect(Object.keys(store.toSnapshot().objects).sort()).toEqual(["orc1", "orc2", "orc3"]);
   });
 
   test("a second signal during shutdown is ignored", async () => {

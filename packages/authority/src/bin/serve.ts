@@ -8,7 +8,12 @@
  *
  *   vtt-serve <file> [--port n] [--token=t] [--allow-origin o]…
  *             [--ui-dir dir | --no-ui] [--no-autosave] [--print-session]
- *             [--force-unlock] [--empty] [--open]
+ *             [--force-unlock] [--empty] [--open] [--keep-last n]
+ *
+ * `--keep-last <n>` (DESIGN.md §7 Persistence; M6-D33) compacts the log at
+ * every save to its last n groups (absolute indices kept; undo below them is
+ * `nothing_to_undo`, `changes_since` below the floor is `truncated`). Without
+ * it the log is never compacted.
  *
  * A missing table file is created stocked with the example templates (the
  * GM binder on `gm_board`, DESIGN.md §4.7, §7 New tables and ownership;
@@ -64,7 +69,7 @@ import {
 } from "../index";
 
 const USAGE =
-  "usage: vtt-serve <file> [--port n] [--token=t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock] [--empty] [--open]";
+  "usage: vtt-serve <file> [--port n] [--token=t] [--allow-origin o]... [--ui-dir dir | --no-ui] [--no-autosave] [--print-session] [--force-unlock] [--empty] [--open] [--keep-last n]";
 
 /** The default UI build directory: `packages/ui/dist`, resolved from this module's location. */
 const DEFAULT_UI_DIR = fileURLToPath(new URL("../../../ui/dist", import.meta.url));
@@ -84,6 +89,7 @@ const OPTIONS = {
   "force-unlock": { type: "boolean", default: false },
   empty: { type: "boolean", default: false },
   open: { type: "boolean", default: false },
+  "keep-last": { type: "string" },
 } as const;
 
 interface ServeArgs {
@@ -100,6 +106,8 @@ interface ServeArgs {
   empty: boolean;
   /** Open the served page in a browser once listening. */
   open: boolean;
+  /** `--keep-last n`: compact to the last n groups at every save (M6-D33); undefined: never. */
+  keepLast: number | undefined;
 }
 
 class UsageError extends Error {}
@@ -137,6 +145,15 @@ function parse(argv: string[]): ServeArgs {
     throw new UsageError("--no-ui and --ui-dir cannot be combined");
   }
   if (values["ui-dir"] === "") throw new UsageError("--ui-dir must not be empty");
+  let keepLast: number | undefined;
+  if (values["keep-last"] !== undefined) {
+    keepLast = /^\d+$/.test(values["keep-last"]) ? Number(values["keep-last"]) : Number.NaN;
+    if (!Number.isSafeInteger(keepLast)) {
+      throw new UsageError(
+        `--keep-last must be a non-negative integer, got ${values["keep-last"]}`,
+      );
+    }
+  }
   if (values.open && !values.ui) {
     throw new UsageError("--open cannot be combined with --no-ui: there is no page to open");
   }
@@ -151,6 +168,7 @@ function parse(argv: string[]): ServeArgs {
     forceUnlock: values["force-unlock"],
     empty: values.empty,
     open: values.open,
+    keepLast,
   };
 }
 
@@ -266,6 +284,7 @@ async function main(argv: string[]): Promise<never> {
       createIfMissing: true,
       newTable: args.empty ? newTableSnapshot : stockedTableSnapshot,
       ...(args.autosave ? {} : { autosave: false as const }),
+      ...(args.keepLast === undefined ? {} : { compaction: { keepLast: args.keepLast } }),
     });
   } catch (err) {
     if (err instanceof TableLockedError) log(lockedMessage(canonical, err));
