@@ -52,6 +52,7 @@ import {
   defaultFacePolicy,
   drawFaceItem,
   type EditorOpenRequest,
+  entryDragGesture,
   entryTransform,
   type FaceDrawing,
   type FaceGesture,
@@ -485,6 +486,8 @@ interface Options {
    * out, since the stocked binder holds one.
    */
   stocked?: boolean;
+  /** Register `entryDragGesture` on the world's face state (after `gestures`). */
+  entryDrag?: boolean;
 }
 
 async function world(options: Options = {}) {
@@ -544,11 +547,15 @@ async function world(options: Options = {}) {
   const ui = createUiStore({ session });
   const faceState = createFaceStateStore();
   const registry = new ToolRegistry();
+  const gestures = [
+    ...(options.gestures ?? []),
+    ...(options.entryDrag === true ? [entryDragGesture({ faceState })] : []),
+  ];
   registry.register(
     withFaces(withHandles(createSelectTool()), {
       faceState,
       policy: defaultFacePolicy,
-      ...(options.gestures ? { gestures: options.gestures } : {}),
+      ...(gestures.length > 0 ? { gestures } : {}),
     }),
   );
   const port = createInPlaceEditorPort(ui);
@@ -1254,5 +1261,63 @@ describe("stocked tokens show their lists only when selected (M6-D12, vtt-nb8.36
     expect(zone?.board).toBe(BOARD);
     expect(w.stored("zone", "position")).toEqual({ type: "list", items: [num(3), num(9.3)] });
     expect(w.host.table.store.getObject(g2)?.contents).toHaveLength(1);
+  });
+});
+
+describe("an expanded working copy dragged by its face (vtt-nb8.30)", () => {
+  test("dragging the picture of an expanded working copy of Character out of the GM binder moves that character onto the board", async () => {
+    const w = await world({ stocked: true, entryDrag: true });
+    // The working copy a chevron on the Character template makes: a copy right after it, expanded.
+    const made = await w.gm.transact(
+      [
+        {
+          type: "spawn",
+          template: "tpl_character",
+          to: { type: "container", container: "gm_binder", index: 1 },
+          as: "$copy",
+        },
+      ],
+      { label: "Working copy" },
+    );
+    if (made.status !== "committed") throw new Error(JSON.stringify(made));
+    const copy = made.bindings.$copy as ObjectId;
+    await until(
+      () => w.session.objectView(copy) !== null && w.session.objectView(copy) !== undefined,
+      "the copy's view",
+    );
+    act(() => w.faceState.expand(copy));
+    await settle();
+    const store = w.host.table.store;
+    expect(store.getObject("gm_binder")?.contents.slice(0, 2)).toEqual(["tpl_character", copy]);
+    const before = new Set(store.objectIds());
+
+    // The copy's picture (its image value element), drawn in its expanded row.
+    const picture = apply(located(w, copy).toBoard, [0, 0]);
+    expect(faceHitAt(w.faces(), picture, w.ui.getState().camera)).toMatchObject({
+      object: copy,
+      target: { type: "value", cell: "image" },
+    });
+    const drop: Point = [20, 12];
+    expect(faceHitAt(w.faces(), drop, w.ui.getState().camera)).toBeNull();
+    const selection = w.ui.getState().selection;
+
+    const revision = w.host.revision;
+    w.pointer("pointerDown", picture);
+    w.pointer("pointerMove", [picture[0] + 2, picture[1] + 1]);
+    w.pointer("pointerMove", drop);
+    w.pointer("pointerUp", drop);
+    await until(() => w.host.revision > revision, "the drop's write");
+    await settle();
+
+    // A move, not a copy: the copy itself is on the board at the drop, out of the binder.
+    expect(store.getObject(copy)?.board).toBe(BOARD);
+    expect(w.stored(copy, "position")).toEqual({ type: "list", items: [num(20), num(12)] });
+    expect(store.getObject("gm_binder")?.contents).not.toContain(copy);
+    expect(store.getObject("gm_binder")?.contents[0]).toBe("tpl_character");
+    expect(new Set(store.objectIds())).toEqual(before);
+    expect(w.host.revision).toBe(revision + 1);
+    // The GM binder stayed where it was, and the drag changed no selection.
+    expect(w.stored("gm_binder", "position")).toEqual({ type: "list", items: [num(0), num(0)] });
+    expect(w.ui.getState().selection).toEqual(selection);
   });
 });

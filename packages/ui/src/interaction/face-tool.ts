@@ -42,6 +42,16 @@
  * - anything else (entry rows and contained bodies no gesture claims, a
  *   press that moved beyond `FACE_CLICK_PX`'s release, keys) → the wrapped tool.
  *
+ * Hand-off (vtt-nb8.30): a chevron or gear press, and a primary pointer down
+ * on a face hit that went to the wrapped tool, is offered to `gestures`
+ * again with its first `pointer_move` beyond `FACE_CLICK_PX` (the hit and
+ * stamp of its pointer down, that move as the event). A gesture that starts
+ * takes the pointer from there: the press ends with no effect, or the
+ * wrapped tool gets a `pointer_cancel` for it (no write, no selection
+ * change), and the gesture then reduces that move. Otherwise nothing changes:
+ * the press is marked moved, or the wrapped tool gets the move. A press that
+ * never moves that far is unaffected.
+ *
  * Cancel (Escape, tool switch, board or viewer change) ends a press or a
  * gesture with no effect but the gesture's `cancel`; Escape then stops
  * there, anything else also cancels the wrapped tool. Results of the
@@ -94,6 +104,14 @@ export interface FacePress {
   moved: boolean;
 }
 
+/** A primary pointer down on a face hit that went to the wrapped tool, until its first move beyond `FACE_CLICK_PX`. */
+export interface FaceHandoff {
+  pointerId: number;
+  screen: Point;
+  hit: FaceHit;
+  stamp: InteractionStamp;
+}
+
 /** A gesture of `WithFacesOptions.gestures` in progress, with its state. */
 export interface ActiveFaceGesture {
   gesture: FaceGesture<unknown>;
@@ -105,6 +123,8 @@ export interface FacesPhase<TPhase> {
   inner: TPhase;
   press: FacePress | null;
   gesture: ActiveFaceGesture | null;
+  /** The wrapped tool's press that may still be handed off to a gesture (vtt-nb8.30). */
+  handoff: FaceHandoff | null;
   /** The primary pointer down that went to the wrapped tool and is not up yet. */
   innerPointer: number | null;
   /** The wrapped tool's overlays, as last emitted. */
@@ -303,6 +323,60 @@ export function withFaces<TPhase, K extends ToolId>(
     }
   }
 
+  /** The first of `gestures` that starts on `hit` with `event`, else null. */
+  function startGesture(
+    hit: FaceHit,
+    event: PointerInteractionEvent,
+    input: ToolInput,
+    stamp: InteractionStamp,
+  ): ActiveFaceGesture | null {
+    for (const gesture of gestures) {
+      const started = gesture.start(hit, event, input, stamp);
+      if (started !== null) return { gesture, state: started };
+    }
+    return null;
+  }
+
+  /** `active`, just started from a moved press, reducing that move (vtt-nb8.30). */
+  function handOff(
+    state: State,
+    active: ActiveFaceGesture,
+    event: InteractionEvent,
+    input: ToolInput,
+  ): Result {
+    const out = active.gesture.reduce(active.state, event, input);
+    const next = out.state === null ? null : { gesture: active.gesture, state: out.state };
+    return gestureStep(state, next, out.effects);
+  }
+
+  /** The wrapped tool's press `handoff` while it is pending (see the module comment). */
+  function handoffEvent(
+    state: State,
+    handoff: FaceHandoff,
+    event: InteractionEvent,
+    input: ToolInput,
+  ): Result {
+    if (event.type === "pointer_move" && event.pointerId === handoff.pointerId) {
+      if (distance(handoff.screen, event.screen) <= FACE_CLICK_PX) {
+        return delegate(state, event, input);
+      }
+      const ended = withPhase(state, { handoff: null });
+      const active = startGesture(handoff.hit, event, input, handoff.stamp);
+      if (active === null) return delegate(ended, event, input);
+      // The wrapped tool's press ends with no effect of its own beyond its overlays.
+      const cancelled = delegate(ended, { ...event, type: "pointer_cancel" }, input);
+      const out = handOff(cancelled.state, active, event, input);
+      return { state: out.state, effects: [...cancelled.effects, ...out.effects] };
+    }
+    if (
+      (event.type === "pointer_up" || event.type === "pointer_cancel") &&
+      event.pointerId === handoff.pointerId
+    ) {
+      return delegate(withPhase(state, { handoff: null }), event, input);
+    }
+    return delegate(state, event, input);
+  }
+
   function pointerDown(state: State, event: PointerInteractionEvent, input: ToolInput): Result {
     const phase = phaseOf(state);
     if (phase.press !== null) return { state, effects: [] };
@@ -312,17 +386,18 @@ export function withFaces<TPhase, K extends ToolId>(
     const stamp = captureStamp(input);
     const hit = stamp === null ? null : faceHitAt(facesOf(input), event.board, input.camera);
     if (stamp === null || hit === null) return delegate(state, event, input);
-    for (const gesture of gestures) {
-      const started = gesture.start(hit, event, input, stamp);
-      if (started !== null) return gestureStep(state, { gesture, state: started }, []);
-    }
+    const started = startGesture(hit, event, input, stamp);
+    if (started !== null) return gestureStep(state, started, []);
     const t = hit.target;
     const pressed =
       t.type === "button" ||
       t.type === "chevron" ||
       t.type === "gear" ||
       (t.type === "editor" && editable(input, input.views(hit.object), t.cell));
-    if (!pressed) return delegate(state, event, input);
+    if (!pressed) {
+      const handoff: FaceHandoff = { pointerId: event.pointerId, screen: event.screen, hit, stamp };
+      return delegate(withPhase(state, { handoff }), event, input);
+    }
     const press: FacePress = {
       pointerId: event.pointerId,
       screen: event.screen,
@@ -343,6 +418,14 @@ export function withFaces<TPhase, K extends ToolId>(
       case "pointer_move": {
         if (event.pointerId !== press.pointerId || press.moved) return { state, effects: [] };
         if (distance(press.screen, event.screen) <= FACE_CLICK_PX) return { state, effects: [] };
+        // A chevron or gear that moves may become a gesture (vtt-nb8.30); an editor stays put.
+        const t = press.hit.target;
+        const active =
+          t.type === "chevron" || t.type === "gear"
+            ? startGesture(press.hit, event, input, press.stamp)
+            : null;
+        if (active !== null)
+          return handOff(withPhase(state, { press: null }), active, event, input);
         return { state: withPhase(state, { press: { ...press, moved: true } }), effects: [] };
       }
       case "pointer_up": {
@@ -454,6 +537,7 @@ export function withFaces<TPhase, K extends ToolId>(
         inner: inner.phase,
         press: null,
         gesture: null,
+        handoff: null,
         innerPointer: null,
         innerOverlays: [],
         gestureOverlays: [],
@@ -476,6 +560,10 @@ export function withFaces<TPhase, K extends ToolId>(
         return gestureStep(state, next, out.effects);
       }
       if (press !== null) return pressEvent(state, press, event, input);
+      const { handoff } = phaseOf(state);
+      if (handoff !== null && event.type !== "pointer_down" && event.type !== "double_click") {
+        return handoffEvent(state, handoff, event, input);
+      }
       switch (event.type) {
         case "pointer_down":
           return pointerDown(state, event, input);
@@ -487,7 +575,7 @@ export function withFaces<TPhase, K extends ToolId>(
     },
     cancel(state, reason: CancelReason): Result {
       const { gesture, press } = phaseOf(state);
-      let next = withPhase(state, { press: null, gesture: null });
+      let next = withPhase(state, { press: null, gesture: null, handoff: null });
       const effects: Effect[] = [];
       if (gesture !== null) {
         effects.push(...gesture.gesture.cancel(gesture.state).filter((e) => e.type !== "overlays"));

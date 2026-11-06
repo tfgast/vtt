@@ -22,7 +22,9 @@ import {
   ENTRY_DRAG_GESTURE,
   entryDragGesture,
   entryTransform,
+  type FaceHit,
   type FaceStateStore,
+  faceHitAt,
   type InteractionEvent,
   type Modifiers,
   pathContents,
@@ -131,6 +133,24 @@ const VIEWS: ObjectView[] = [
   // A hand (not a binder) at [40, 20] holding h0.
   binder("hand", [40, 20], ["h0"], ["hand"]),
   card("h0", "hand"),
+  // A binder bn at [60, 20] holding pc, which has a name value, a `note`
+  // editor and its own list holding the card pcs (vtt-nb8.30: a character
+  // with its sheet, drawn in an expanded row).
+  binder("bn", [60, 20], ["pc"]),
+  mk("pc", {
+    shape: rect(3, 3),
+    container: "bn",
+    cells: { note: text("") },
+    contents: ["pcs"],
+    face: {
+      elements: [
+        value("name", [-1.4, -1.4, 2.8, 0.5], 0),
+        editor("note", [-1.4, -0.85, 2.8, 0.4], 1),
+        contents([-1.4, -0.35, 2.8, 1.7], 2),
+      ],
+    },
+  }),
+  card("pcs", "pc"),
 ];
 const BY_ID = new Map(VIEWS.map((v) => [v.id, v]));
 
@@ -477,5 +497,180 @@ describe("without the session's face state", () => {
         ops: [{ type: "move", object: "a0", to: { type: "container", container: "bc", index: 0 } }],
       },
     ]);
+  });
+});
+
+describe("expanded rows: a press that moves on the drawn object drags its entry (vtt-nb8.30)", () => {
+  /**
+   * The first point of `box` (board [x, y, w, h], scanned on a 0.05 grid)
+   * whose face hit satisfies `ok`, on the scene `faceState` draws.
+   */
+  function find(faceState: FaceStateStore, box: Rect, ok: (hit: FaceHit) => boolean): Point {
+    const faces = buildFaceScene(
+      { views: VIEWS, covers: [], board: BOARD, viewer: { type: "gm" } },
+      { faceState },
+    );
+    for (let y = box[1]; y <= box[1] + box[3]; y += 0.05) {
+      for (let x = box[0]; x <= box[0] + box[2]; x += 0.05) {
+        const p: Point = [x, y];
+        const hit = faceHitAt(faces, p, CAMERA);
+        if (hit !== null && ok(hit)) return p;
+      }
+    }
+    throw new Error("no such hit");
+  }
+  const BA: Rect = [-3, 17, 6, 6];
+  const BN: Rect = [57, 17, 6, 6];
+  const expanded = (...ids: string[]) => {
+    const faceState = createFaceStateStore();
+    for (const id of ids) faceState.expand(id);
+    return faceState;
+  };
+  const isValue = (object: string, cell: string) => (h: FaceHit) =>
+    h.object === object && h.target.type === "value" && h.target.cell === cell;
+  const moveOut = (object: string, position: Point) => ({
+    type: "write",
+    stamp: STAMP,
+    ops: [{ type: "move", object, to: { type: "board", board: BOARD, position } }],
+    label: `Move ${object}`,
+    continuations: [],
+  });
+  const selects = (effects: Effect[]) => effects.filter((e) => e.type === "select");
+
+  test("a press on a value element of an expanded row that moves drags that row's object out (no selection change)", () => {
+    const faceState = expanded("a0");
+    const name = find(faceState, BA, isValue("a0", "name"));
+    const r = rig(faceState);
+    expect(r.send(ptr("pointer_down", name), { revision: 5, interactionId: "i1" })).toEqual([]);
+    const moving = r.send(ptr("pointer_move", [10, 10]), { revision: 6, interactionId: "i2" });
+    expect(moving).toEqual([
+      {
+        type: "overlays",
+        overlays: [
+          {
+            kind: "drag_ghost",
+            items: [{ id: "a0", anchor: [10, 10], rotation: 0, shape: rect(2.5, 3.5) }],
+          },
+        ],
+      },
+    ]);
+    const up = r.send(ptr("pointer_up", [12, 11]), { revision: 7, interactionId: "i3" });
+    expect(up).toEqual([moveOut("a0", [12, 11]), { type: "overlays", overlays: [] }]);
+    expect(selects([...moving, ...up])).toEqual([]);
+  });
+
+  test("a press on that value element that does not move is the select tool's click, as before", () => {
+    const faceState = expanded("a0");
+    const name = find(faceState, BA, isValue("a0", "name"));
+    const r = rig(faceState);
+    const near: Point = [name[0] + 0.02, name[1]];
+    const out = r.drag(name, [near]);
+    expect(writes(out)).toEqual([]);
+    expect(selects(out)).toEqual([{ type: "select", ids: ["ba"] }]);
+  });
+
+  test("a double-click on that value element still edits it in place (no default action; M6-D9)", () => {
+    const faceState = expanded("a0");
+    const name = find(faceState, BA, isValue("a0", "name"));
+    const r = rig(faceState);
+    r.drag(name, []);
+    r.drag(name, []);
+    const out = r.send({
+      type: "double_click",
+      screen: screenOf(name),
+      board: name,
+      modifiers: NO_MODS,
+    });
+    expect(out).toMatchObject([{ type: "open_editor", object: "a0", cell: "name" }]);
+  });
+
+  test("a press on the chevron of an expanded row that moves beyond the click threshold drags that entry", () => {
+    const faceState = expanded("a0");
+    const chevron = find(faceState, BA, (h) => h.target.type === "chevron" && h.target.id === "a0");
+    const r = rig(faceState);
+    // Within the threshold nothing happens yet.
+    expect(r.send(ptr("pointer_down", chevron))).toEqual([]);
+    expect(r.send(ptr("pointer_move", [chevron[0] + 0.02, chevron[1]]))).toEqual([]);
+    expect(r.send(ptr("pointer_move", [10, 10]))).toMatchObject([
+      { type: "overlays", overlays: [{ kind: "drag_ghost", items: [{ id: "a0" }] }] },
+    ]);
+    const up = r.send(ptr("pointer_up", [12, 11]), { revision: 7, interactionId: "i3" });
+    expect(writes(up)).toEqual([moveOut("a0", [12, 11])]);
+    // The chevron was not toggled.
+    expect(faceState.isExpanded("a0", "collapsed")).toBe(true);
+  });
+
+  test("a press on a template row's gear that moves drags the template: a copy, as from its row", () => {
+    const faceState = createFaceStateStore();
+    const gear = find(faceState, BA, (h) => h.target.type === "gear" && h.target.id === "ta");
+    const r = rig(faceState);
+    const out = r.drag(gear, [[10, 10]]);
+    expect(writes(out)).toEqual([
+      {
+        type: "write",
+        stamp: STAMP,
+        ops: [
+          {
+            type: "spawn",
+            template: "ta",
+            to: { type: "board", board: BOARD, position: [10, 10] },
+          },
+        ],
+        label: "Copy ta",
+        continuations: [{ type: "select_created", opIndex: 0 }],
+      },
+    ]);
+  });
+
+  test("a press on a non-editable editor element of an expanded row that moves drags that row's object", () => {
+    const faceState = expanded("pc");
+    const note = find(
+      faceState,
+      BN,
+      (h) => h.object === "pc" && h.target.type === "editor" && h.target.cell === "note",
+    );
+    const r = rig(faceState);
+    const viewer = { viewer: { type: "character" as const, id: "someone" } };
+    r.send(ptr("pointer_down", note), { ...viewer, revision: 5, interactionId: "i1" });
+    r.send(ptr("pointer_move", [70, 10]), viewer);
+    const up = r.send(ptr("pointer_up", [70, 10]), viewer);
+    const { stamp: _gm, ...move } = moveOut("pc", [70, 10]);
+    expect(writes(up)).toEqual([{ ...move, stamp: { ...STAMP, viewer: viewer.viewer } }]);
+  });
+
+  test("an editable editor element of an expanded row keeps its press: a moved press does nothing", () => {
+    const faceState = expanded("pc");
+    const note = find(
+      faceState,
+      BN,
+      (h) => h.object === "pc" && h.target.type === "editor" && h.target.cell === "note",
+    );
+    const r = rig(faceState);
+    const out = r.drag(note, [[70, 10]]);
+    expect(out.filter((e) => e.type !== "overlays")).toEqual([]);
+  });
+
+  test("a nested entry in an expanded row still drags the nested object, not the row's", () => {
+    const faceState = expanded("pc");
+    const nested = find(faceState, BN, (h) => h.target.type === "entry" && h.target.id === "pcs");
+    const r = rig(faceState);
+    const out = r.drag(nested, [[70, 10]]);
+    expect(writes(out)).toEqual([moveOut("pcs", [70, 10])]);
+  });
+
+  test("a value element of the nested object's row, expanded too, drags the nested object", () => {
+    const faceState = expanded("pc", "pcs");
+    const name = find(faceState, BN, isValue("pcs", "name"));
+    const r = rig(faceState);
+    const out = r.drag(name, [[70, 10]]);
+    expect(writes(out)).toEqual([moveOut("pcs", [70, 10])]);
+  });
+
+  test("a value element of a board object that moves is still the select tool's drag", () => {
+    const faceState = createFaceStateStore();
+    const r = rig(faceState);
+    // The board card's target editor is editable (a press); its body is the select tool's.
+    const out = r.drag([0.5, 1], [[3, 3]]);
+    expect(writes(out)).toMatchObject([{ ops: [{ type: "move", object: "card" }] }]);
   });
 });
