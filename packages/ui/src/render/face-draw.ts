@@ -52,6 +52,9 @@ export const CHEVRON_FILL = "#7a798e";
 export const CONTENTS_FILL = "rgba(255, 255, 255, 0.6)";
 export const CONTENTS_STROKE = "#b8b6c4";
 export const SCROLL_FILL = "rgba(60, 60, 72, 0.45)";
+/** A grid or fan tile's card (M6-D30). */
+export const TILE_FILL = "#ffffff";
+export const TILE_STROKE = "#8a8a96";
 
 /** The one pen (DESIGN.md §4.6 Ink and text; M5-D20): its width in object-local units. */
 export const INK_WIDTH = 0.04;
@@ -488,7 +491,8 @@ function drawInk(ctx: Ctx2D, p: InkPrimitive, env: Env): void {
  * The element's background, then, clipped to its rect and scrolled by
  * `-offset`, each row overlapping the visible window: its chevron, its gear,
  * its drawing under its transform (collapsed and expanded alike) or "hidden",
- * and its selection outline. Then a scroll indicator when it overflows.
+ * and its selection outline. Then a scroll indicator when it overflows. A
+ * grid or fan (M6-D30) draws its tiles instead (`drawTile`), unscrolled.
  */
 function drawContents(ctx: Ctx2D, p: ContentsPrimitive, env: Env): void {
   const [x, y, w, h] = p.rect;
@@ -503,6 +507,16 @@ function drawContents(ctx: Ctx2D, p: ContentsPrimitive, env: Env): void {
   ctx.beginPath();
   ctx.rect(x, y, w, h);
   ctx.clip();
+  if (p.layout !== "list") {
+    // Grid tiles and fan cards in list order, the last on top; grid rows past the rect are
+    // skipped (a grid does not scroll).
+    for (const entry of p.entries) {
+      if (entry.slot === undefined && entry.row[1] >= h - ROW_EPSILON) continue;
+      drawTile(ctx, p, entry, env);
+    }
+    ctx.restore();
+    return;
+  }
   ctx.save();
   ctx.translate(0, -p.offset);
   for (const entry of p.entries) {
@@ -513,6 +527,58 @@ function drawContents(ctx: Ctx2D, p: ContentsPrimitive, env: Env): void {
   ctx.restore();
   if (p.maxOffset > 0) drawScrollIndicator(ctx, p, env);
   ctx.restore();
+}
+
+/**
+ * One grid tile or fan card (M6-D30): in its slot frame (the element's
+ * corner, then a fan card's turn) a card with the chevron and gear in its
+ * header ("hidden" there for a redacted entry), then the entry's drawing
+ * under its transform, then its selection outline.
+ */
+function drawTile(ctx: Ctx2D, p: ContentsPrimitive, entry: FaceEntry, env: Env): void {
+  const inSlot = (paint: () => void) => {
+    ctx.save();
+    ctx.translate(p.rect[0], p.rect[1]);
+    if (entry.slot !== undefined) ctx.transform(...entry.slot);
+    paint();
+    ctx.restore();
+  };
+  const [rx, ry, rw, rh] = entry.row;
+  inSlot(() => {
+    ctx.beginPath();
+    ctx.rect(rx, ry, rw, rh);
+    ctx.fillStyle = TILE_FILL;
+    ctx.fill();
+    ctx.strokeStyle = TILE_STROKE;
+    ctx.lineWidth = env.px;
+    ctx.stroke();
+    const [cx, cy, cw, ch] = entry.chevron;
+    if (entry.drawing === null) {
+      fitText(ctx, HIDDEN_TEXT, [cx + cw, cy, rw - cw, ch], "normal", "left", MUTED_TEXT, env.s);
+      return;
+    }
+    drawChevron(ctx, entry.chevron, entry.expanded);
+    if (entry.gear !== undefined) drawGear(ctx, entry.gear, env);
+  });
+  if (entry.drawing === null) return;
+  ctx.save();
+  ctx.transform(...entry.transform);
+  drawFace(ctx, entry.drawing, {
+    camera: env.camera,
+    images: env.images,
+    transform: compose(env.transform, entryTransform(p, entry)),
+    selection: env.selected,
+  });
+  ctx.restore();
+  if (entry.id !== null && env.selected.has(entry.id)) {
+    inSlot(() => {
+      ctx.beginPath();
+      ctx.rect(rx + env.px, ry + env.px, rw - 2 * env.px, rh - 2 * env.px);
+      ctx.strokeStyle = SELECTION_STROKE;
+      ctx.lineWidth = 2 * env.px;
+      ctx.stroke();
+    });
+  }
 }
 
 /**

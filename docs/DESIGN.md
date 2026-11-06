@@ -537,7 +537,8 @@ object's layout is its field `face?: FaceLayout`:
 - `FaceElement` = `{type: "value" | "editor"; cell; rect; show_when?;
   min_size?; style?}` | `{type: "button"; action; rect; label?; show_when?;
   min_size?}` | `{type: "contents"; rect; entries?: "collapsed" | "full";
-  show_when?; min_size?; when_selected?: boolean}`.
+  show_when?; min_size?; when_selected?: boolean; layout?: "list" |
+  "grid" | "fan"}`.
 - `rect: [x, y, w, h]`, finite, `w`, `h` > 0, in board units in the
   object's unrotated local frame (origin at the anchor, y down). The
   full-face frame is the shape's bounding box (shapeless: `[-1, -0.5, 2,
@@ -554,6 +555,20 @@ object's layout is its field `face?: FaceLayout`:
   `show_when` non-blank, at most 10,000 characters.
 - `when_selected` (contents elements only, M6-D12) is a boolean; absent
   means unset. See **Only when selected** below.
+- `layout` (contents elements only, M6-D30) arranges the entries for hands
+  and trays; absent is `"list"`, the M5 rows, the only layout that
+  scrolls. Grid and fan entries are card tiles (5:7) with a header holding
+  the chevron, the collapsed face and a template's gear; an expanded entry
+  stays in its tile, its full drawing fitted below the header. `"grid"`
+  lays tiles left to right, then top to bottom, from the element's
+  top-left: four list rows high (at most the element's height), as many
+  columns as fit, rows past the rect clipped (and, with their contents,
+  skipped by keyboard focus). `"fan"` turns the cards
+  about one pivot below them (7° apart, at most 42° in all), scaled to
+  fit the rect, the last on top; a point where cards overlap belongs to
+  the card on top. A drop on a grid tile or fan card inserts at its index,
+  elsewhere in the element at the end. The Face section offers it as the
+  Layout select on contents element rows.
 - The whole layout is replaced by `set_face` (conflict key
   `face:<object>`), copied verbatim on spawn, and carried in create and
   remove snapshots; absent means no layout. There is no `schema_version`
@@ -1849,3 +1864,4 @@ a separate player window, shipped game-system content.
 | 2026-11-06 | M6-D25. The log panel's actor filter lists GM, "Any agent", each agent seen by name, "Any character" and each character seen (values `gm`, `agents`, `agent:<name>`, `characters`, `character:<id>`), replacing the agent and character type options. Choosing an actor other than All loads older pages client-side, in batches of `LOG_FILTER_PAGES` (20 pages, 1,000 groups) run one after another, until the start of the retained log. The search stops early only when a batch loads no new page (a failed request), when the filter changes (to All or another actor, which cancels the next batch), or when the panel closes. The status line reads "Searching older groups… (searched back to group N)" while it runs, "Every group by <actor> is listed." at the end, and "Search stopped at group N. Load older to continue." after a failure, where "Load older" resumes the batches. `log` has no actor parameter and none is added: the filter pages with `log {before, limit: 50}` as "Load older" does. "Any agent" exists because an agent that acted only before the 200-group window is not seen until older pages load. No label search. `LogSession.loadOlder(pages)`. DESIGN §4.8. | Playtest vtt-nb8.11 note (7): paging back to the agent's step-5 group took about 148 "Load older groups"; the guide's step 14 is now one choice of the filter. A server-side actor filter would be a protocol change for a log that is retained in memory and paged cheaply in process. |
 | 2026-11-06 | M6-D26. The GM binder stocks an initiative marker, `tpl_marker`, after `tpl_token`: a circle r 0.35 (half a token's area, so a strip of markers reads as smaller than the tokens on the map) tagged `marker` (not `creature`, so area saves and HIT formulas ignore it) with `of: empty`, `who = of.name` and `image = of.image`; its face shows `image`, the `of` editor captioned `of` while `of` is empty (the drop target for a character), and `who` below at `m=8`, as a token shows its name. `name` stays the literal "Marker" because `name` is literal only, so the character's name is the formula cell `who`; dot-access on an empty `of` is `empty`, so an unset marker is blank, not an error. §8.4 step 9 and the guide line up markers instead of tokens. No initiative tracker. DESIGN §4.7, §8.4. | Playtest 1 step 9: a token used to track initiative order cannot also track its position on the map. A marker is an ordinary template that refers to its character, so the strip and the map each keep their own object. |
 | 2026-11-06 | M6-D27. A canvas drag released over a board tab is a drop on that board: a move keeps each dragged object's position at the drag's start, a template copy, or an entry dragged out of a list, lands at the centre of that board's view (its remembered camera, else 0,0; not snapped), in one write with the drag's stamp, and that board is then activated; over the active board's own tab nothing is written. "Move selection to board…" stays. The canvas keeps the pointer capture, so `BoardCanvas` resolves the tab under a `pointer_up` (`document.elementFromPoint`, the nearest `[data-board-tab]`) and hands it to the select tool and the entry drag as `boardTab` (`tabDropWrite`). The first-session guide moves the GM binder to Crypt and the note to the GM board this way. Amends §4.6 ("not by dragging"). DESIGN §4.6; `nav/board-tab-drop.ts`. | M6 plan Q8 alternative (vtt-qf5.35): the menu detour was the guide's friction between boards; a tab is the board's visible handle. |
+| 2026-11-06 | M6-D30. Contents elements take an optional `layout: "list" \| "grid" \| "fan"` (absent is the M5 list, the only one that scrolls). Grid and fan entries are 5:7 tiles with a chevron header; an expanded entry keeps its tile, its full drawing fitted below the header. A grid lays tiles in rows from the top-left (four list rows high, as many columns as fit, overflow clipped); a fan turns them about a common pivot below (7° apart, at most 42°), scaled to fit, the last on top, and hit testing gives an overlapped point to the card on top. Drops insert at the tile under the pointer, else at the end. Canonical JSON, fixture and protocol view schemas carry it; the Face section's Layout select sets it. DESIGN §4.6; PROTOCOL §5; `face/contents-layout.ts`. | vtt-qf5.28 (M6 plan Q12): hands and trays read as cards, not rows; scrolling was already done in M5. |

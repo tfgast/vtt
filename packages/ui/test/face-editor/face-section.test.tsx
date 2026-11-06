@@ -422,6 +422,50 @@ describe("commands", () => {
     expect(faceOf(session)).toEqual(listed);
   });
 
+  test("Layout reads and writes a contents element's layout (vtt-qf5.28, M6-D30)", async () => {
+    const user = userEvent.setup();
+    const { session, other, transacts } = await setup();
+    const listed: FaceLayout = {
+      ...FACE,
+      elements: [...FACE.elements, { type: "contents", rect: [-2, 0.9, 4, 0.6], layout: "fan" }],
+    };
+    await other.transact([{ type: "set_face", object: "tok", face: listed }]);
+    await until(() => faceOf(session)?.elements.length === 4, "the contents element");
+    // Only the contents row has the select; it reads the stored field.
+    expect(within(element(2)).queryByRole("combobox", { name: "Layout" })).toBeNull();
+    const select = () =>
+      within(element(4)).getByRole("combobox", { name: "Layout" }) as HTMLSelectElement;
+    expect(select().value).toBe("fan");
+    expect([...select().options].map((o) => o.textContent)).toEqual([
+      "Default (list)",
+      "List",
+      "Grid",
+      "Fan",
+    ]);
+    const contentsAt = () => faceOf(session)?.elements[3] as { layout?: string };
+    // Grid: one set_face of the whole layout.
+    await user.selectOptions(select(), "grid");
+    await until(() => contentsAt()?.layout === "grid", "grid");
+    expect(transacts()).toHaveLength(1);
+    expect(transacts()[0]?.ops).toEqual([
+      {
+        type: "set_face",
+        object: "tok",
+        face: {
+          ...listed,
+          elements: FACE.elements.concat([
+            { type: "contents", rect: [-2, 0.9, 4, 0.6], layout: "grid" },
+          ]),
+        },
+      },
+    ]);
+    // The default removes the field (absent is the list).
+    await user.selectOptions(select(), "");
+    await until(() => contentsAt() !== undefined && !("layout" in contentsAt()), "unset");
+    expect(select().value).toBe("");
+    expect(transacts()).toHaveLength(2);
+  });
+
   test("the Collapsed tab edits the collapsed list", async () => {
     const user = userEvent.setup();
     const { session } = await setup();

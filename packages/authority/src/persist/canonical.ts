@@ -61,7 +61,7 @@ const FACE_ELEMENT = by("type", {
   value: CELL_ELEMENT,
   editor: CELL_ELEMENT,
   button: tagged("action", "rect", "label", "show_when", "min_size"),
-  contents: tagged("rect", "entries", "show_when", "min_size"),
+  contents: tagged("rect", "entries", "show_when", "min_size", "when_selected", "layout"),
 });
 const FACE = fields(
   ["elements", arr(FACE_ELEMENT)],

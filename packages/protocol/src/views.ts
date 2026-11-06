@@ -181,6 +181,7 @@ export const FaceLayoutElementViewSchema = looseNoProto(
       ...faceElementCommon,
       entries: z.enum(["collapsed", "full"]).optional(),
       when_selected: z.boolean().optional(),
+      layout: z.enum(["list", "grid", "fan"]).optional(),
     }),
   ]),
 );
@@ -230,6 +231,7 @@ export const FaceElementViewSchema = looseNoProto(
       ...faceElementCommon,
       entries: z.enum(["collapsed", "full"]).optional(),
       when_selected: z.boolean().optional(),
+      layout: z.enum(["list", "grid", "fan"]).optional(),
       ...faceElementLive,
     }),
   ]),

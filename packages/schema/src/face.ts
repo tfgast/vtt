@@ -69,7 +69,19 @@ export interface FaceContentsElement {
    * Absent means unset (always shown).
    */
   when_selected?: boolean;
+  /**
+   * How entries are arranged (M6-D30): `"list"` rows (the default, and
+   * absent), `"grid"` tiles in rows, `"fan"` overlapping tiles rotated about
+   * a pivot below the element, the last on top.
+   */
+  layout?: ContentsLayout;
 }
+
+/** A contents element's arrangement of its entries (M6-D30). */
+export type ContentsLayout = "list" | "grid" | "fan";
+
+/** Every contents layout, the default first. */
+export const CONTENTS_LAYOUTS: readonly ContentsLayout[] = Object.freeze(["list", "grid", "fan"]);
 
 export type FaceElement = FaceCellElement | FaceButtonElement | FaceContentsElement;
 
@@ -144,6 +156,7 @@ export const FaceElementSchema: z.ZodType<FaceElement> = z.discriminatedUnion("t
     ...common,
     entries: z.enum(["collapsed", "full"]).optional(),
     when_selected: z.boolean().optional(),
+    layout: z.enum(["list", "grid", "fan"]).optional(),
   }),
 ]);
 
