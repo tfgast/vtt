@@ -40,6 +40,7 @@ import {
   type Result,
   type RollValue,
   ref,
+  text,
   type Value,
 } from "@vtt/schema";
 import { describe, expect, test } from "vitest";
@@ -113,6 +114,8 @@ const TOKEN_HIT = 3;
 const TOKEN_CONTENTS = 4;
 const SHEET_NAME = 0;
 const SHEET_OWNER = 1;
+const BINDER_NAME = 0;
+const BINDER_OWNER = 1;
 const ATTACK_APPLY = 7;
 const ATTACK_DISCARD = 8;
 
@@ -177,6 +180,44 @@ describe("tpl_sheet: an owned sheet's header shows its owner", () => {
     expect(s.table.value(loose, "owner")).toEqual(EMPTY);
     expect(s.shown(loose, s.element(loose, SHEET_NAME, "editor", "name"))).toBe(true);
     expect(s.shown(loose, s.element(loose, SHEET_OWNER, "value", "owner"))).toBe(false);
+  });
+});
+
+describe("binders: an owned binder's header shows its owner (M6-D16)", () => {
+  test("a character's binder shows value owner and hides name; a loose binder the reverse", () => {
+    const s = session();
+    const spawned = s.onBoard("tpl_character", 0, 0);
+    const binder = spawned.copies.get("tpl_character_binder") as ObjectId;
+    expect(s.table.value(binder, "name")).toEqual(text("Binder"));
+    expect(s.table.value(binder, "owner")).toEqual(ref(spawned.root));
+    const name = s.element(binder, BINDER_NAME, "value", "name");
+    const owner = s.element(binder, BINDER_OWNER, "value", "owner");
+    expect(s.shown(binder, owner)).toBe(true);
+    expect(s.shown(binder, name)).toBe(false);
+
+    const loose = s.onBoard("tpl_binder", 20, 0).root;
+    expect(s.shown(loose, s.element(loose, BINDER_NAME, "value", "name"))).toBe(true);
+    expect(s.shown(loose, s.element(loose, BINDER_OWNER, "value", "owner"))).toBe(false);
+  });
+
+  test("the GM binder, which has no owner cell, keeps its plain name header", () => {
+    const s = session();
+    const header = s.element("gm_binder", BINDER_NAME, "value", "name");
+    expect(s.table.store.getObject("gm_binder")?.face?.elements[0]?.show_when).toBeUndefined();
+    expect(s.shown("gm_binder", header)).toBe(true);
+  });
+});
+
+describe("the HIT badge and token labels draw at map zoom (M6-D16)", () => {
+  test("the badge has no min_size; name and hp ask for 8 px", () => {
+    for (const id of ["tpl_token", "tpl_character"]) {
+      const els = exampleObjects()[id]?.face?.elements ?? [];
+      for (const e of els) {
+        if (e.type !== "value") continue;
+        if (e.cell === "hit") expect(e.min_size, id).toBeUndefined();
+        if (e.cell === "name" || e.cell === "hp") expect(e.min_size, id).toBe(8);
+      }
+    }
   });
 });
 
@@ -276,7 +317,7 @@ describe("tpl_area_save against token copies whose dex_save is never set", () =>
       type: "list",
       items: [ref(tokenA), ref(tokenB)],
     });
-    const applyAll = s.element(card, 7, "button", "Apply all");
+    const applyAll = s.element(card, 8, "button", "Apply all");
     expect(s.shown(card, applyAll)).toBe(false);
 
     s.ok(card, "Lock targets");

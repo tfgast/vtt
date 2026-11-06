@@ -130,9 +130,19 @@ function object(r: Record_): TableObject {
 
 // ----------------------------------------------------- the shared records
 
-const binderFace = (): FaceLayout => ({
+/** The GM binder's face: its `name` over its contents. */
+const gmBinderFace = (): FaceLayout => ({
   elements: [
     value("name", [-3.3, -4.8, 6.6, 0.6], { L: true }),
+    contentsList([-3.3, -4.0, 6.6, 8.8]),
+  ],
+});
+
+/** A binder's face: an owned binder is headed by its owner, as the sheet is (M6-D16). */
+const binderFace = (): FaceLayout => ({
+  elements: [
+    value("name", [-3.3, -4.8, 6.6, 0.6], { L: true, sw: "owner = empty" }),
+    value("owner", [-3.3, -4.8, 6.6, 0.6], { L: true, sw: "owner != empty" }),
     contentsList([-3.3, -4.0, 6.6, 8.8]),
   ],
 });
@@ -255,7 +265,7 @@ function records(): TableObject[] {
         visible_to: lit({ type: "viewers", viewers: ["gm"] }),
         position: lit(list([num(0), num(0)])),
       },
-      face: binderFace(),
+      face: gmBinderFace(),
     }),
 
     object({
@@ -279,8 +289,8 @@ function records(): TableObject[] {
       face: {
         elements: [
           value("image", [-0.5, -0.5, 1, 1]),
-          value("name", [-0.8, 0.55, 1.6, 0.3], { m: 12 }),
-          value("hp", [0.2, -0.6, 0.5, 0.3], { m: 12 }),
+          value("name", [-0.8, 0.55, 1.6, 0.3], { m: 8 }),
+          value("hp", [0.2, -0.6, 0.5, 0.3], { m: 8 }),
           contentsList([-1.5, 0.9, 3, 1.2], { m: 24 }),
         ],
       },
@@ -388,8 +398,9 @@ function records(): TableObject[] {
           value("name", [-1.2, -1.7, 2.4, 0.4], { L: true }),
           editor("caster", [-1.2, -1.25, 1.15, 0.35], { C: true }),
           value("dc", [0.05, -1.25, 1.15, 0.35], { C: true }),
-          value("damage", [-1.2, -0.85, 2.4, 0.35], { C: true }),
-          contentsList([-1.2, -0.45, 2.4, 1.4]),
+          value("damage", [-1.2, -0.85, 2.4, 0.3], { C: true }),
+          value("targets", [-1.2, -0.5, 2.4, 0.3], { C: true }),
+          contentsList([-1.2, -0.15, 2.4, 1.1]),
           button("Lock targets", [-1.2, 1.0, 1.15, 0.35], { sw: "not locked" }),
           button("Roll damage", [0.05, 1.0, 1.15, 0.35], { sw: "locked and damage = empty" }),
           button("Apply all", [-1.2, 1.4, 1.15, 0.3], { sw: "damage != empty" }),
@@ -454,9 +465,9 @@ function records(): TableObject[] {
       face: {
         elements: [
           value("image", [-0.5, -0.5, 1, 1]),
-          value("name", [-0.8, 0.55, 1.6, 0.3], { m: 12 }),
-          value("hp", [0.2, -0.6, 0.5, 0.3], { m: 12 }),
-          value("hit", [-0.7, -0.6, 0.5, 0.3], { m: 12, sw: "hit" }),
+          value("name", [-0.8, 0.55, 1.6, 0.3], { m: 8 }),
+          value("hp", [0.2, -0.6, 0.5, 0.3], { m: 8 }),
+          value("hit", [-0.7, -0.6, 0.5, 0.3], { sw: "hit" }),
           contentsList([-0.8, 0.9, 1.6, 0.8], { m: 24 }),
         ],
       },

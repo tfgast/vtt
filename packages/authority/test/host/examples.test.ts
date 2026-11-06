@@ -185,8 +185,14 @@ const ATTACK_FACE: FaceLayout = {
   default_action: "Roll",
 };
 
-const BINDER_FACE = `
+const GM_BINDER_FACE = `
   value name [-3.3, -4.8, 6.6, 0.6] L
+  contents [-3.3, -4.0, 6.6, 8.8] collapsed`;
+
+/** An owned binder's header shows its owner, as the sheet's does (M6-D16). */
+const BINDER_FACE = `
+  value name [-3.3, -4.8, 6.6, 0.6] L sw="owner = empty"
+  value owner [-3.3, -4.8, 6.6, 0.6] L sw="owner != empty"
   contents [-3.3, -4.0, 6.6, 8.8] collapsed`;
 
 const SHEET_CELLS = (owner: string) => `name: "Sheet"; owner: ${owner}; ac: empty;
@@ -240,7 +246,7 @@ const EXPECTED: Record<string, Expected> = {
       "tpl_d20",
     ],
     cells: `name: "GM binder"; visible_to: [gm]`,
-    face: BINDER_FACE,
+    face: GM_BINDER_FACE,
   },
   tpl_d20: {
     shape: circle(0.5),
@@ -259,9 +265,9 @@ const EXPECTED: Record<string, Expected> = {
       attack_bonus: empty; dex_save: empty; hit: false; hp = max_hp - damage_taken`,
     face: `
       value image [-0.5, -0.5, 1, 1]
-      value name [-0.8, 0.55, 1.6, 0.3] m=12
-      value hp [0.2, -0.6, 0.5, 0.3] m=12
-      value hit [-0.7, -0.6, 0.5, 0.3] m=12 sw="hit"
+      value name [-0.8, 0.55, 1.6, 0.3] m=8
+      value hp [0.2, -0.6, 0.5, 0.3] m=8
+      value hit [-0.7, -0.6, 0.5, 0.3] sw="hit"
       contents [-0.8, 0.9, 1.6, 0.8] m=24 collapsed`,
   },
   tpl_zone: { shape: rect(4, 4), is_zone: true, cells: `name: "Zone"` },
@@ -313,8 +319,8 @@ const EXPECTED: Record<string, Expected> = {
       damage_dice = sheet.damage_dice; dex_save = sheet.dex_save; spell_dc = sheet.spell_dc`,
     face: `
       value image [-0.5, -0.5, 1, 1]
-      value name [-0.8, 0.55, 1.6, 0.3] m=12
-      value hp [0.2, -0.6, 0.5, 0.3] m=12
+      value name [-0.8, 0.55, 1.6, 0.3] m=8
+      value hp [0.2, -0.6, 0.5, 0.3] m=8
       contents [-1.5, 0.9, 3, 1.2] m=24 collapsed`,
   },
   tpl_character_sheet: {
@@ -375,8 +381,9 @@ const EXPECTED: Record<string, Expected> = {
       value name [-1.2, -1.7, 2.4, 0.4] L
       editor caster [-1.2, -1.25, 1.15, 0.35] C
       value dc [0.05, -1.25, 1.15, 0.35] C
-      value damage [-1.2, -0.85, 2.4, 0.35] C
-      contents [-1.2, -0.45, 2.4, 1.4] collapsed
+      value damage [-1.2, -0.85, 2.4, 0.3] C
+      value targets [-1.2, -0.5, 2.4, 0.3] C
+      contents [-1.2, -0.15, 2.4, 1.1] collapsed
       button "Lock targets" [-1.2, 1.0, 1.15, 0.35] sw="not locked"
       button "Roll damage" [0.05, 1.0, 1.15, 0.35] sw="locked and damage = empty"
       button "Apply all" [-1.2, 1.4, 1.15, 0.3] sw="damage != empty"
@@ -534,6 +541,18 @@ describe("the records parse and validate", () => {
         expect(o.actions.map((a) => a.name)).toContain(o.face.default_action);
       }
     }
+  });
+
+  test("the Area save face has no overlapping element rects (M6-D16)", () => {
+    const els = exampleObjects().tpl_area_save?.face?.elements ?? [];
+    expect(els.map((e) => (e.type === "value" ? e.cell : e.type))).toContain("targets");
+    const overlap = (a: Rect, b: Rect) =>
+      a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+    els.forEach((a, i) => {
+      els.slice(i + 1).forEach((b, j) => {
+        expect(overlap(a.rect, b.rect), `elements ${i} and ${i + 1 + j}`).toBe(false);
+      });
+    });
   });
 
   test("every object passes the object schema", () => {
