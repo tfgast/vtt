@@ -19,6 +19,18 @@
  *   `set_value rotation` (degrees clockwise; Shift snaps to
  *   `ROTATE_SNAP_DEG`).
  *
+ * For two or more selected objects drawn on the active board (vtt-qf5.15,
+ * M6-D36) it shows group handles instead (`groupHandlesFor`): four corner
+ * scale handles on the axis-aligned box around their footprints and a rotate
+ * handle above its top middle, the pivot at the box's centre. A rotate turns
+ * every object about the pivot (its anchor orbits; `set_value position` and
+ * `rotation`; Shift snaps the turn to `ROTATE_SNAP_DEG`); a corner scales
+ * every shape and anchor offset from the pivot uniformly (`set_shape`,
+ * `set_value position`, and `set_face` as below), floored at
+ * `HANDLE_MIN_SIZE` for the smallest object; not grid-snapped. The gesture
+ * is one write, labelled "Rotate N objects" or "Resize N objects", so one
+ * undo restores every object.
+ *
  * With the session's Snap on (`ToolInput.snap`, M6-D13), resize, radius and
  * vertex drags snap to half units (see `dragHandle`); rotation does not.
  *
@@ -49,6 +61,7 @@
  */
 import type { InputValue, ObjectView, WireOp } from "@vtt/protocol";
 import {
+  type Bounds,
   defaultFaceFrame,
   type FaceElement,
   type FaceLayout,
@@ -56,6 +69,7 @@ import {
   type Point,
   type Rect,
   type Shape,
+  shapeBounds,
 } from "@vtt/schema";
 import { layoutOfView } from "../face-editor/face-ops";
 import { type Camera, cameraScale, toScreen, type ViewportSize } from "../scene/camera";
@@ -90,7 +104,11 @@ export type HandleGrip =
   | { type: "resize"; sx: -1 | 0 | 1; sy: -1 | 0 | 1 }
   | { type: "radius" }
   | { type: "vertex"; index: number }
-  | { type: "rotate" };
+  | { type: "rotate" }
+  /** A corner of a multi-selection's box (vtt-qf5.15). */
+  | { type: "group_scale"; sx: -1 | 1; sy: -1 | 1 }
+  /** A multi-selection's rotate handle (vtt-qf5.15). */
+  | { type: "group_rotate" };
 
 /** A handle: its mark (board units), its screen point and what it does. */
 export interface Handle extends HandleMark {
@@ -347,6 +365,246 @@ export function scaleFace(face: FaceLayout, from: Shape, to: Shape): FaceLayout 
 }
 
 // ---------------------------------------------------------------------------
+// Group handles (vtt-qf5.15)
+
+/** The axis-aligned box around every target's rotated footprint (a shapeless one: its anchor). */
+export function groupBounds(targets: readonly HandleTarget[]): Bounds {
+  const box: Bounds = {
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+  };
+  for (const t of targets) {
+    const b = shapeBounds(t.shape, t.anchor, t.rotation);
+    box.minX = Math.min(box.minX, b.minX);
+    box.minY = Math.min(box.minY, b.minY);
+    box.maxX = Math.max(box.maxX, b.maxX);
+    box.maxY = Math.max(box.maxY, b.maxY);
+  }
+  return box;
+}
+
+const centerOf = (b: Bounds): Point => [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
+
+const GROUP_CORNERS: { key: string; sx: -1 | 1; sy: -1 | 1 }[] = [
+  { key: "nw", sx: -1, sy: -1 },
+  { key: "ne", sx: 1, sy: -1 },
+  { key: "se", sx: 1, sy: 1 },
+  { key: "sw", sx: -1, sy: 1 },
+];
+
+/** A box's handles: four corner scale handles, then a rotate handle above its top middle. */
+function boxHandles(
+  box: Bounds,
+  object: ObjectId,
+  camera: Camera,
+  viewport: ViewportSize,
+): Handle[] {
+  const handle = (
+    key: string,
+    role: HandleMark["role"],
+    at: Point,
+    grip: HandleGrip,
+    from?: Point,
+  ): Handle => {
+    const h: Handle = { key, role, at, object, screen: toScreen(camera, at, viewport), grip };
+    if (from !== undefined) h.from = from;
+    return h;
+  };
+  const center = centerOf(box);
+  const handles = GROUP_CORNERS.map(({ key, sx, sy }) =>
+    handle(key, "resize", [sx < 0 ? box.minX : box.maxX, sy < 0 ? box.minY : box.maxY], {
+      type: "group_scale",
+      sx,
+      sy,
+    }),
+  );
+  const offset = ROTATE_HANDLE_PX / cameraScale(camera);
+  handles.push(
+    handle("rotate", "rotate", [center[0], box.minY - offset], { type: "group_rotate" }, [
+      center[0],
+      box.minY,
+    ]),
+  );
+  return handles;
+}
+
+/**
+ * The handles of a multi-selection (two or more targets; none otherwise):
+ * four corner scale handles on the axis-aligned box around their footprints
+ * (`groupBounds`) and a rotate handle `ROTATE_HANDLE_PX` above the middle of
+ * its top edge. Each handle's `object` is the first target's id.
+ */
+export function groupHandlesFor(
+  targets: readonly HandleTarget[],
+  camera: Camera,
+  viewport: ViewportSize,
+): Handle[] {
+  const first = targets[0];
+  if (targets.length < 2 || first === undefined) return [];
+  return boxHandles(groupBounds(targets), first.id, camera, viewport);
+}
+
+/** What a group handle drag does: a turn (degrees clockwise) and a uniform scale about `pivot`. */
+export interface GroupTransform {
+  pivot: Point;
+  rotation: number;
+  scale: number;
+}
+
+/** The size the minimum-size floor applies to: a rect's smaller side, a circle's radius, a polygon's smaller extent. */
+function floorSize(shape: Shape | null): number | null {
+  if (shape === null) return null;
+  switch (shape.type) {
+    case "rect":
+      return Math.min(shape.width, shape.height);
+    case "circle":
+      return shape.radius;
+    case "polygon": {
+      if (shape.points.length === 0) return null;
+      const xs = shape.points.map((p) => p[0]);
+      const ys = shape.points.map((p) => p[1]);
+      return Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    }
+  }
+}
+
+/**
+ * The smallest group scale factor: the one that brings the smallest target
+ * (at least `HANDLE_MIN_SIZE` already) to `HANDLE_MIN_SIZE`; a group of
+ * shapeless or already tinier targets stops where its box would.
+ */
+function groupScaleFloor(targets: readonly HandleTarget[]): number {
+  let floor = 0;
+  for (const t of targets) {
+    const size = floorSize(t.shape);
+    if (size !== null && size >= HANDLE_MIN_SIZE) floor = Math.max(floor, HANDLE_MIN_SIZE / size);
+  }
+  if (floor > 0) return floor;
+  const box = groupBounds(targets);
+  return HANDLE_MIN_SIZE / Math.max(box.maxX - box.minX, box.maxY - box.minY, HANDLE_MIN_SIZE);
+}
+
+/**
+ * The transform of dragging group `handle` of `targets` from board point
+ * `grab` to `point`, about the centre of their box. The rotate handle turns
+ * by the angle swept about the pivot (`snap`, Shift: the turn snaps to
+ * multiples of `ROTATE_SNAP_DEG`); a corner scales uniformly by the dragged
+ * corner's projection on its diagonal, floored so no target's size goes
+ * below `HANDLE_MIN_SIZE` (`groupScaleFloor`). Not grid-snapped.
+ */
+export function groupTransform(
+  targets: readonly HandleTarget[],
+  handle: Handle,
+  grab: Point,
+  point: Point,
+  snap: boolean,
+): GroupTransform {
+  const pivot = centerOf(groupBounds(targets));
+  const grip = handle.grip;
+  if (grip.type === "group_rotate") {
+    const swept = angleAbout(pivot, point) - angleAbout(pivot, grab);
+    const deg = snap ? Math.round(swept / ROTATE_SNAP_DEG) * ROTATE_SNAP_DEG : swept;
+    return { pivot, rotation: tidy(normalizeDeg(deg)), scale: 1 };
+  }
+  if (grip.type === "group_scale") {
+    const diagonal = sub(handle.at, pivot);
+    const length2 = diagonal[0] * diagonal[0] + diagonal[1] * diagonal[1];
+    if (length2 === 0) return { pivot, rotation: 0, scale: 1 };
+    const moved = sub(add(handle.at, sub(point, grab)), pivot);
+    const k = (moved[0] * diagonal[0] + moved[1] * diagonal[1]) / length2;
+    return { pivot, rotation: 0, scale: tidy(Math.max(groupScaleFloor(targets), k)) };
+  }
+  return { pivot, rotation: 0, scale: 1 };
+}
+
+/** Whether `t` changes nothing. */
+export function isIdentity(t: GroupTransform): boolean {
+  return near(t.rotation, 0) && near(t.scale, 1);
+}
+
+function scaleShape(shape: Shape, k: number): Shape {
+  switch (shape.type) {
+    case "rect":
+      return { type: "rect", width: tidy(shape.width * k), height: tidy(shape.height * k) };
+    case "circle":
+      return { type: "circle", radius: tidy(shape.radius * k) };
+    case "polygon":
+      return {
+        type: "polygon",
+        points: shape.points.map((p): Point => [tidy(p[0] * k), tidy(p[1] * k)]),
+      };
+  }
+}
+
+/**
+ * `target` under the group transform `t`: a turn moves its anchor about the
+ * pivot and adds to its rotation (`position`, `rotation`); a scale moves its
+ * anchor's offset from the pivot and scales its shape (`position`, `shape`;
+ * a target already under `HANDLE_MIN_SIZE` is not shrunk further). The
+ * identity is `{}`.
+ */
+export function transformTarget(target: HandleTarget, t: GroupTransform): ScenePreview {
+  if (isIdentity(t)) return {};
+  const offset = sub(target.anchor, t.pivot);
+  if (!near(t.rotation, 0)) {
+    return {
+      position: tidyPoint(add(t.pivot, turn(offset, rotationOf(t.rotation)))),
+      rotation: tidy(normalizeDeg(target.rotation + t.rotation)),
+    };
+  }
+  const position = tidyPoint(add(t.pivot, [offset[0] * t.scale, offset[1] * t.scale]));
+  if (target.shape === null) return { position };
+  const size = floorSize(target.shape);
+  const k = size !== null && size < HANDLE_MIN_SIZE ? Math.max(1, t.scale) : t.scale;
+  return { position, shape: scaleShape(target.shape, k) };
+}
+
+/** Each target's preview after dragging group `handle` (see `groupTransform`, `transformTarget`). */
+export function dragGroup(
+  targets: readonly HandleTarget[],
+  handle: Handle,
+  grab: Point,
+  point: Point,
+  snap: boolean,
+): Map<ObjectId, ScenePreview> {
+  const t = groupTransform(targets, handle, grab, point, snap);
+  return new Map(targets.map((target) => [target.id, transformTarget(target, t)]));
+}
+
+/** The group handles shown during a drag under `t`: the box turned or scaled about the pivot. */
+function transformedGroupHandles(
+  targets: readonly HandleTarget[],
+  t: GroupTransform | null,
+  camera: Camera,
+  viewport: ViewportSize,
+): Handle[] {
+  const first = targets[0];
+  if (first === undefined) return [];
+  const box = groupBounds(targets);
+  if (t === null || isIdentity(t)) return boxHandles(box, first.id, camera, viewport);
+  if (!near(t.rotation, 0)) {
+    const r = rotationOf(t.rotation);
+    const about = (p: Point): Point => add(t.pivot, turn(sub(p, t.pivot), r));
+    return boxHandles(box, first.id, camera, viewport).map((h) => {
+      const at = about(h.at);
+      const turned: Handle = { ...h, at, screen: toScreen(camera, at, viewport) };
+      if (h.from !== undefined) turned.from = about(h.from);
+      return turned;
+    });
+  }
+  const k = t.scale;
+  const scaled: Bounds = {
+    minX: t.pivot[0] + (box.minX - t.pivot[0]) * k,
+    minY: t.pivot[1] + (box.minY - t.pivot[1]) * k,
+    maxX: t.pivot[0] + (box.maxX - t.pivot[0]) * k,
+    maxY: t.pivot[1] + (box.maxY - t.pivot[1]) * k,
+  };
+  return boxHandles(scaled, first.id, camera, viewport);
+}
+
+// ---------------------------------------------------------------------------
 // The decorator
 
 /** A handle drag, as decided at pointer down. */
@@ -365,6 +623,22 @@ export interface HandleDrag {
   /** The current preview, or null before the first move. */
   preview: ScenePreview | null;
   /** The camera and viewport of the last event, to restore the handles on a cancel. */
+  camera: Camera;
+  viewport: ViewportSize;
+}
+
+/** A group handle drag (vtt-qf5.15), as decided at pointer down. */
+export interface GroupHandleDrag {
+  pointerId: number;
+  stamp: InteractionStamp;
+  handle: Handle;
+  /** The selected objects' geometry at pointer down, back to front. */
+  targets: HandleTarget[];
+  /** Each target's face layout at pointer down (as `HandleDrag.face`), by index. */
+  faces: (FaceLayout | null)[];
+  grab: Point;
+  /** The current transform, or null before the first move. */
+  transform: GroupTransform | null;
   camera: Camera;
   viewport: ViewportSize;
 }
@@ -393,6 +667,8 @@ export interface HandlesPhase<TPhase> {
   /** The wrapped tool's phase. */
   inner: TPhase;
   drag: HandleDrag | null;
+  /** A group handle drag in progress (vtt-qf5.15). */
+  group: GroupHandleDrag | null;
   /**
    * Handle writes not yet visible, oldest first. Their deltas compose, so a
    * rotation started before a resize is visible keeps the pending size; each
@@ -435,7 +711,10 @@ function handleCursor(handle: Handle, rotation: number, dragging: boolean): stri
     case "vertex":
       return "move";
     case "rotate":
+    case "group_rotate":
       return dragging ? "grabbing" : "grab";
+    case "group_scale":
+      return resizeCursor([handle.grip.sx, handle.grip.sy]);
   }
 }
 
@@ -600,6 +879,30 @@ function faceAtDown(
   return pendingFace(pending, object) ?? (view === null ? null : layoutOfView(view));
 }
 
+/**
+ * Each group target's change under `t`, with its face scaled (M6-D14) when
+ * its shape changes; targets `t` leaves unchanged are skipped.
+ */
+function groupEdits(
+  drag: GroupHandleDrag,
+  t: GroupTransform,
+): { object: ObjectId; preview: ScenePreview; face?: FaceLayout }[] {
+  return drag.targets.flatMap((target, i) => {
+    const preview = transformTarget(target, t);
+    if (unchanged(target, preview)) return [];
+    const face = drag.faces[i] ?? null;
+    const scaled =
+      face === null || target.shape === null || preview.shape === undefined
+        ? null
+        : scaleFace(face, target.shape, preview.shape);
+    return [
+      scaled === null
+        ? { object: target.id, preview }
+        : { object: target.id, preview, face: scaled },
+    ];
+  });
+}
+
 function labelFor(handle: Handle, name: string): string {
   switch (handle.grip.type) {
     case "rotate":
@@ -647,16 +950,38 @@ export function withHandles<TPhase, K extends ToolId>(
     selection: readonly ObjectId[],
   ): Handle[] {
     if (input.viewer.type !== "gm") return [];
-    const { drag } = phase;
+    const { drag, group } = phase;
     if (drag !== null) {
       const target = drag.preview === null ? drag.target : withPreview(drag.target, drag.preview);
       return handlesFor(target, input.camera, input.viewport);
     }
-    if (phase.innerOverlays.length > 0 || selection.length !== 1) return [];
-    const id = selection[0] as ObjectId;
-    const item = input.scene.items.find((i) => i.id === id);
-    if (item === undefined) return [];
-    return handlesFor(withPending(phase.pending, item), input.camera, input.viewport);
+    if (group !== null) {
+      return transformedGroupHandles(group.targets, group.transform, input.camera, input.viewport);
+    }
+    if (phase.innerOverlays.length > 0) return [];
+    if (selection.length === 1) {
+      const id = selection[0] as ObjectId;
+      const item = input.scene.items.find((i) => i.id === id);
+      if (item === undefined) return [];
+      return handlesFor(withPending(phase.pending, item), input.camera, input.viewport);
+    }
+    return groupHandlesFor(groupTargets(phase, input, selection), input.camera, input.viewport);
+  }
+
+  /** The selected objects drawn on the active board, back to front, with pending deltas applied. */
+  function groupTargets(
+    phase: Phase,
+    input: ToolInput,
+    selection: readonly ObjectId[],
+  ): HandleTarget[] {
+    if (selection.length < 2) return [];
+    const selected = new Set(selection);
+    return input.scene.items
+      .filter((item) => selected.has(item.id))
+      .map((item) => {
+        const t = withPending(phase.pending, item);
+        return { id: t.id, anchor: t.anchor, rotation: t.rotation, shape: t.shape };
+      });
   }
 
   /** The phase without the pending edits the client has seen. */
@@ -741,6 +1066,9 @@ export function withHandles<TPhase, K extends ToolId>(
     const handles = currentHandles(phase, input, input.selection);
     const handle = hitHandle(handles, event.screen);
     if (handle === null) return null;
+    if (handle.grip.type === "group_scale" || handle.grip.type === "group_rotate") {
+      return startGroupDrag(state, phase, handle, event, input);
+    }
     const item = input.scene.items.find((i) => i.id === handle.object);
     const stamp = captureStamp(input);
     if (item === undefined || stamp === null) return null;
@@ -769,6 +1097,113 @@ export function withHandles<TPhase, K extends ToolId>(
         : withInner(state, tool.consumedPress(innerOf(state), event.screen));
     const inner = plain(told).phase.inner;
     return present(withPhase(told, { ...phase, inner, drag, hoverCursor: null }), [], input);
+  }
+
+  function startGroupDrag(
+    state: State,
+    phase: Phase,
+    handle: Handle,
+    event: PointerInteractionEvent,
+    input: ToolInput,
+  ): Result | null {
+    const targets = groupTargets(phase, input, input.selection);
+    const stamp = captureStamp(input);
+    if (targets.length < 2 || stamp === null) return null;
+    const group: GroupHandleDrag = {
+      pointerId: event.pointerId,
+      stamp,
+      handle,
+      targets,
+      faces: targets.map((t) => faceAtDown(phase.pending, input.views(t.id), t.id)),
+      grab: event.board,
+      transform: null,
+      camera: input.camera,
+      viewport: input.viewport,
+    };
+    // The wrapped tool never sees this press (vtt-qf5.69).
+    const told =
+      tool.consumedPress === undefined
+        ? state
+        : withInner(state, tool.consumedPress(innerOf(state), event.screen));
+    const inner = plain(told).phase.inner;
+    return present(withPhase(told, { ...phase, inner, group, hoverCursor: null }), [], input);
+  }
+
+  /** The previews of the pending writes plus `edits` composed last. */
+  function previewsWith(
+    pending: readonly PendingEdit[],
+    edits: readonly { object: ObjectId; preview: ScenePreview; face?: FaceLayout }[],
+  ): Map<ObjectId, ScenePreview> {
+    const previews = pendingPreviews(pending);
+    for (const e of edits) {
+      const delta = e.face === undefined ? e.preview : { ...e.preview, face: e.face };
+      previews.set(e.object, { ...previews.get(e.object), ...delta });
+    }
+    return previews;
+  }
+
+  function groupDragEvent(
+    state0: State,
+    group0: GroupHandleDrag,
+    event: InteractionEvent,
+    input: ToolInput,
+  ): Result {
+    const group: GroupHandleDrag = { ...group0, camera: input.camera, viewport: input.viewport };
+    const state = withPhase(state0, { group });
+    const { pending } = plain(state).phase;
+    const transformAt = (e: PointerInteractionEvent) =>
+      groupTransform(group.targets, group.handle, group.grab, e.board, e.modifiers.shift);
+    switch (event.type) {
+      case "pointer_move": {
+        if (event.pointerId !== group.pointerId) return present(state, [], input);
+        const transform = transformAt(event);
+        const edits = groupEdits(group, transform);
+        return present(
+          withPhase(state, { group: { ...group, transform } }),
+          [{ type: "previews", previews: previewsWith(pending, edits) }],
+          input,
+        );
+      }
+      case "pointer_up": {
+        if (event.pointerId !== group.pointerId) return present(state, [], input);
+        const transform = transformAt(event);
+        const ended = withPhase(state, { group: null });
+        const clear: Effect[] = group.transform === null ? [] : [restorePending(pending)];
+        const edits = isIdentity(transform) ? [] : groupEdits(group, transform);
+        if (edits.length === 0) return present(ended, clear, input);
+        const added: PendingEdit[] = edits.map((e) => ({
+          stamp: group.stamp,
+          object: e.object,
+          delta: e.face === undefined ? e.preview : { ...e.preview, face: e.face },
+          ...(e.face === undefined ? {} : { face: e.face }),
+          revision: null,
+        }));
+        const next = [...pending, ...added];
+        const verb = group.handle.grip.type === "group_rotate" ? "Rotate" : "Resize";
+        return present(
+          withPhase(ended, { pending: next }),
+          [
+            {
+              type: "write",
+              stamp: group.stamp,
+              ops: edits.flatMap((e) => opsFor(e.object, e.preview, e.face)),
+              label: `${verb} ${group.targets.length} objects`,
+              continuations: [],
+            },
+            { type: "previews", previews: pendingPreviews(next), hold: { stamp: group.stamp } },
+          ],
+          input,
+        );
+      }
+      case "pointer_cancel":
+        if (event.pointerId !== group.pointerId) return present(state, [], input);
+        return present(withPhase(state, { group: null }), [restorePending(pending)], input);
+      case "settled":
+        return settled(state, event, input);
+      default:
+        // Keys, wheel, clicks and other pointers wait for the handle drag to end.
+        return present(state, [], input);
+    }
   }
 
   function dragEvent(
@@ -906,6 +1341,7 @@ export function withHandles<TPhase, K extends ToolId>(
       const phase: Phase = {
         inner: inner.phase,
         drag: null,
+        group: null,
         pending: [],
         innerPointer: null,
         innerOverlays: [],
@@ -915,14 +1351,16 @@ export function withHandles<TPhase, K extends ToolId>(
       return { ...inner, phase } as unknown as State;
     },
     cursor(state) {
-      const { drag, hoverCursor, innerPointer } = plain(state).phase;
+      const { drag, group, hoverCursor, innerPointer } = plain(state).phase;
       if (drag !== null) return handleCursor(drag.handle, drag.target.rotation, true);
+      if (group !== null) return handleCursor(group.handle, 0, true);
       if (hoverCursor !== null && innerPointer === null) return hoverCursor;
       return tool.cursor(innerOf(state));
     },
     reduce(state, event: InteractionEvent, input: ToolInput): Result {
-      const { drag } = plain(state).phase;
+      const { drag, group } = plain(state).phase;
       if (drag !== null) return dragEvent(state, drag, event, input);
+      if (group !== null) return groupDragEvent(state, group, event, input);
       if (event.type === "settled") return settled(state, event, input);
       if (event.type === "pointer_down") {
         const started = startDrag(state, event, input);
@@ -937,7 +1375,9 @@ export function withHandles<TPhase, K extends ToolId>(
         const handles = currentHandles(phase, input, input.selection);
         const hit = hitHandle(handles, event.screen);
         const item = hit === null ? undefined : input.scene.items.find((i) => i.id === hit.object);
-        if (hit !== null && item !== undefined) {
+        if (hit !== null && (hit.grip.type === "group_scale" || hit.grip.type === "group_rotate")) {
+          hoverCursor = handleCursor(hit, 0, false);
+        } else if (hit !== null && item !== undefined) {
           hoverCursor = handleCursor(hit, withPending(phase.pending, item).rotation, false);
         }
       }
@@ -951,10 +1391,11 @@ export function withHandles<TPhase, K extends ToolId>(
       return consumed === undefined ? state : withInner(state, consumed(innerOf(state), screen));
     },
     cancel(state, reason: CancelReason): Result {
-      const { drag } = plain(state).phase;
+      const { drag, group } = plain(state).phase;
       // The runtime drops a cancelled tool's held previews, so the pending geometry goes too.
       const reset: Partial<Phase> = {
         drag: null,
+        group: null,
         pending: [],
         innerPointer: null,
         hoverCursor: null,
@@ -967,6 +1408,16 @@ export function withHandles<TPhase, K extends ToolId>(
         const handles = handlesFor(drag.target, drag.camera, drag.viewport);
         return present(ended, effects, null, {
           object: drag.target.id,
+          handles: handleMarks(handles),
+        });
+      }
+      if (group !== null) {
+        const ended = withPhase(state, reset);
+        const effects: Effect[] = [{ type: "previews", previews: EMPTY_PREVIEWS }];
+        if (reason !== "escape") return present(ended, effects, null, null);
+        const handles = groupHandlesFor(group.targets, group.camera, group.viewport);
+        return present(ended, effects, null, {
+          object: (handles[0] as Handle).object,
           handles: handleMarks(handles),
         });
       }

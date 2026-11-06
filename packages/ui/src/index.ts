@@ -36,6 +36,7 @@ export * from "./inspector/CellList";
 export * from "./inspector/CellRow";
 export * from "./inspector/ContentsList";
 export * from "./inspector/Inspector";
+export * from "./inspector/MultiCellList";
 export * from "./inspector/ObjectHeader";
 export * from "./inspector/ObjectList";
 export * from "./inspector/object-drop";
