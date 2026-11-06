@@ -30,6 +30,7 @@ const TOOL_TABLE: Record<string, string[]> = {
   invoke: ["object", "action", "base_revision"],
   undo: ["target"],
   save: [],
+  collect_assets: [],
 };
 
 /** One valid op of every WireOp kind (PROTOCOL.md §5). */
@@ -87,6 +88,7 @@ const VALID_ARGS: Record<string, Record<string, unknown>> = {
   invoke: { object: "goblin", action: "Heal", base_revision: 3 },
   undo: { target: { type: "latest" } },
   save: {},
+  collect_assets: {},
 };
 
 const setHp = (hp: number) => ({
@@ -130,7 +132,7 @@ async function listed(h: McpHarness) {
 }
 
 describe("tool list", () => {
-  test("is the 15-tool table with its required arguments", async () => {
+  test("is the 16-tool table with its required arguments", async () => {
     const h = await startHarness();
     const tools = await listed(h);
     const table = Object.fromEntries(
@@ -160,7 +162,7 @@ describe("tool list", () => {
     const names = new Set((await listed(h)).map((t) => t.name));
     const excluded = new Set(["document", "subscribe", "unsubscribe"]);
     const methods = METHOD_NAMES.filter((m) => !excluded.has(m));
-    expect(methods).toHaveLength(14);
+    expect(methods).toHaveLength(15);
     for (const method of methods) expect(names.has(method), method).toBe(true);
     for (const method of excluded) expect(names.has(method), method).toBe(false);
     expect([...names].sort()).toEqual([...methods, "table_info"].sort());
@@ -434,6 +436,16 @@ describe("happy paths and errors, one per tool", () => {
       await host.close();
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("collect_assets", async () => {
+    const h = await startHarness();
+    h.host.addAsset("t.assets/unused-0123abcd.png");
+    const collected = ok(await h.call("collect_assets", { delete: true }));
+    expect(collected).toEqual({ unreferenced: ["t.assets/unused-0123abcd.png"], deleted: [] });
+    expect(h.host.assets).toEqual([]);
+    expect(ok(await h.call("collect_assets", {}))).toEqual({ unreferenced: [], deleted: [] });
+    inputError(await h.call("collect_assets", { delete: "yes" }));
   });
 });
 

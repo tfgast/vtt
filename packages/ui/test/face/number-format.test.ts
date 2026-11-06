@@ -119,4 +119,29 @@ describe("formatFaceNumber", () => {
       "Infinity",
     );
   });
+
+  test("decimals write fixed point at and above 1e21, where toFixed turns exponential", () => {
+    expect(formatFaceNumber(1e21, "1e+21", { decimals: 0 })).toBe("1000000000000000000000");
+    expect(formatFaceNumber(1e21, "1e+21", { decimals: 2 })).toBe("1000000000000000000000.00");
+    expect(formatFaceNumber(-1e21, "-1e+21", { decimals: 0 })).toBe("-1000000000000000000000");
+    expect(formatFaceNumber(-1e21, "-1e+21", { decimals: 2 })).toBe("-1000000000000000000000.00");
+    expect(formatFaceNumber(1.5e21, "1.5e+21", { decimals: 0 })).toBe("1500000000000000000000");
+    expect(formatFaceNumber(1.5e21, "1.5e+21", { decimals: 2 })).toBe("1500000000000000000000.00");
+    expect(formatFaceNumber(-1.5e21, "-1.5e+21", { decimals: 2 })).toBe(
+      "-1500000000000000000000.00",
+    );
+    expect(formatFaceNumber(1e21, "1e+21", { sign: "always", decimals: 2 })).toBe(
+      "+1000000000000000000000.00",
+    );
+    expect(formatFaceNumber(-1e21, "-1e+21", { sign: "always", decimals: 0 })).toBe(
+      "-1000000000000000000000",
+    );
+  });
+
+  test("just below 1e21 the toFixed path stands", () => {
+    const below = Number(999999999999999868928n); // the largest double under 1e21
+    expect(below).toBeLessThan(1e21);
+    expect(formatFaceNumber(below, "1e+21", { decimals: 2 })).toBe("999999999999999868928.00");
+    expect(formatFaceNumber(-below, "-1e+21", { decimals: 0 })).toBe("-999999999999999868928");
+  });
 });

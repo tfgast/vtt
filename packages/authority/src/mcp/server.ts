@@ -1,10 +1,10 @@
 /**
  * The in-process MCP server (DESIGN.md §5.2; PROTOCOL.md §11; M3-D17):
  * `createMcpServer` builds an SDK `McpServer` over a `ProtocolClient` with
- * the 15 request tools, the static resources and the `instructions`
+ * the 16 request tools, the static resources and the `instructions`
  * (`MCP_INSTRUCTIONS`, M6-D6), then runs each extension (vtt-5su.15 adds the
  * subscription tools and resource this way; M4 adds `import_asset`; the
- * composed `vtt-mcp` process has 19 tools). It does not connect the client
+ * composed `vtt-mcp` process has 20 tools). It does not connect the client
  * or a transport: the caller connects a transport (stdio in `vtt-mcp`,
  * vtt-5su.17; an in-memory pair in tests) and drives the client's
  * connection.
@@ -24,6 +24,7 @@ export {
 export {
   AtPositionInputSchema,
   ChangesSinceInputSchema,
+  CollectAssetsInputSchema,
   EvaluateInputSchema,
   ExplainActionInputSchema,
   ExplainCellInputSchema,
@@ -57,7 +58,7 @@ export interface CreateMcpServerOptions {
 export const MCP_SERVER_VERSION = "1.0.0";
 
 /**
- * Builds the MCP server: the 15 request tools, the static resources and
+ * Builds the MCP server: the 16 request tools, the static resources and
  * `MCP_INSTRUCTIONS`, then `extensions` in order.
  */
 export function createMcpServer(options: CreateMcpServerOptions): McpServer {

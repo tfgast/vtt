@@ -25,15 +25,34 @@
  * Pointer deltas are taken in the object's frame (the inverse of its item
  * transform), so a rotated object's elements follow the pointer. After a
  * write the outlines show the written layout until the client has seen the
- * write's revision (or the write did not commit). Only the full list of a
- * board object is edited here (handles on contained entries: vtt-qf5.30).
+ * write's revision (or the write did not commit).
+ *
+ * Expanded contained entries (vtt-qf5.30, M6-D34): with the container
+ * selected, a press on an element drawn inside an expanded entry (a list
+ * row, grid tile or fan card, at any depth where every entry on the way is
+ * expanded) selects that element on the entry's own object, the innermost
+ * such entry with an element under the point. Its target's frame is the
+ * composed transform board object → each entry (`entryTransform`: the
+ * element's corner, the scroll, a fan card's turn and the fit scale), so
+ * outlines, handles and pointer deltas go through it, and a gesture writes
+ * one `set_face` on that object in its own face coordinates. A collapsed
+ * entry is not edited on the canvas: a press on it reaches the container's
+ * elements as before.
  */
 import type { ObjectView } from "@vtt/protocol";
 import type { FaceLayout, ObjectId, Point, Rect } from "@vtt/schema";
-import type { FaceScene } from "../face/face-scene";
-import { type Affine, apply, invert, itemTransform } from "../face/face-transform";
+import { faceHitAt } from "../face/face-hit";
+import {
+  type ContentsPrimitive,
+  entryTransform,
+  type FaceDrawing,
+  type FaceEntry,
+} from "../face/face-model";
+import type { FaceScene, FaceSceneState } from "../face/face-scene";
+import { type Affine, apply, compose, invert, itemTransform } from "../face/face-transform";
 import type { InteractionStamp } from "../interaction/contracts";
 import { MAX_LABEL_LENGTH } from "../interaction/create-tools";
+import { faceSceneFor } from "../interaction/drop-targets";
 import type { Effect } from "../interaction/effects";
 import type { InteractionEvent } from "../interaction/events";
 import { HANDLE_HIT_PX } from "../interaction/handles";
@@ -117,6 +136,14 @@ export function objectLabel(view: ObjectView | null, id: ObjectId): string {
   return name?.type === "text" && name.value.trim() !== "" ? name.value : id;
 }
 
+/** One step from an object into an expanded entry of one of its contents elements. */
+export interface LayoutStep {
+  container: ObjectId;
+  /** The contents element's index (`DEFAULT_CONTENTS_ELEMENT` for a default face's list). */
+  element: number;
+  entry: ObjectId;
+}
+
 /** The object the layout tool edits, as it is in one snapshot. */
 export interface LayoutTarget {
   object: ObjectId;
@@ -126,8 +153,14 @@ export interface LayoutTarget {
   anchor: Point;
   /** Degrees clockwise. */
   rotation: number;
-  /** The object's frame → the board. */
+  /** The object's frame → the board (through every entry on `path` for a contained object). */
   toBoard: Affine;
+  /**
+   * A contained object only: the expanded entries from the selected board
+   * object inward, the last being `object` (vtt-qf5.30). `anchor` and
+   * `rotation` are then the board's origin and 0.
+   */
+  path?: readonly LayoutStep[];
 }
 
 /**
@@ -157,6 +190,61 @@ export function layoutTargetOf(input: ReducerInput): LayoutTarget | null {
 export interface LayoutSelection {
   object: ObjectId;
   index: number;
+  /** A contained object's `LayoutTarget.path`; absent for the board object. */
+  path?: readonly LayoutStep[];
+}
+
+/** The runtime's scene when it carries faces, else faces attached under `faceState`. */
+function facesOf(input: ReducerInput, faceState: FaceSceneState | undefined): FaceScene {
+  const scene = input.scene as Partial<FaceScene>;
+  return scene.faces instanceof Map ? (input.scene as FaceScene) : faceSceneFor(input, faceState);
+}
+
+/**
+ * The frame (→ board) of the last entry of `path`, walked from `root`'s
+ * drawing in `faces`; null where a step's element or entry is not drawn, or
+ * an entry is collapsed.
+ */
+function entryFrame(
+  faces: FaceScene,
+  root: LayoutTarget,
+  path: readonly LayoutStep[],
+): Affine | null {
+  let drawing: FaceDrawing | null | undefined = faces.faces.get(root.object);
+  let toBoard = root.toBoard;
+  for (const step of path) {
+    const c: ContentsPrimitive | undefined = drawing?.primitives.find(
+      (p): p is ContentsPrimitive => p.kind === "contents" && p.element === step.element,
+    );
+    const e: FaceEntry | undefined = c?.entries.find((x) => x.id === step.entry);
+    if (c === undefined || e === undefined || !e.expanded || e.drawing === null) return null;
+    toBoard = compose(toBoard, entryTransform(c, e));
+    drawing = e.drawing;
+  }
+  return toBoard;
+}
+
+/** The contained object at the end of `path` (non-empty) under board object `root`, or null. */
+function nestedTarget(
+  input: ReducerInput,
+  faces: FaceScene,
+  root: LayoutTarget,
+  path: readonly LayoutStep[],
+): LayoutTarget | null {
+  const last = path.at(-1);
+  if (last === undefined || path[0]?.container !== root.object) return null;
+  const toBoard = entryFrame(faces, root, path);
+  const view = input.views(last.entry);
+  if (toBoard === null || view === null) return null;
+  return {
+    object: last.entry,
+    name: objectLabel(view, last.entry),
+    face: layoutOfView(view) ?? { elements: [] },
+    anchor: [0, 0],
+    rotation: 0,
+    toBoard,
+    path,
+  };
 }
 
 /** A move or resize in progress, as decided at pointer down. */
@@ -246,11 +334,17 @@ function overlaysFor(
       kind: "drag_ghost",
       items: rects.map((r) => {
         const c = corners(r);
+        const points = [c.nw, c.ne, c.se, c.sw];
+        // A contained object's outlines: board points (its frame is not an anchor and rotation).
+        const nested = target.path?.[0];
         return {
-          id: target.object,
+          id: nested?.container ?? target.object,
           anchor: target.anchor,
           rotation: target.rotation,
-          shape: { type: "polygon", points: [c.nw, c.ne, c.se, c.sw] },
+          shape: {
+            type: "polygon",
+            points: nested === undefined ? points : points.map((p) => apply(target.toBoard, p)),
+          },
         };
       }),
     },
@@ -275,11 +369,31 @@ function selectedOn(phase: LayoutPhase, target: LayoutTarget | null): number | n
   return s.index < target.face.elements.length ? s.index : null;
 }
 
+/**
+ * The object the tool shows and edits now: the selected element's contained
+ * object while it is still drawn expanded under the selected board object,
+ * else the board object; null without one.
+ */
+function currentTarget(
+  phase: LayoutPhase,
+  input: ReducerInput,
+  faceState: FaceSceneState | undefined,
+): LayoutTarget | null {
+  const root = layoutTargetOf(input);
+  const path = phase.selected?.path;
+  if (root === null || path === undefined) return root;
+  return nestedTarget(input, facesOf(input, faceState), root, path) ?? root;
+}
+
 /** The phase's overlays for `input`, with an `overlays` effect when they changed. */
-function show(phase: LayoutPhase, input: ReducerInput): { phase: LayoutPhase; effects: Effect[] } {
+function show(
+  phase: LayoutPhase,
+  input: ReducerInput,
+  faceState: FaceSceneState | undefined,
+): { phase: LayoutPhase; effects: Effect[] } {
   const pending = prunePending(phase, input.revision);
   const base = { ...phase, pending };
-  const raw = phase.gesture?.target ?? layoutTargetOf(input);
+  const raw = phase.gesture?.target ?? currentTarget(phase, input, faceState);
   const target = raw === null ? null : withPending(raw, base, input.revision);
   const overlays =
     target === null ? [] : overlaysFor(target, selectedOn(base, target), phase.gesture);
@@ -317,6 +431,37 @@ function elementAt(target: LayoutTarget, local: Point): number {
     if (local[0] >= x && local[0] <= x + w && local[1] >= y && local[1] <= y + h) return i;
   }
   return -1;
+}
+
+/**
+ * The element pressed at `board` inside an expanded entry drawn by `root`'s
+ * face: the innermost entry on the face hit's path with every entry up to
+ * it expanded and an element under the point (the topmost). Null when the
+ * hit is not on `root`'s face, is on its own elements, or no such entry has
+ * an element there.
+ */
+function nestedElementAt(
+  input: ReducerInput,
+  faces: FaceScene,
+  root: LayoutTarget,
+  board: Point,
+  phase: LayoutPhase,
+): { target: LayoutTarget; index: number } | null {
+  const hit = faceHitAt(faces, board, input.camera);
+  if (hit === null || hit.path.length === 0 || hit.path[0]?.container !== root.object) return null;
+  const steps: LayoutStep[] = hit.path.map((p, i) => ({
+    container: p.container,
+    element: p.element,
+    entry: hit.path[i + 1]?.container ?? hit.object,
+  }));
+  for (let depth = steps.length; depth > 0; depth--) {
+    const raw = nestedTarget(input, faces, root, steps.slice(0, depth));
+    if (raw === null) continue;
+    const target = withPending(raw, phase, input.revision);
+    const index = elementAt(target, apply(invert(target.toBoard), board));
+    if (index >= 0) return { target, index };
+  }
+  return null;
 }
 
 /** One `set_face` write of `result`'s layout, or a notice for its problem. */
@@ -357,9 +502,19 @@ function sameRect(a: Rect, b: Rect): boolean {
 }
 
 /** `layout`: moves, resizes and removes the elements of the selected object's face. */
-export function createLayoutTool(): Tool<LayoutPhase, "layout"> {
+export interface LayoutToolOptions {
+  /**
+   * The face state (expanded entries, scroll) to attach faces with when the
+   * runtime's scene carries none; default: every entry in its default
+   * expansion, unscrolled.
+   */
+  faceState?: FaceSceneState;
+}
+
+export function createLayoutTool(options: LayoutToolOptions = {}): Tool<LayoutPhase, "layout"> {
+  const { faceState } = options;
   const result = (state: S, phase: LayoutPhase, effects: Effect[], input: ReducerInput): R => {
-    const shown = show(phase, input);
+    const shown = show(phase, input, faceState);
     return { state: { ...state, phase: shown.phase }, effects: [...effects, ...shown.effects] };
   };
 
@@ -372,41 +527,47 @@ export function createLayoutTool(): Tool<LayoutPhase, "layout"> {
     const raw = layoutTargetOf(input);
     const stamp = captureStamp(input);
     if (raw === null || stamp === null) return result(state, phase, [], input);
-    const target = withPending(
-      raw,
-      { ...phase, pending: prunePending(phase, input.revision) },
-      input.revision,
-    );
-    const local = apply(invert(target.toBoard), event.board);
-    const selected = selectedOn(phase, target);
-    const begin = (kind: LayoutGesture["kind"], index: number, corner?: LayoutCorner): R => {
-      const start = (target.face.elements[index] as { rect: Rect }).rect;
+    const pruned = { ...phase, pending: prunePending(phase, input.revision) };
+    const target = withPending(raw, pruned, input.revision);
+    const begin = (
+      on: LayoutTarget,
+      kind: LayoutGesture["kind"],
+      index: number,
+      corner?: LayoutCorner,
+    ): R => {
+      const start = (on.face.elements[index] as { rect: Rect }).rect;
       const gesture: LayoutGesture = {
         kind,
         ...(corner === undefined ? {} : { corner }),
         pointerId: event.pointerId,
         stamp,
-        target,
+        target: on,
         index,
         start,
-        grab: local,
+        grab: apply(invert(on.toBoard), event.board),
         rect: start,
         moved: false,
       };
-      return result(
-        state,
-        { ...phase, selected: { object: target.object, index }, gesture },
-        [],
-        input,
-      );
+      const selected: LayoutSelection = {
+        object: on.object,
+        index,
+        ...(on.path === undefined ? {} : { path: on.path }),
+      };
+      return result(state, { ...phase, selected, gesture }, [], input);
     };
+    // The selected element's handles first, on whichever object it is.
+    const current = currentTarget(phase, input, faceState);
+    const holder = current === null ? target : withPending(current, pruned, input.revision);
+    const selected = selectedOn(phase, holder);
     if (selected !== null) {
-      const rect = (target.face.elements[selected] as { rect: Rect }).rect;
-      const corner = hitCorner(target, rect, event.screen, input);
-      if (corner !== null) return begin("resize", selected, corner);
+      const rect = (holder.face.elements[selected] as { rect: Rect }).rect;
+      const corner = hitCorner(holder, rect, event.screen, input);
+      if (corner !== null) return begin(holder, "resize", selected, corner);
     }
-    const index = elementAt(target, local);
-    if (index >= 0) return begin("move", index);
+    const nested = nestedElementAt(input, facesOf(input, faceState), target, event.board, pruned);
+    if (nested !== null) return begin(nested.target, "move", nested.index);
+    const index = elementAt(target, apply(invert(target.toBoard), event.board));
+    if (index >= 0) return begin(target, "move", index);
     return result(state, { ...phase, selected: null }, [], input);
   };
 
@@ -443,7 +604,7 @@ export function createLayoutTool(): Tool<LayoutPhase, "layout"> {
 
   const remove = (state: S, input: ToolInput): R => {
     const phase = state.phase;
-    const raw = layoutTargetOf(input);
+    const raw = currentTarget(phase, input, faceState);
     const stamp = captureStamp(input);
     if (raw === null || stamp === null || phase.gesture !== null) {
       return result(state, phase, [], input);

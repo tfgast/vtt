@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import {
+  CollectAssetsInputSchema,
   GetObjectsInputSchema,
   getObjects,
   ListObjectsInputSchema,
@@ -54,6 +55,7 @@ const IDENTIFIERS: Record<string, Category> = {
   explain_cell: "tool",
   transact: "tool",
   import_asset: "tool",
+  collect_assets: "tool",
   invoke: "tool",
   undo: "tool",
   spawn: "op",
@@ -90,6 +92,7 @@ const IDENTIFIERS: Record<string, Category> = {
   expect: "field",
   stale_write: "rejection",
   'cells: "all"': "argument",
+  "delete: true": "argument",
   mine: "exception",
   $copy: "exception",
 };
@@ -224,6 +227,11 @@ describe("MCP_INSTRUCTIONS", () => {
     expect(GetObjectsInputSchema.safeParse({ ids: ["tpl_sheet"], cells: "all" }).success).toBe(
       true,
     );
+  });
+
+  test("argument `delete: true` is accepted by collect_assets (M6-D32)", () => {
+    expect(IDENTIFIERS["delete: true"]).toBe("argument");
+    expect(CollectAssetsInputSchema.safeParse({ delete: true }).success).toBe(true);
   });
 
   test('reading user cells needs `cells: "all"` (vtt-qf5.53)', () => {

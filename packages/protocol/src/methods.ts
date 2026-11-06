@@ -219,6 +219,17 @@ export const SaveResultSchema = looseObject({
 });
 export type SaveResult = z.infer<typeof SaveResultSchema>;
 
+/** `collect_assets` (M6-D32): unlist assets nothing references; `delete` also removes their files. */
+export const CollectAssetsParamsSchema = z.strictObject({ delete: z.boolean().optional() });
+export type CollectAssetsParams = z.infer<typeof CollectAssetsParamsSchema>;
+export const CollectAssetsResultSchema = looseObject({
+  /** The asset paths nothing referenced, now unlisted, in list order. */
+  unreferenced: z.array(z.string()),
+  /** Those whose files were deleted from the table's assets directory. */
+  deleted: z.array(z.string()),
+});
+export type CollectAssetsResult = z.infer<typeof CollectAssetsResultSchema>;
+
 // ---------------------------------------------------------------------------
 // Query methods
 
@@ -492,12 +503,17 @@ export type UnsubscribeResult = z.infer<typeof UnsubscribeResultSchema>;
 
 export type MethodKind = "write" | "query" | "explain" | "subscribe";
 
-/** The 17 methods of PROTOCOL.md §4: kind, params schema, result schema. */
+/** The 18 methods of PROTOCOL.md §4: kind, params schema, result schema. */
 export const METHODS = Object.freeze({
   transact: { kind: "write", params: TransactParamsSchema, result: TransactResultSchema },
   undo: { kind: "write", params: UndoParamsSchema, result: UndoResultSchema },
   invoke: { kind: "write", params: InvokeParamsSchema, result: InvokeResultSchema },
   save: { kind: "write", params: SaveParamsSchema, result: SaveResultSchema },
+  collect_assets: {
+    kind: "write",
+    params: CollectAssetsParamsSchema,
+    result: CollectAssetsResultSchema,
+  },
   list_objects: { kind: "query", params: ListObjectsParamsSchema, result: ListObjectsResultSchema },
   get_objects: { kind: "query", params: GetObjectsParamsSchema, result: GetObjectsResultSchema },
   evaluate: { kind: "query", params: EvaluateParamsSchema, result: EvaluateResultSchema },

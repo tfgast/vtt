@@ -45,6 +45,7 @@ const REQUEST_TOOLS = [
   "invoke",
   "undo",
   "save",
+  "collect_assets",
 ];
 
 /** The Attack card setup (the template in Aldric's binder, the goblin) with `edit` applied. */
@@ -117,11 +118,11 @@ async function cell(h: McpHarness, object: string, name: string): Promise<unknow
 }
 
 describe("the tool list (PROTOCOL.md §11)", () => {
-  test("the request-surface server lists 15 tools including invoke, in table order", async () => {
+  test("the request-surface server lists 16 tools including invoke, in table order", async () => {
     const h = await start();
     const names = (await h.mcp.listTools()).tools.map((t) => t.name);
     expect(names).toEqual(REQUEST_TOOLS);
-    expect(names).toHaveLength(15);
+    expect(names).toHaveLength(16);
     expect(TOOLS.map((t) => t.name)).toEqual(REQUEST_TOOLS);
   });
 

@@ -30,6 +30,7 @@ const REQUEST_TOOLS = [
   "invoke",
   "undo",
   "save",
+  "collect_assets",
 ];
 
 const start = (options: Parameters<typeof startHarness>[0] = {}) =>
@@ -80,7 +81,7 @@ async function write(gm: ProtocolClient, ops: unknown[]): Promise<number> {
 const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
 
 describe("tool list", () => {
-  test("the 15 request tools plus subscribe, poll_changes and unsubscribe; every method but document has a tool", async () => {
+  test("the 16 request tools plus subscribe, poll_changes and unsubscribe; every method but document has a tool", async () => {
     const h = await start();
     const names = (await h.mcp.listTools()).tools.map((t) => t.name);
     expect(names).toEqual([...REQUEST_TOOLS, "subscribe", "poll_changes", "unsubscribe"]);

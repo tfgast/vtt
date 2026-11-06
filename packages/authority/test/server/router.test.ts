@@ -177,6 +177,29 @@ describe("routing over a real server", () => {
     expect(event).toBeGreaterThan(-1);
     expect(event).toBeLessThan(raw.indexOf((f) => f.id === "s"));
   });
+
+  test("collect_assets unlists what nothing references, over a real server", async () => {
+    const { server, host } = await serve();
+    const c = await connect(server);
+    host.addAsset("t.assets/used-0123abcd.png");
+    host.addAsset("t.assets/unused-89abcdef.png");
+    await c.request("transact", {
+      base_revision: 3,
+      ops: [
+        {
+          type: "set_value",
+          object: "goblin",
+          cell: "image",
+          value: { type: "text", value: "t.assets/used-0123abcd.png" },
+        },
+      ],
+    });
+    expect(await c.request("collect_assets", { delete: true })).toEqual({
+      unreferenced: ["t.assets/unused-89abcdef.png"],
+      deleted: [],
+    });
+    expect(host.assets).toEqual(["t.assets/used-0123abcd.png"]);
+  });
 });
 
 describe("routeRequest", () => {
@@ -195,6 +218,7 @@ describe("routeRequest", () => {
         "undo",
         "invoke",
         "save",
+        "collect_assets",
         "list_objects",
         "get_objects",
         "evaluate",

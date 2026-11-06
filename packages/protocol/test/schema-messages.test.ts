@@ -470,6 +470,7 @@ const paramsExamples: Record<MethodName, unknown[]> = {
   ],
   invoke: [{ object: "goblin1", action: "attack", base_revision: 3 }],
   save: [{}],
+  collect_assets: [{}, { delete: true }],
   list_objects: [
     {},
     {
@@ -586,6 +587,10 @@ const resultExamples: Record<MethodName, unknown[]> = {
     { status: "saved", revision: 17 },
     { status: "saved_not_durable", revision: 17, message: "fsync failed" },
     { status: "failed", revision: 17, message: "disk full" },
+  ],
+  collect_assets: [
+    { unreferenced: [], deleted: [] },
+    { unreferenced: ["t.assets/a-0123abcd.png"], deleted: ["t.assets/a-0123abcd.png"] },
   ],
   list_objects: [
     { revision: 17, objects: [goblinView], next_cursor: "goblin1" },

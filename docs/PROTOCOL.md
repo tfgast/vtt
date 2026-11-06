@@ -248,7 +248,7 @@ Decision: D9.
 
 ## 4. Requests, responses, methods
 
-Decisions: D6, D19, D28, D29, D30; M5-D1; M6-D2.
+Decisions: D6, D19, D28, D29, D30; M5-D1; M6-D2; M6-D32.
 
 ```ts
 { type: "request"; id: string /* 1–64 chars */; method: M; params: Params<M> }
@@ -258,7 +258,7 @@ type Viewer = { type: "gm" } | { type: "character"; id: ObjectId };
 type ObjRef = ObjectId | BindingName;   // BindingName: "$" followed by id characters
 ```
 
-Methods (17). `viewer` defaults to `{type:"gm"}`. The method kind is in
+Methods (18). `viewer` defaults to `{type:"gm"}`. The method kind is in
 brackets.
 
 | Method | Params | Result |
@@ -267,6 +267,7 @@ brackets.
 | undo [write] | `target: {type:"latest"} \| {type:"mine"} \| {type:"human"} \| {type:"actor", actor: Actor} \| {type:"group", index: number}`, `expect_index?: number`, `label?: string` | `TransactResult`; `created`, `copies`, `bindings` empty |
 | invoke [write] | `object: ObjectId`, `action: string`, `base_revision: number`, `txn_id?: string` (1–64), `retry?: true` (only with `txn_id`, §6), `actor?: Actor` (character only, non-agent connections, §3), `label?: string` (≤ 200), `table?: {board: BoardId, position: [number, number]}` (what the `table` destination resolves to, FORMULAS.md §8.2) | `InvokeResult` = `{status:"committed", revision, index, created: ObjectId[]}` or `{status:"rejected", rejection: ProtocolRejection, step?: number}` |
 | save [write] | `{}` | `{status: "saved" \| "saved_not_durable" \| "failed", revision: number, message?: string}` (`revision` = the revision the save captured) |
+| collect_assets [write] | `delete?: boolean` | `{unreferenced: string[], deleted: string[]}` (GM only) |
 | list_objects [query] | `viewer?`, `filter?: {board?, container?, tag?, name?, is_template?, is_zone?, is_character?}`, `cells?: "all" \| "structural" \| string[]` (default `"structural"`), `cursor?: string`, `limit?: number` (default 50, ≤ max_page) | `{revision, objects: ObjectView[], next_cursor: string \| null}` |
 | get_objects [query] | `ids: ObjectId[]` (1..max_ids), `viewer?`, `cells?` (default `"all"`) | `{revision, objects: ObjectView[], missing: ObjectId[]}` |
 | evaluate [query] | `source: string` (≤ max_source_length), `this?: ObjectId` | `{revision, value: WireResult}` (GM only, unredacted) |
@@ -303,6 +304,21 @@ Method rules:
   `{object, action}`. `created` lists the ids the action spawned, in
   creation order. `step` is the 0-based index of the refusing step
   (FORMULAS.md §8.1). Processing, stale checks and deduplication are in §6.
+- `collect_assets` (M6-D32; DESIGN.md §7, **Revisions and assets**):
+  removes from the table's asset list every listed path that no string in a
+  live object (cell contents and overrides, formula and action source, face,
+  tags) or in any effect of a retained group (`before` and `after`, created
+  and removed subtrees, undo groups included) contains, so the next save no
+  longer lists it and `GET /assets/` no longer serves it. `unreferenced` is
+  those paths, in list order. With `delete: true` it also deletes each such
+  file that lies directly in `<table basename>.assets/` and that no kept
+  path names; `deleted` lists the paths whose files it deleted (a file
+  already missing, or one that could not be deleted, is not listed). An
+  in-memory table unlists only. A change makes the table unsaved and
+  schedules the autosave, as an import does. Collections and imports
+  (`POST /assets`) run one at a time, so an import is never undone by a
+  collection in progress. It commits no group, changes
+  no revision and sends no `commit` event; nothing collects automatically.
 - `not_found` applies only to the target ids of query, explain and subscribe
   methods (unknown board, object or subscription ids in their params), except
   `get_objects` ids and `objects` scope ids, which are ignored when absent.
@@ -1051,17 +1067,17 @@ Formula cost stays under the engine budget (FORMULAS.md §7).
 
 ## 11. MCP
 
-Decisions: D1, D17, D18, D19; M4-D3; M5-D24; M6-D6.
+Decisions: D1, D17, D18, D19; M4-D3; M5-D24; M6-D6; M6-D32.
 
 `vtt-mcp` is a separate stdio process launched by the agent host. It attaches
 to the running authority as a protocol client with `client.kind: "agent"`
 (D1). The server's `initialize` result carries `instructions`
 (`MCP_INSTRUCTIONS` in `packages/authority/src/mcp/instructions.ts`).
 
-**Tools.** The request-surface server (`createMcpServer`) has 15 tools: the
-14 query, explain and write tools below plus `invoke`. The composed `vtt-mcp`
-process has 19: those 15 plus `subscribe`, `poll_changes`, `unsubscribe` and
-`import_asset` (M5-D24).
+**Tools.** The request-surface server (`createMcpServer`) has 16 tools: the
+15 query, explain and write tools below plus `invoke`. The composed `vtt-mcp`
+process has 20: those 16 plus `subscribe`, `poll_changes`, `unsubscribe` and
+`import_asset` (M5-D24; `collect_assets`, M6-D32).
 
 | Tool | Behaviour |
 |---|---|
@@ -1072,6 +1088,7 @@ process has 19: those 15 plus `subscribe`, `poll_changes`, `unsubscribe` and
 | invoke | `{object, action, base_revision, label?, table?}` → `invoke`; `txn_id` always generated by the MCP server; a lost response is retried as for `transact`; a rejection is `isError: true` with the rejection and `step`; `uncertain` is reported as an error |
 | undo | `undo` (targets `latest`, `mine`, `group`; `expect_index`) |
 | save | `save` |
+| collect_assets | `collect_assets` (`{delete?: boolean}` → `{unreferenced, deleted}`) |
 | subscribe | `subscribe` (scopes `board`, `objects`, `all`; GM viewer); returns `{subscription: <handle>, revision, objects: <count>}` |
 | poll_changes | `{subscription: <handle>, wait_ms?: 0..30000 (default 0)}` → `{subscription, revision, changes: ChangeRecord[], overflowed: boolean}`; returns and clears the buffer, waiting up to `wait_ms` for the first record |
 | unsubscribe | `unsubscribe`; drops the buffer and the handle |
@@ -1182,11 +1199,12 @@ Decision: D32.
 
 Protocol v1 grows only additively: new optional fields, new methods, new ops,
 new event kinds. M6 added the undo target `{type:"human"}` this way (an
-older authority refuses it as `bad_request`), and `hello.capabilities`,
-`welcome.capabilities` and `SubscriptionDelta.patches` (M6-D35; an older
-authority refuses a `hello` with `capabilities` (4401), so a client meant
-for one is constructed with `cellPatches: false`; a client that does not ask
-never receives patches). M5 added `invoke` behaviour (its optional params `txn_id`,
+older authority refuses it as `bad_request`), the method and MCP tool
+`collect_assets` (M6-D32; an older authority answers `unknown_method`), and
+`hello.capabilities`, `welcome.capabilities` and `SubscriptionDelta.patches`
+(M6-D35; an older authority refuses a `hello` with `capabilities` (4401), so
+a client meant for one is constructed with `cellPatches: false`; a client
+that does not ask never receives patches). M5 added `invoke` behaviour (its optional params `txn_id`,
 `retry`, `actor`, `label`, `table` and `InvokeResult`), the MCP tool
 `invoke`, the op `set_face` and `ObjectInit.face`, the `field: "face"`
 effect and `ObjectSnapshotView.face` (`FaceLayoutView`),
