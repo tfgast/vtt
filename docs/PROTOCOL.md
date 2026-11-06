@@ -202,7 +202,11 @@ a usage error.
 **Canonical path.** `<file>` below is the canonical table path: the
 `realpath` of the table file, or, when the file does not exist yet, the
 `realpath` of its directory joined with its basename. Symlink aliases of one
-table therefore share one lock and one identity file.
+table therefore share one lock and one identity file. A dangling symlink is
+followed to its target first (each hop resolved against the link's real
+directory), so a new table is created at the target and the link then points
+at it; a symlink loop or a missing target directory refuses the open with an
+error naming it.
 
 **Lock file (D25, D33).** `<file>.lock`, content `{pid, nonce, host,
 started}`.

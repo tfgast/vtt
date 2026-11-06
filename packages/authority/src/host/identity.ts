@@ -4,37 +4,119 @@
  */
 /// <reference types="node" />
 import { randomUUID } from "node:crypto";
-import { basename, dirname, join } from "node:path";
+import { readlinkSync } from "node:fs";
+import { basename, dirname, join, parse, sep } from "node:path";
 import { nodeTableFs, type TableFs, type TableLock } from "./lock";
 
 const codeOf = (err: unknown): unknown =>
   typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
 
+/** The filesystem calls `canonicalTablePath` makes. */
+export type CanonicalPathFs = Pick<TableFs, "realpathSync"> & {
+  /** Reads a symlink's target; when absent, no path is treated as a dangling symlink. */
+  readlinkSync?(path: string): string;
+};
+
+const nodeCanonicalPathFs: CanonicalPathFs = {
+  realpathSync: nodeTableFs.realpathSync,
+  readlinkSync: (path) => readlinkSync(path, "utf8"),
+};
+
+/** Bound on dangling symlink hops, matching the usual kernel limit. */
+const MAX_SYMLINK_HOPS = 40;
+
 /**
  * The canonical table path: `realpath(path)` when the file exists; otherwise
- * `realpath(dirname(path))` joined with `basename(path)`. A missing directory
- * throws an error naming it. Lock and identity paths are derived from this,
- * so symlink aliases of one table share them.
+ * `realpath(dirname(path))` joined with `basename(path)`. A dangling symlink
+ * is followed first (its target resolved against the link's real directory,
+ * hop by hop), so a new table is created at the link's target. A missing
+ * directory or a symlink loop throws an error naming it. Lock and identity
+ * paths are derived from this, so symlink aliases of one table share them.
  */
 export function canonicalTablePath(
   path: string,
-  fs: Pick<TableFs, "realpathSync"> = nodeTableFs,
+  fs: CanonicalPathFs = nodeCanonicalPathFs,
 ): string {
-  try {
-    return fs.realpathSync(path);
-  } catch (err) {
-    if (codeOf(err) !== "ENOENT") throw err;
+  const loop = (cause?: unknown) =>
+    new Error(`table path ${path} is a symlink loop`, cause === undefined ? {} : { cause });
+  let current = path;
+  for (let hops = 0; ; hops++) {
+    try {
+      return fs.realpathSync(current);
+    } catch (err) {
+      if (codeOf(err) === "ELOOP") throw loop(err);
+      if (codeOf(err) !== "ENOENT") throw err;
+    }
+    const target = readLink(fs, current);
+    if (target === null) break;
+    if (hops >= MAX_SYMLINK_HOPS) throw loop();
+    current = resolveTarget(fs, path, current, target, loop);
   }
-  const dir = dirname(path);
+  const dir = dirname(current);
   let realDir: string;
   try {
     realDir = fs.realpathSync(dir);
   } catch (err) {
-    throw new Error(`table directory ${dir} cannot be resolved: ${(err as Error).message}`, {
+    const via = current === path ? "" : ` (target of symlink ${path})`;
+    throw new Error(`table directory ${dir}${via} cannot be resolved: ${(err as Error).message}`, {
       cause: err,
     });
   }
-  return join(realDir, basename(path));
+  return join(realDir, basename(current));
+}
+
+/**
+ * The path a symlink at `link` with target `target` names, resolved through
+ * the filesystem: segment by segment from the link's real directory (or the
+ * root), each existing prefix replaced by its realpath so directory links are
+ * followed before a later `..`. The last segment may be missing; a missing
+ * earlier segment throws an error naming it.
+ */
+function resolveTarget(
+  fs: CanonicalPathFs,
+  path: string,
+  link: string,
+  target: string,
+  loop: (cause?: unknown) => Error,
+): string {
+  const root = parse(target).root;
+  let current = root === "" ? fs.realpathSync(dirname(link)) : root;
+  const segments = target
+    .slice(root.length)
+    .split(sep)
+    .filter((s) => s !== "" && s !== ".");
+  for (const [i, segment] of segments.entries()) {
+    if (segment === "..") {
+      // `current` is a realpath, so a lexical parent is its real parent.
+      current = dirname(current);
+      continue;
+    }
+    const next = join(current, segment);
+    try {
+      current = fs.realpathSync(next);
+    } catch (err) {
+      if (codeOf(err) === "ELOOP") throw loop(err);
+      if (codeOf(err) !== "ENOENT") throw err;
+      if (i === segments.length - 1) return next;
+      throw new Error(
+        `table directory ${next} (target of symlink ${path}) cannot be resolved: ${(err as Error).message}`,
+        { cause: err },
+      );
+    }
+  }
+  return current;
+}
+
+/** The symlink target at `path`, or null when `path` is missing or not a symlink. */
+function readLink(fs: CanonicalPathFs, path: string): string | null {
+  if (fs.readlinkSync === undefined) return null;
+  try {
+    return fs.readlinkSync(path);
+  } catch (err) {
+    const code = codeOf(err);
+    if (code === "EINVAL" || code === "ENOENT" || code === "ENOTDIR") return null;
+    throw err;
+  }
 }
 
 /** The table identity file is empty or malformed; a human fixes or deletes it. */
