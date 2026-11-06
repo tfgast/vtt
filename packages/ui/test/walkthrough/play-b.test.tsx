@@ -186,13 +186,13 @@ describe(`play B: ${WALKTHROUGH_STEPS.slice(11, 15)
     // One damage_taken sentence per goblin, with the exact change; none for Brenna.
     const damageSentences = o.applyAllGroup.sentences.filter((t) => t.includes(".damage_taken "));
     expect(damageSentences).toEqual([
-      "Set G1.damage_taken to 20 (was 6)",
-      "Set G2.damage_taken to 28 (was 0)",
-      "Set G3.damage_taken to 28 (was 0)",
+      "Added 14 to G1.damage_taken (now 20)",
+      "Added 28 to G2.damage_taken (now 28)",
+      "Added 28 to G3.damage_taken (now 28)",
     ]);
     for (const name of ["G1", "G2", "G3"]) {
       expect(o.applyAllGroup.sentences.filter((t) => t.includes(`${name}.damage_taken`))).toEqual(
-        damageSentences.filter((t) => t.startsWith(`Set ${name}.`)),
+        damageSentences.filter((t) => t.includes(` ${name}.`)),
       );
     }
     expect(o.applyAllGroup.sentences.some((t) => t.includes("Brenna"))).toBe(false);

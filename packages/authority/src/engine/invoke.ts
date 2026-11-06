@@ -59,7 +59,7 @@ import {
   type Value,
 } from "@vtt/schema";
 import type { DocView, TransactResult } from "../store/document-store";
-import { setTag, writeValue } from "../store/edits";
+import { addWrite, setTag, writeValue } from "../store/edits";
 import type { FrozenGroup } from "../store/history";
 import { type Destination, move, remove, type SpawnResult, spawn } from "../store/structural";
 import type { ChangeSummary } from "../store/summary";
@@ -92,6 +92,8 @@ export interface TableDestination {
  */
 export interface StepPrimitives {
   writeValue(obj: ObjectId, cell: string, value: Value): void;
+  /** An `add` step's write: `sum` as a number, recording `added` (M6-D22). */
+  addWrite(obj: ObjectId, cell: string, sum: number, added: number): void;
   setTag(obj: ObjectId, tags: string[]): void;
   rollInto(obj: ObjectId, cell: string, dice: string | DiceExpr): RollValue;
   shuffleWith(container: ObjectId): number[];
@@ -351,6 +353,10 @@ export function createExecutor(options: { handlers: StepHandlerEntry[] }): Execu
         writeValue(obj, cell, value) {
           count(1);
           writeValue(tx, obj, cell, value);
+        },
+        addWrite(obj, cell, sum, added) {
+          count(1);
+          addWrite(tx, obj, cell, sum, added);
         },
         setTag(obj, tags) {
           count(1);

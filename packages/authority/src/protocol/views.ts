@@ -505,6 +505,7 @@ export class ViewBuilder {
           before: this.#cellState(e.before, track),
           after: this.#cellState(e.after, track),
           cause: e.cause,
+          ...(e.added === undefined ? {} : { added: e.added }),
         };
       case "cell_visibility":
         if (!gm) return null;

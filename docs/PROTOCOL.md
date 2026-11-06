@@ -649,7 +649,7 @@ type ObjectSnapshotView = { id: ObjectId; is_template: boolean; is_zone: boolean
 type FaceLayoutView = { elements: (FaceElement & { index: number })[]; collapsed?: (FaceElement & { index: number })[];
   default_action?: string };   // the stored layout with each element's index; no live `shown`
 type EffectView =
-  | { type: "cell"; object: ObjectId; cell: string; before: CellStateView | null; after: CellStateView | null; cause: "edit" | "roll" }
+  | { type: "cell"; object: ObjectId; cell: string; before: CellStateView | null; after: CellStateView | null; cause: "edit" | "roll"; added?: number }   // added: an add step's amount (M6-D22)
   | { type: "cell_visibility"; object: ObjectId; cell: string; before: WireViewers | null; after: WireViewers | null }
   | { type: "field"; object: ObjectId; field: "tag"; before: string[]; after: string[] }
   | { type: "field"; object: ObjectId; field: "shape"; before: Shape | null; after: Shape | null }

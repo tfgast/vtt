@@ -3,6 +3,7 @@
  * effect and group views, for the GM and for character viewers.
  */
 import {
+  addWrite,
   createObject,
   FACE_DOWN_EXEMPT,
   move,
@@ -576,6 +577,24 @@ describe("group views", () => {
     expect(gm?.effects?.[1]).toMatchObject({
       after: { kind: "formula", source: "3 + 4", override: num(2) },
     });
+  });
+
+  test("an add's addend is kept for the GM and for a character who can read the cell (M6-D22)", () => {
+    const table = groupTable();
+    const g = group(table, "Hit", (tx) => {
+      addWrite(tx, "goblin", "hp", 4, -3);
+    });
+    const want = {
+      type: "cell",
+      object: "goblin",
+      cell: "hp",
+      before: { kind: "literal", value: num(7) },
+      after: { kind: "literal", value: num(4) },
+      cause: "edit",
+      added: -3,
+    };
+    expect(new ViewBuilder(table, ALDRIC).groupView(g, { effects: true })?.effects).toEqual([want]);
+    expect(new ViewBuilder(table, GM).groupView(g, { effects: true })?.effects).toEqual([want]);
   });
 
   test("setActions: Aldric sees names only, the GM when and steps", () => {

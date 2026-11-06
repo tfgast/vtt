@@ -546,7 +546,9 @@ You should see:
 
 The walkthrough rolled 28 damage and saves of 15, 5 and 12: G1 passed and
 took 14 (`damage_taken` 20 with step 10's 6), G2 and G3 failed and took 28
-each.
+each. The Apply all sentences read "Added 14 to G1.damage_taken (now 20)",
+"Added 28 to G2.damage_taken (now 28)" and "Added 28 to G3.damage_taken
+(now 28)".
 
 Result: ok / friction / broken — game went differently: yes / no — notes:
 

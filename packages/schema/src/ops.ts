@@ -34,6 +34,9 @@ export type CellState = Cell | null;
 /**
  * A cell's state before and after. `after` is resolved: for an add the sum,
  * for an override the override, for a roll the roll result (cause `roll`).
+ * `added` is present only on an `add` step's write: the number it added (a
+ * roll counted as its total, `empty` as 0), so the log can say "Added 14"
+ * (M6-D22). Undo's reversal of an add carries none.
  */
 export interface CellEffect {
   type: "cell";
@@ -42,6 +45,7 @@ export interface CellEffect {
   before: CellState;
   after: CellState;
   cause: "edit" | "roll";
+  added?: number;
 }
 
 /** A change to one entry of `cell_visibility`; `null` means no entry. */
@@ -238,6 +242,7 @@ export const EffectSchema: z.ZodType<Effect> = z.union([
     before: CellStateSchema,
     after: CellStateSchema,
     cause: z.enum(["edit", "roll"]),
+    added: z.number().optional(),
   }),
   z.strictObject({
     type: z.literal("cell_visibility"),

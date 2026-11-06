@@ -92,3 +92,29 @@ test("an empty builder builds an empty summary", () => {
     faceChanged: [],
   });
 });
+
+test("an add's cell effect summarizes as any cell write; `added` does not leak (M6-D22)", () => {
+  const s = DocState.fromSnapshot(table());
+  const effect: Effect = {
+    type: "cell",
+    object: "goblin",
+    cell: "hp",
+    before: lit(7),
+    after: lit(4),
+    cause: "edit",
+    added: -3,
+  };
+  const builder = new SummaryBuilder();
+  builder.add(effect, s);
+  applyEffect(s, effect);
+  const summary = builder.build();
+  expect(summary.writtenCells).toEqual([
+    { object: "goblin", cell: "hp", before: lit(7), after: lit(4) },
+  ]);
+  expect(summary.changedCells).toEqual(["goblin:hp"]);
+  const { added: _, ...plain } = effect;
+  const without = new SummaryBuilder();
+  without.add(plain, DocState.fromSnapshot(table()));
+  expect(summary).toEqual(without.build());
+  expect(JSON.stringify(summary)).not.toContain("added");
+});
