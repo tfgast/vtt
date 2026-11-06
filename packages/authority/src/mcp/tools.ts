@@ -10,6 +10,7 @@ import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import {
   AtPositionParamsSchema,
   ChangesSinceParamsSchema,
+  CollectAssetsParamsSchema,
   EvaluateParamsSchema,
   ExplainActionParamsSchema,
   ExplainCellParamsSchema,
@@ -70,6 +71,7 @@ export const UndoInputSchema = UndoParamsSchema.extend({
   target: z.discriminatedUnion("type", [UndoLatest, UndoMine, UndoGroup]),
 }).strict();
 export const SaveInputSchema = strict(SaveParamsSchema);
+export const CollectAssetsInputSchema = strict(CollectAssetsParamsSchema);
 
 // ---------------------------------------------------------------------------
 // Descriptions (PROTOCOL.md §11 tool descriptions)
@@ -99,6 +101,8 @@ const DESCRIPTIONS = {
   transact: `Applies a batch of ops (up to 1000; create, move, remove objects; set values and formulas; define actions; change visibility; boards). ${REVISION} ${GROUP} ${IDS} ${FORMULAS} \`expect\` lists the cells (\`{object, cell}\`) your ops were computed from but do not write: a group committed after \`base_revision\` that touched one rejects the batch \`stale_write\`, so a value derived from a cell that changed meanwhile is caught. A rejected batch returns isError with the rejection and the failing op's index. A lost response is retried automatically; if the outcome cannot be known it returns isError \`uncertain\`: check with changes_since before writing again.`,
   undo: `Undoes a group: the latest group (\`latest\`), this agent's latest (\`mine\`), or a group by log index (\`group\`); \`expect_index\` refuses it (\`undo_target_changed\`) if the target is not that group. An undo is itself one undoable group; it carries no base revision. ${GROUP}`,
   save: "Saves the table file now and reports whether it was saved.",
+  collect_assets:
+    "Removes from the table's asset list every imported image that nothing references: no cell, formula, action or face of a live object and no effect of a retained log group (so an undo can still bring it back) mentions its path. Returns `unreferenced` (the paths unlisted) and `deleted`; with `delete: true` their files are also deleted from the table's assets directory. Never runs by itself; the next save writes the shorter list.",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -116,7 +120,7 @@ export interface ToolSpec {
 const spec = (name: keyof typeof DESCRIPTIONS, input: z.ZodObject): ToolSpec =>
   Object.freeze({ name, description: DESCRIPTIONS[name], input });
 
-/** The 15 request tools of PROTOCOL.md §11, in its table order (`invoke`: invoke-tool.ts). */
+/** The 16 request tools of PROTOCOL.md §11, in its table order (`invoke`: invoke-tool.ts). */
 export const TOOLS: readonly ToolSpec[] = Object.freeze([
   spec("table_info", TableInfoInputSchema),
   spec("list_objects", ListObjectsInputSchema),
@@ -133,6 +137,7 @@ export const TOOLS: readonly ToolSpec[] = Object.freeze([
   INVOKE_TOOL,
   spec("undo", UndoInputSchema),
   spec("save", SaveInputSchema),
+  spec("collect_assets", CollectAssetsInputSchema),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -196,7 +201,7 @@ function handlerFor(
   }
 }
 
-/** Registers the 15 request tools on `server`, each through the connection gate. */
+/** Registers the 16 request tools on `server`, each through the connection gate. */
 export function registerTools(server: McpServer, client: ProtocolClient): void {
   for (const tool of TOOLS) {
     const handle = handlerFor(tool.name, client);

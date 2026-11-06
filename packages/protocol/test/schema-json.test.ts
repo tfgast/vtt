@@ -71,6 +71,7 @@ const METHOD_KINDS: Record<string, string> = {
   undo: "write",
   invoke: "write",
   save: "write",
+  collect_assets: "write",
   list_objects: "query",
   get_objects: "query",
   evaluate: "query",
@@ -127,7 +128,7 @@ describe("JSON Schema export", () => {
 });
 
 describe("tables and constants", () => {
-  test("METHODS has exactly the 17 methods with their kinds", () => {
+  test("METHODS has exactly the 18 methods with their kinds", () => {
     expect(Object.keys(METHODS).sort()).toEqual(Object.keys(METHOD_KINDS).sort());
     for (const [name, entry] of Object.entries(METHODS)) {
       expect(entry.kind, name).toBe(METHOD_KINDS[name]);

@@ -1,9 +1,9 @@
 /**
  * The request router (PROTOCOL.md §4, §6, §10; D19, D22): maps each of the
- * 17 methods onto the module that implements it and turns the outcome into
- * a response body. Every handler but `save` is synchronous, so a commit and
- * its commit events happen inside `routeRequest`'s call; `save` returns a
- * promise. A `ProtocolFailure` becomes its error; any other exception or
+ * 18 methods onto the module that implements it and turns the outcome into
+ * a response body. Every handler but `save` and `collect_assets` is
+ * synchronous, so a commit and its commit events happen inside
+ * `routeRequest`'s call; those two return a promise. A `ProtocolFailure` becomes its error; any other exception or
  * rejection becomes `internal`, logged to stderr with the request id.
  */
 import {
@@ -74,7 +74,7 @@ const commandContext = (deps: RouterDeps, ctx: RequestContext) => ({
   txns: deps.txns,
 });
 
-/** The handlers of the 17 methods of PROTOCOL.md §4. */
+/** The handlers of the 18 methods of PROTOCOL.md §4. */
 export const ROUTES: RouteTable = Object.freeze({
   transact: (d, c, p) => executeTransact(commandContext(d, c), p),
   undo: (d, c, p) => executeUndo(commandContext(d, c), p),
@@ -85,6 +85,8 @@ export const ROUTES: RouteTable = Object.freeze({
       ? { status: event.status, revision: event.revision }
       : { status: event.status, revision: event.revision, message: event.message };
   },
+  collect_assets: (d, _c, p) =>
+    d.host.collectAssets(p.delete === undefined ? {} : { delete: p.delete }),
   list_objects: (d, _c, p) => listObjects(d.host.table, p),
   get_objects: (d, _c, p) => getObjects(d.host.table, p),
   evaluate: (d, _c, p) => evaluateAdhoc(d.host.table, p),
@@ -111,7 +113,7 @@ function failed(err: unknown, request: RequestMessage): RequestOutcome {
 
 /**
  * Runs one parsed request. Synchronous handlers answer synchronously; an
- * async handler (`save`) answers with a promise that never rejects.
+ * async handler (`save`, `collect_assets`) answers with a promise that never rejects.
  */
 export function routeRequest(
   deps: RouterDeps,

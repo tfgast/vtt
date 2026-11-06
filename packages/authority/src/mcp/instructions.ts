@@ -4,7 +4,7 @@
  * the first queries, that reading user cells needs `cells: "all"`
  * (vtt-qf5.53), the GM binder's templates, how to give a template to a
  * character (its owner set to the binder's, M6-D15), and the stale-write
- * rule. Every backticked identifier is checked against what it names by
+ * rule, and that `collect_assets` is explicit (M6-D32). Every backticked identifier is checked against what it names by
  * test/mcp/instructions.test.ts.
  */
 export const MCP_INSTRUCTIONS = [
@@ -15,7 +15,7 @@ export const MCP_INSTRUCTIONS = [
   "The GM binder `gm_binder` holds example templates: `tpl_character`, `tpl_attack`, `tpl_damage`, `tpl_area_save`, `tpl_save_row`, `tpl_token`, `tpl_marker`, `tpl_zone`, `tpl_card`, `tpl_note`, `tpl_sheet`, `tpl_hand`, `tpl_binder`, `tpl_stack`, `tpl_d20`. They are examples: copy and edit them, never mutate them by play.",
   "To give a card to a character, `transact` a `spawn` of the template into that character's binder (the object in the character's contents tagged \"binder\") with `as` set to `$copy`, then `set_template_flag` on `$copy` with value true, then set its cells in the same batch: always set its `owner` to the binder's `owner` (the character), so the card's buttons pressed in the UI act as that character; for `tpl_area_save` also set `name`, `caster` and `damage_dice`; its `dc` follows the caster's `spell_dc`, which lives on the character's sheet (the character's `sheet` cell).",
   "Every `transact` carries the `base_revision` you last read; list in `expect` the cells you read to compute it but do not write, so a change to them meanwhile is caught too. On `stale_write`, re-read and decide again; never resend blindly.",
-  'Appearance is ordinary cells: `color`, `pattern` ("hatch"), `text`, `image` (import a local file with `import_asset`).',
+  'Appearance is ordinary cells: `color`, `pattern` ("hatch"), `text`, `image` (import a local file with `import_asset`). Imported images stay listed until you run `collect_assets`, which unlists (and with `delete: true` deletes) those nothing in the table or its undo history references; it never runs by itself.',
   "Run an object's action with `invoke`. Undo your own latest group with `undo` and target `mine`.",
   "Rules that must outlive this conversation go into the table as formulas or actions.",
 ].join("\n");
