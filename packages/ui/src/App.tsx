@@ -210,7 +210,7 @@ export function createAppRegistry({ faceState, policy }: AppRegistryOptions): To
   registerCreationTools(registry);
   registry.register(createInkTool());
   registry.register(createTextTool());
-  registry.register(createLayoutTool());
+  registry.register(createLayoutTool({ faceState }));
   return registry;
 }
 
