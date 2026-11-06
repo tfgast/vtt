@@ -31,6 +31,7 @@ import type { DrawItem } from "../scene/scene";
 import type { FormatTone } from "../values/format";
 import {
   type DrawItemHelpers,
+  defaultCacheKey,
   type PaintHelpers,
   PLACEHOLDER_STROKE,
   paintItem,
@@ -123,6 +124,51 @@ export function drawFaceItem(ctx: Ctx2D, item: DrawItem, helpers: DrawFaceItemHe
   };
   if (helpers.selection !== undefined) opts.selection = helpers.selection;
   drawFace(ctx, drawing, opts);
+}
+
+/**
+ * The bitmap cache key for `drawFaceItem` (M6-D37, vtt-qf5.10): the item,
+ * its face drawing (resolved cell values, layout, expansion and scroll, the
+ * `when_selected` lists shown) and its frame transform. An item without a
+ * drawing takes `defaultCacheKey`. Selection outlines and the focus ring are
+ * overlays, not part of the drawing, so they never invalidate it.
+ */
+export function faceCacheKey(item: DrawItem, scene: FaceScene): readonly unknown[] | null {
+  const drawing = scene.faces.get(item.id);
+  if (drawing === undefined) return defaultCacheKey(item);
+  return [item, drawing, scene.transforms.get(item.id) ?? null];
+}
+
+/**
+ * `drawFaceItem`'s cache bounds (M6-D37): the box, in the item's frame, of
+ * its face's top-level ink strokes, which are drawn unclipped with widths in
+ * board units and round caps and joins (`drawInk`), so a thick stroke on the
+ * face's edge reaches past the cull box; null without ink. Ink inside a
+ * contents entry is clipped to the element's rect and needs nothing.
+ */
+export function faceCacheBounds(item: DrawItem, scene: FaceScene, camera: Camera): Bounds | null {
+  const drawing = scene.faces.get(item.id);
+  if (drawing === undefined) return null;
+  const transform = scene.transforms.get(item.id) ?? itemTransform(item);
+  const px = 1 / (cameraScale(camera) * Math.hypot(transform[0], transform[1]));
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const p of drawing.primitives) {
+    if (p.kind !== "ink") continue;
+    for (const stroke of p.strokes) {
+      const { points, width } = strokePen(stroke);
+      const r = Math.max(width, px) / 2;
+      for (const [x, y] of points) {
+        minX = Math.min(minX, x - r);
+        minY = Math.min(minY, y - r);
+        maxX = Math.max(maxX, x + r);
+        maxY = Math.max(maxY, y + r);
+      }
+    }
+  }
+  return minX <= maxX ? { minX, minY, maxX, maxY } : null;
 }
 
 /**

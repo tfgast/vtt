@@ -1520,13 +1520,43 @@ protocol, so the protocol is designed first, not deferred.
 
 In the tab, the scene is drawn on a canvas and the chrome (inspector, formula
 bar, log) is DOM; binders are canvas objects (4.7). In-place editing is a DOM overlay positioned over
-the cell. Canvas2D with viewport culling and an image cache; per-object
-render caching is deferred until profiling asks (vtt-qf5.10). The renderer
+the cell. Canvas2D with viewport culling, an image cache and optional
+per-object render caching (M6-D37): an item that draws text, an image, a
+hatch or a face is drawn once into an offscreen bitmap at the frame's own
+camera and device scale and blitted 1:1 on later frames, until its drawn
+content (the draw item, its face drawing and frame transform), the zoom,
+or an image it drew changes. Keying on the exact zoom keeps `min_size`
+visibility and fixed screen sizes identical to live drawing and to hit
+testing: a pan reuses bitmaps, a zoom redraws them. The surface holds the
+item's cull box and its face's unclipped ink strokes. Selection, hover,
+handles, the focus ring, labels and the hidden badge stay live. Bitmaps
+are evicted least recently used past 256 MB. The cache is off by default
+and is turned on once a browser measurement shows the gain; until then
+the app enables it with `?render_cache=1` in its URL (the renderer's
+`renderCache` option). The renderer
 sits behind a small renderer interface; PixiJS is the known upgrade if
 profiling demands it. Objects are never DOM nodes. Canvas text is weak at
 small sizes, which face elements' `min_size` zoom thresholds already
 accommodate. Very large
 map images are a tiling problem and stay in Later.
+
+**Benchmark (render cache, vtt-qf5.10).** `pnpm bench:render` draws a
+stocked GM board of 3,001 objects (3,000 spawned tokens with name, hp and
+face) at 1600 × 1000 CSS px, device pixel ratio 2, through the app's
+renderer over a `RecordingContext`, 30 frames after 5 of warm-up, panning a
+little each frame. Medians on an Apple M1 Pro, Node 26, 2026-11-06:
+
+| Camera | Cache off | Cache on, same scene | Cache on, scene rebuilt each frame |
+| --- | --- | --- | --- |
+| Whole board (zoom 0.27) | 12.3 ms | 6.6 ms | 13.5 ms |
+| Zoom 1 (about a tenth in view) | 4.6 ms | 3.0 ms | 3.8 ms |
+
+The numbers are JavaScript only (issuing and recording calls, keys, cull
+bounds, blits; no pixels are rasterized), so a browser's differ: there text
+and paths cost more to rasterize and a blit costs a texture copy. A pan
+reuses the scene and gains; a rebuilt scene (a hover or a drag preview)
+compares every face structurally and roughly breaks even; a zoom redraws
+every bitmap. Hence off by default until a browser measurement.
 
 **Protocol.** The wire protocol is specified in docs/PROTOCOL.md: JSON
 messages over one WebSocket, a token handshake, one batched write command
@@ -1912,3 +1942,4 @@ a separate player window, shipped game-system content.
 | 2026-11-06 | M6-D34. Layout mode edits expanded contained entries in place: with the container selected, a press on an element drawn inside an expanded entry (list, grid or fan; the innermost entry, every entry on the way expanded, with an element under the point) selects it on the entry's object; outlines, handles and pointer deltas go through the composed frame board object → each entry (`entryTransform`: element corner, scroll, fan turn, fit scale), and each move or resize is one `set_face` on that object in its own face coordinates. A collapsed entry's face is not edited on the canvas; a press there reaches the container's elements as before. DESIGN §4.6; `face-editor/layout-tool.ts`. | vtt-qf5.30 (M5 plan section 5): vtt-1xv.18's layout tool reached board objects only, so a card in a binder or hand had to be taken out to be laid out on the canvas. |
 | 2026-11-06 | M6-D35. Cell-level patches in commit events, negotiated: `hello` takes optional `capabilities: string[]` and `welcome` echoes the accepted ones (only `cell_patches`; unknown names ignored; no `welcome.capabilities` when the hello had none). On a `cell_patches` connection, a changed object the subscription already holds whose view differs only in `cells` (every other field canonically equal) goes in the delta's `patches` as `{object, cells: {name: CellView \| null}}` naming only the changed cells (`null` deletes); created, entering, newly visible and otherwise-changed objects stay whole views, removals and covers unchanged, and other connections get today's events byte for byte. `ViewMirror` applies patches; `ProtocolClient` asks by default (`cellPatches: false` opts out). Recomputation is unchanged. Amends M3-D10's "cell-level patches stay Polish". PROTOCOL §2, §8, §12. | vtt-qf5.4: a one-cell change on a large sheet re-sent the whole view; a capability keeps old clients and old authorities working without a protocol bump. |
 | 2026-11-06 | M6-D36. Multi-selection editing: with two or more objects on the active board selected, `withHandles` shows group handles on the axis-aligned box around their rotated footprints (four corners and a rotate handle above the top middle; GM view only): a turn orbits each anchor about the box's centre and adds to each rotation (Shift snaps the turn to `ROTATE_SNAP_DEG`), a corner scales each shape and anchor offset from the centre by one factor, floored so the smallest object stays at `HANDLE_MIN_SIZE` (faces scale as M6-D14; no grid snap); the gesture is one write of each object's single-object ops, labelled "Rotate N objects" or "Resize N objects". With two or more objects selected the inspector shows "N objects" and the user cells present on all of them, the shared value or "mixed" (differing values, or a mix of literals and formula sources) until the user types; every row is editable, an untouched editor writes nothing (except over a shared formula's prefilled value, an override), a cleared prefilled value writes `empty`, and an edit is one write of one `cellInputToOps` per object, "Set <cell> on N objects"; no actions, contents or face sections. DESIGN §4.6, §8.1; `interaction/handles.ts`, `inspector/MultiCellList.tsx`. | vtt-qf5.15: §4.6's "HP on all these tokens" meant editing each token in turn; one write per gesture keeps one undo for the whole selection. |
+| 2026-11-06 | M6-D37. The Canvas2D renderer can cache a per-item offscreen bitmap (`render/render-cache.ts`): with `renderCache` set, an item whose `cacheKey` is non-null (default: one with text, an image or a hatch; the app's `faceCacheKey`: one with a face) has its body (shape, glyph, `drawItem` hook) drawn, with the frame's camera, into a surface from an injectable `createSurface` (default `OffscreenCanvas`, else a detached canvas, only over a native context) at the exact device scale, held by the cull box plus `cacheBounds` (`faceCacheBounds`: top-level ink with its width and round caps) and 2 device px, and blitted 1:1; it is redrawn when a key part (by reference, else `sameContent`), the device scale, the dpr or an image it drew changes. Labels, hidden badges and every overlay are drawn live over it. LRU eviction past `maxBytes` (default 256 MB); a surface over 4096 px a side is drawn live. Off by default; the app turns it on with `?render_cache=1`; on by default once a browser measurement shows the gain. Amends M4-D15. DESIGN §7 (Benchmark). | vtt-qf5.10: on a 3,000-object board the JS-only benchmark halves the frame time of a pan with the whole board in view (12.3 → 6.6 ms) but breaks even when the scene is rebuilt, and rasterization is unmeasured. Keying on the exact zoom, not a rounded-up bucket, keeps `min_size` visibility and fixed screen sizes equal to live drawing and hit testing. |

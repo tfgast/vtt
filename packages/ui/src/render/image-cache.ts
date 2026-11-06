@@ -1,7 +1,7 @@
 /**
  * The image decode cache (DESIGN.md §7 Platform; M4-D15): each asset URL is
- * loaded once as an `HTMLImageElement` and kept. Per-object render caching is
- * deferred (vtt-qf5.10).
+ * loaded once as an `HTMLImageElement` and kept. The per-item bitmap cache
+ * (`render-cache.ts`, M6-D37) redraws a bitmap once an image it drew settles.
  */
 
 export interface ImageCacheOptions {
