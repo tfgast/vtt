@@ -14,6 +14,11 @@
  * and its value editor opens focused with the text selected, so the GM types
  * the value next; unless focus has moved on meanwhile (out of the add-cell
  * form, or a next name typed into it), which cancels that.
+ *
+ * The add-cell form also takes an optional initial value (vtt-qf5.48), the
+ * same input as the value editor (`parseCellInput`: a literal, or a formula
+ * after `=`). Given one, the cell is created with it by one write: one
+ * group, one undo (DESIGN.md §7). Its row then does not open an editor.
  */
 import type { CellView, InputViewers, ObjectView, WireViewers } from "@vtt/protocol";
 import { type ObjectId, STRUCTURAL_CELLS } from "@vtt/schema";
@@ -21,6 +26,8 @@ import { type CSSProperties, type FormEvent, type RefObject, useRef, useState } 
 import { useSession } from "../session/hooks";
 import type { TableSession } from "../session/table-session";
 import type { CellAddress } from "../state/ui-state";
+import { parseCellInput } from "../values/input";
+import { cellInputToOps } from "../values/ops";
 import {
   CellRow,
   cellNameProblem,
@@ -198,11 +205,12 @@ function AddCell({
   session: TableSession;
   isTaken: (name: string) => boolean;
   formRef: RefObject<HTMLFormElement | null>;
-  /** Called with the name once the add is sent. */
+  /** Called with the name once an add without a value is sent. */
   onAdded: (name: string) => void;
 }) {
   const port = useInspectorWrites(session);
   const [name, setName] = useState("");
+  const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const submit = (event: FormEvent) => {
@@ -213,14 +221,19 @@ function AddCell({
       setError(problem);
       return;
     }
+    // An empty value field is the plain add (an `empty` cell); else the
+    // value editor's input, whose op creates the cell with its content.
+    const parsed = parseCellInput(value, { cell: name });
+    if (!parsed.ok) {
+      setError(parsed.message);
+      return;
+    }
     setName("");
+    setValue("");
     setError(null);
     const label = `Add cell ${inspectorRefLabel(session)(object) ?? object}.${name}`;
-    void port.write([{ type: "set_value", object, cell: name, value: { type: "empty" } }], {
-      baseRevision,
-      label,
-    });
-    onAdded(name);
+    void port.write(cellInputToOps(object, name, parsed.content), { baseRevision, label });
+    if (value === "") onAdded(name);
   };
 
   return (
@@ -231,6 +244,15 @@ function AddCell({
         value={name}
         onChange={(e) => {
           setName(e.target.value);
+          setError(null);
+        }}
+      />{" "}
+      <input
+        aria-label="New cell value"
+        placeholder="Value (optional)"
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
           setError(null);
         }}
       />{" "}

@@ -16,6 +16,7 @@ import {
   TableProvider,
   type TableSession,
   type UiStore,
+  undo,
   useSession,
 } from "@vtt/ui";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -829,6 +830,63 @@ describe("the Cells section (vtt-nb8.25)", () => {
     } finally {
       scrolls.restore();
     }
+  });
+
+  test("vtt-qf5.48: Add cell with a value creates the cell and its value as one group, one undo", async () => {
+    const user = userEvent.setup();
+    const { session, transacts, groups } = await setup();
+    const before = groups().length;
+    await user.type(screen.getByRole("textbox", { name: "New cell name" }), "notes");
+    // Enter in the value field submits, like Enter in the name field.
+    await user.type(screen.getByRole("textbox", { name: "New cell value" }), "7{Enter}");
+    await until(() => cellOf(session, "goblin", "notes")?.value.type === "number", "notes = 7");
+    expect(cellOf(session, "goblin", "notes")?.value).toEqual(num(7));
+    expect(transacts().map((t) => t.ops)).toEqual([
+      [{ type: "set_value", object: "goblin", cell: "notes", value: num(7) }],
+    ]);
+    expect(groups().length).toBe(before + 1);
+    expect(groups().at(-1)?.label).toBe("Add cell Goblin.notes");
+    // Both fields clear; the row opens no editor, since the value is in.
+    expect((screen.getByRole("textbox", { name: "New cell name" }) as HTMLInputElement).value).toBe(
+      "",
+    );
+    expect(
+      (screen.getByRole("textbox", { name: "New cell value" }) as HTMLInputElement).value,
+    ).toBe("");
+    expect(editorOf("notes")).toBeNull();
+
+    // One undo removes the value and the cell.
+    await undo(session);
+    await until(() => !hasRow("notes"), "the notes row gone");
+    expect(cellOf(session, "goblin", "notes")).toBeUndefined();
+  });
+
+  test("vtt-qf5.48: Add cell takes a formula value as the value editor does, and refuses a bad one", async () => {
+    const user = userEvent.setup();
+    const { session, transacts, groups } = await setup();
+    const before = groups().length;
+    const name = screen.getByRole("textbox", { name: "New cell name" });
+    const value = screen.getByRole("textbox", { name: "New cell value" });
+    await user.type(name, "bad");
+    await user.type(value, "=1 +{Enter}");
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(transacts()).toEqual([]);
+    expect((name as HTMLInputElement).value).toBe("bad");
+
+    await user.clear(name);
+    await user.type(name, "double");
+    await user.clear(value);
+    await user.type(value, "=max_hp * 2");
+    await user.click(screen.getByRole("button", { name: "Add cell" }));
+    await until(() => shown("double").textContent === "24", "double = 24");
+    expect(transacts().map((t) => t.ops)).toEqual([
+      [{ type: "set_formula", object: "goblin", cell: "double", source: "max_hp * 2" }],
+    ]);
+    expect(groups().length).toBe(before + 1);
+    expect(cellOf(session, "goblin", "double")).toMatchObject({
+      kind: "formula",
+      source: "max_hp * 2",
+    });
   });
 
   test("the new cell's editor, left untouched, closes when focus moves to another field", async () => {
