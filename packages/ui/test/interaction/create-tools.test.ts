@@ -989,6 +989,31 @@ function shapeAs<T extends Shape["type"]>(op: CreateOp, type: T): Extract<Shape,
 const onHalf = (n: number) => Number.isInteger(n * 2);
 
 describe("creation with Snap", () => {
+  const placers = [
+    ["token", createTokenTool],
+    ["card", createCardTool],
+    ["note", createNoteTool],
+  ] as const;
+
+  test.each(placers)(
+    "%s: a click lands its anchor on a half unit, preview included",
+    (_k, make) => {
+      const on = drive(make(), click([2.1, 3.3]), { input: SNAP });
+      const preview = overlaysOf(on.perEvent[0] ?? [])?.[0];
+      expect(preview?.kind === "creation_preview" && preview.anchor).toEqual([2, 3.5]);
+      expect(positionOf(createOp(on.effects))).toEqual([2, 3.5]);
+    },
+  );
+
+  test.each(placers)("%s: with Snap off the click point is kept", (_k, make) => {
+    expect(positionOf(createOp(drive(make(), click([2.1, 3.3])).effects))).toEqual([2.1, 3.3]);
+    expect(
+      positionOf(
+        createOp(drive(make(), click([2.1, 3.3]), { input: () => ({ snap: false }) }).effects),
+      ),
+    ).toEqual([2.1, 3.3]);
+  });
+
   test("zone-rect: both dragged corners snap to half units, preview included", () => {
     const events = [down([1.1, 0.8]), move([3.3, 2.7]), up([3.3, 2.7])];
     const on = drive(createZoneRectTool(), events, { input: SNAP });

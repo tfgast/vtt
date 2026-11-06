@@ -20,8 +20,8 @@
  * started upload always finishes on its stamped board (review r3 finding 1).
  * No `z` is written: the authority puts a created object on top.
  *
- * With the session's Snap on (`ToolInput.snap`, M6-D13), zone and image
- * creation snap to half units (`snapPoint`): a rect zone's two dragged
+ * With the session's Snap on (`ToolInput.snap`, M6-D13), creation snaps to
+ * half units (`snapPoint`): a token, card or note's anchor, a rect zone's two dragged
  * corners (a click's center), a circle zone's center and its radius (a
  * multiple of `SNAP_STEP`), each polygon vertex (and the drawn cursor), and
  * an image's anchor (its size stays the import's). Sizes below
@@ -209,7 +209,7 @@ function placeTool<K extends "token" | "card" | "note">(spec: PlaceSpec<K>): Too
       if (isPrimaryDown(event) && press === null) {
         const stamp = captureStamp(input);
         if (stamp === null) return { state, effects: [] };
-        const at = event.board;
+        const at = snapPoint(event.board, input.snap === true);
         return {
           state: {
             ...state,
