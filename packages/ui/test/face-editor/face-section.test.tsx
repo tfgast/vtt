@@ -737,6 +737,33 @@ describe("queued edits (vtt-nb8.22)", () => {
     expect(faceOf(session)).toEqual(FACE);
   });
 
+  test("selecting away and back while a write is unacknowledged: the next edit waits for it", async () => {
+    const user = userEvent.setup();
+    const gate = gatedSocket();
+    const { authority, session, ui, transacts } = await setup("tok", {
+      WebSocket: gate.WebSocket,
+    });
+    const r = session.getSnapshot().revision;
+    gate.hold();
+    await user.click(box(2, "x"));
+    await retype(user, box(2, "x"), "0.5");
+    await user.tab();
+    await applied(authority, r + 1);
+    act(() => ui.select(["bare"]));
+    act(() => ui.select(["tok"]));
+    // The remounted rows still show the old layout; edit w before the ack.
+    await user.click(box(2, "w"));
+    await retype(user, box(2, "w"), "1.5");
+    await user.tab();
+    expect(transacts()).toHaveLength(1);
+    gate.release();
+    await until(() => faceOf(session)?.elements[1]?.rect[2] === 1.5, "the second edit");
+    expect(faceOf(session)?.elements[1]?.rect).toEqual([0.5, -0.9, 1.5, 0.6]);
+    expect(transacts()).toHaveLength(2);
+    expect(transacts()[1]?.base_revision).toBe(r + 1);
+    expect(staleShown(session)).toBe(false);
+  });
+
   test("a selection change drops pending edits; the sent one applies", async () => {
     const user = userEvent.setup();
     const gate = gatedSocket();

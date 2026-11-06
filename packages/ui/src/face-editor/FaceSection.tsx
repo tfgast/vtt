@@ -43,11 +43,11 @@ import {
   STRUCTURAL_CELLS,
 } from "@vtt/schema";
 import { type CSSProperties, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
-import { inspectorRefLabel, useInspectorWrites } from "../inspector/CellRow";
+import { inspectorRefLabel } from "../inspector/CellRow";
 import type { WriteOutcome } from "../interaction/contracts";
 import { TableProvider, useSession, useUi } from "../session/hooks";
 import type { TableSession } from "../session/table-session";
-import { sessionNotices } from "../session/writes";
+import { createWritePort, sessionNotices } from "../session/writes";
 import type { UiStore } from "../state/ui-state";
 import {
   addElement,
@@ -165,7 +165,7 @@ interface EditOptions {
 
 /**
  * The actions of one editor. Every face write goes through one queue per
- * editor (vtt-nb8.22): a write waits for the previous own face write to
+ * session and object, kept across editor mounts (vtt-nb8.22): a write waits for the previous own face write to
  * settle and for the mirror to show it, then is built from the acknowledged
  * layout and sent with base revision max(the revision captured at the
  * focus or click, the committed revision of the previous own write).
@@ -198,17 +198,24 @@ type QueuedWrite =
       readonly verb: string;
     };
 
-interface WriteQueue {
-  /** Edits not yet sent. */
-  readonly pending: QueuedWrite[];
-  /** Whether a write is in flight (or its revision not yet shown). */
-  busy: boolean;
-  /** The revision of the latest own face write that committed (0: none). */
-  lastCommitted: number;
+/** A queued write and the editor mount that made it. */
+interface Pending {
+  readonly item: QueuedWrite;
+  readonly owner: object;
+}
+
+/**
+ * The face write queue of one object in one session. It outlives editor
+ * mounts, so selecting another object and coming back while a write is in
+ * flight keeps waiting for it and keeps its committed revision.
+ */
+interface FaceQueue {
+  /** Queues `item` for the editor mount `owner`. */
+  enqueue(item: QueuedWrite, owner: object): void;
+  /** Drops the unsent writes of `owner` (an editor going away); sent writes are not cancelled. */
+  drop(owner: object): void;
   /** Counts own structural writes that committed, once the mirror shows them. */
-  generation: number;
-  /** False once the editor is gone (a change of selection, viewer or board). */
-  open: boolean;
+  generation(): number;
 }
 
 const DISCARDED = "Face edit discarded: the element changed.";
@@ -221,22 +228,32 @@ function sameElement(a: FaceElement, b: FaceElement): boolean {
   return true;
 }
 
-function useFaceWriter(session: TableSession, object: ObjectId): FaceWriter {
-  const port = useInspectorWrites(session);
-  const queueRef = useRef<WriteQueue | null>(null);
-  if (queueRef.current === null) {
-    queueRef.current = { pending: [], busy: false, lastCommitted: 0, generation: 0, open: true };
+const faceQueues = new WeakMap<TableSession, Map<ObjectId, FaceQueue>>();
+
+/** The face write queue of `object` in `session` (created on first use). */
+function faceQueueOf(session: TableSession, object: ObjectId): FaceQueue {
+  let byObject = faceQueues.get(session);
+  if (byObject === undefined) {
+    byObject = new Map();
+    faceQueues.set(session, byObject);
   }
-  const queue = queueRef.current;
-  // The editor going away (it is keyed by board, viewer and object) drops
-  // pending, unsent edits; a write already sent is not cancelled.
-  useEffect(() => {
-    queue.open = true;
-    return () => {
-      queue.open = false;
-      queue.pending.length = 0;
-    };
-  }, [queue]);
+  let queue = byObject.get(object);
+  if (queue === undefined) {
+    queue = createFaceQueue(session, object);
+    byObject.set(object, queue);
+  }
+  return queue;
+}
+
+function createFaceQueue(session: TableSession, object: ObjectId): FaceQueue {
+  const port = createWritePort(session);
+  /** Writes not yet sent. */
+  let pending: Pending[] = [];
+  /** Whether a write is in flight (or its revision not yet shown). */
+  let busy = false;
+  /** The revision of the latest own face write that committed (0: none). */
+  let lastCommitted = 0;
+  let generation = 0;
   const notice = (text: string) => sessionNotices(session).push({ level: "error", text });
   const label = (verb: string) => `${verb} ${inspectorRefLabel(session)(object) ?? object}`;
   const current = () => {
@@ -264,11 +281,7 @@ function useFaceWriter(session: TableSession, object: ObjectId): FaceWriter {
         const there = faceListOf(now, ref.list)[ref.index];
         // Elements have no ids: after a structural change, or when the
         // element at the index shows something else, the edit is dropped.
-        if (
-          item.generation !== queue.generation ||
-          there === undefined ||
-          !sameElement(there, element)
-        ) {
+        if (item.generation !== generation || there === undefined || !sameElement(there, element)) {
           notice(DISCARDED);
           return null;
         }
@@ -281,42 +294,69 @@ function useFaceWriter(session: TableSession, object: ObjectId): FaceWriter {
       face = result.face;
       verb = "Edit face of";
     }
-    const baseRevision = Math.max(item.baseRevision, queue.lastCommitted);
+    const baseRevision = Math.max(item.baseRevision, lastCommitted);
     return port.write(setFaceOps(object, face), { baseRevision, label: label(verb) });
   };
 
   const pump = async () => {
-    if (queue.busy) return;
-    queue.busy = true;
+    if (busy) return;
+    busy = true;
     try {
-      for (let item = queue.pending.shift(); item !== undefined; item = queue.pending.shift()) {
-        if (!queue.open) break;
+      for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
+        const { item } = next;
         const sent = send(item);
         if (sent === null) continue;
         const outcome = await sent;
         if (outcome.status === "committed") {
-          queue.lastCommitted = Math.max(queue.lastCommitted, outcome.revision);
-          // The next edit is built from the layout this write produced.
+          lastCommitted = Math.max(lastCommitted, outcome.revision);
+          // The next write is built from the layout this write produced.
           await session.whenRevision(outcome.revision).catch(() => undefined);
-          if (item.kind === "replace" || item.structural) queue.generation++;
+          if (item.kind === "replace" || item.structural) generation++;
         } else if (outcome.status !== "rejected" || outcome.rejection.type === "stale_write") {
           // A stale write (an intervening external face write) or a write
           // that ended without a result: its notice is shown, and the rest
           // of the queue is dropped (the fields show the acknowledged values).
-          queue.pending.length = 0;
+          pending = [];
         }
       }
     } finally {
-      queue.busy = false;
+      busy = false;
     }
   };
 
-  const enqueue = (item: QueuedWrite) => {
-    if (!queue.open || !viewingAsGm(session)) return;
-    queue.pending.push(item);
-    void pump();
+  return {
+    enqueue(item, owner) {
+      if (!viewingAsGm(session)) return;
+      pending.push({ item, owner });
+      void pump();
+    },
+    drop(owner) {
+      pending = pending.filter((p) => p.owner !== owner);
+    },
+    generation: () => generation,
   };
+}
 
+function useFaceWriter(session: TableSession, object: ObjectId): FaceWriter {
+  const queue = faceQueueOf(session, object);
+  // This editor mount: its unsent writes are dropped when it goes away (it
+  // is keyed by board, viewer and object); a write already sent is not cancelled.
+  const [owner] = useState(() => ({}));
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+      queue.drop(owner);
+    };
+  }, [queue, owner]);
+  const current = () => {
+    const view = session.objectView(object);
+    return view === null ? null : layoutOfView(view);
+  };
+  const enqueue = (item: QueuedWrite) => {
+    if (open.current) queue.enqueue(item, owner);
+  };
   return {
     current,
     now: () => session.getSnapshot().revision,
@@ -330,7 +370,7 @@ function useFaceWriter(session: TableSession, object: ObjectId): FaceWriter {
         baseRevision,
         element: options.element ?? null,
         structural: options.structural === true,
-        generation: queue.generation,
+        generation: queue.generation(),
       });
     },
   };
