@@ -10,6 +10,7 @@ import {
   changesSince,
   DocumentStore,
   loadTable,
+  nodeFs,
   type SaveEvent,
   TableHost,
   undo,
@@ -121,6 +122,40 @@ describe("TableHost compaction policy", () => {
     for (let i = 0; i < 5; i++) setHp(host.table.store, i);
     expect((await saved).status).toBe("saved");
     expect((await fileLog()).groups.map((g) => g.index)).toEqual([3, 4]);
+  });
+
+  test("a save event carries the new first index only when the save dropped groups (vtt-qf5.71)", async () => {
+    const host = await open({ compaction: { keepLast: 2 } });
+    const events: SaveEvent[] = [];
+    host.onSave((e) => events.push(e));
+    for (let i = 0; i < 5; i++) setHp(host.table.store, i);
+    expect(await host.save()).toEqual({ status: "saved", revision: 5, firstIndex: 3 });
+    setHp(host.table.store, 9);
+    // One group over the policy: it drops index 3.
+    expect(await host.save()).toEqual({ status: "saved", revision: 6, firstIndex: 4 });
+    // Nothing to drop and nothing unsaved: no compaction, no first index.
+    expect(await host.save()).toEqual({ status: "saved", revision: 6 });
+    expect(events.map((e) => e.firstIndex)).toEqual([3, 4, undefined]);
+  });
+
+  test("a failed save still reports the compaction it ran (vtt-qf5.71)", async () => {
+    const host = await open({
+      compaction: { keepLast: 1 },
+      fs: {
+        ...nodeFs,
+        open: (p, flags) =>
+          flags === "wx" ? Promise.reject(new Error("disk full")) : nodeFs.open(p, flags),
+      },
+    });
+    for (let i = 0; i < 3; i++) setHp(host.table.store, i);
+    expect(await host.save()).toMatchObject({ status: "failed", firstIndex: 2 });
+    expect(host.table.store.history.firstIndex).toBe(2);
+  });
+
+  test("a default host's save event never carries a first index", async () => {
+    const host = await open();
+    for (let i = 0; i < 3; i++) setHp(host.table.store, i);
+    expect(await host.save()).toEqual({ status: "saved", revision: 3 });
   });
 
   test("never raises a higher barrier back down", async () => {

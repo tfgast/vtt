@@ -44,6 +44,12 @@ export interface SaveEvent {
   revision: number;
   /** Why the save failed or is not durable; absent when `saved`. */
   message?: string;
+  /**
+   * The new `first_index` of the retained log, present only when this save's
+   * compaction (M6-D33) dropped groups, whatever the save's status: the
+   * in-memory log is compacted before the file is written (vtt-qf5.71).
+   */
+  firstIndex?: number;
 }
 
 /** Autosave timings, in milliseconds (D24). */
@@ -562,7 +568,11 @@ export class TableHost {
     const revision = this.revision;
     const assetsGeneration = this.#assetsGeneration;
     // Compaction policy (M6-D33): compact before the snapshot is serialized.
+    // The event reports the new first index when groups were dropped (vtt-qf5.71).
+    const history = this.table.store.history;
+    const firstBefore = history.firstIndex;
     if (this.compaction !== "never") compactLog(this.table.store, this.compaction.keepLast);
+    const firstIndex = history.firstIndex > firstBefore ? history.firstIndex : undefined;
     const promise = saveTable(path, this.table.store, this.#assets, this.#fs)
       .then(
         (result): SaveEvent => {
@@ -587,6 +597,7 @@ export class TableHost {
         }),
       )
       .then((event) => {
+        if (firstIndex !== undefined) event.firstIndex = firstIndex;
         this.#inFlight = null;
         this.#settle(event, { revision, assetsGeneration });
         return event;

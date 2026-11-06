@@ -20,8 +20,10 @@
  * from the one last sent is upserted; an index that left the window or
  * whose view became null, and was sent, is removed.
  *
- * Compaction between commits shrinks the window without a commit; the next
- * commit reports the indices that left it.
+ * Compaction shrinks the window without a commit. After a save-time
+ * compaction the hub's `refreshProvided` calls `refresh`, which reports the
+ * indices that left the window as `groups_removed` (vtt-qf5.71); otherwise
+ * (a compaction nobody announced) the next commit reports them.
  */
 import { type GroupView, LIMITS } from "@vtt/protocol";
 import type { Table } from "../engine/table";
@@ -111,6 +113,21 @@ export function logScopeProvider(table: Table): ScopeProvider {
       if (upserted.length === 0 && removed.length === 0) return null;
       removed.sort((a, b) => a - b);
       return { groups_upserted: upserted, groups_removed: removed };
+    },
+
+    refresh(sub: ScopeSubscription): ProviderDelta | null {
+      const state = states.get(sub);
+      if (state === undefined) return null;
+      // Compaction only drops the oldest groups and changes no retained view.
+      const { from, to } = logWindow(table);
+      const removed: number[] = [];
+      for (const i of state.lastGroups.keys()) if (i < from || i >= to) removed.push(i);
+      for (const i of removed) state.lastGroups.delete(i);
+      state.from = from;
+      state.to = to;
+      if (removed.length === 0) return null;
+      removed.sort((a, b) => a - b);
+      return { groups_removed: removed };
     },
 
     drop(sub: ScopeSubscription): void {

@@ -430,6 +430,39 @@ describe("commits", () => {
     h.check();
   });
 
+  test("refreshProvided after a compaction reports the dropped groups with no commit (vtt-qf5.71)", () => {
+    const h = new Harness();
+    const gm = h.log();
+    const al = h.log(ALDRIC);
+    const indices: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      indices.push(
+        h.commit(`n${i}`, (tx) => writeValue(tx, "note", "text", text(`t${i}`))).group.index,
+      );
+    }
+    const events = h.events.length;
+    compactLog(h.table.store, 1);
+    const deltas = h.hub.refreshProvided();
+    expect(h.events.length).toBe(events);
+    expect([...deltas.keys()]).toEqual(["c1"]);
+    const list = deltas.get("c1") ?? [];
+    for (const d of list) {
+      expect(d.objects).toEqual([]);
+      expect(d.removed).toEqual([]);
+      expect(d.groups_upserted).toBeUndefined();
+      h.mirrors.get(d.subscription)?.mirror.apply(d, h.table.store.revision);
+    }
+    expect(list.find((d) => d.subscription === gm.id)?.groups_removed).toEqual(indices.slice(0, 3));
+    expect(list.find((d) => d.subscription === al.id)?.groups_removed).toEqual(indices.slice(0, 3));
+    h.check();
+    expect(h.window(gm.id).map((g) => g.index)).toEqual([indices[3]]);
+    // Nothing left to report: no delta entries, and the next commit removes nothing.
+    expect(h.hub.refreshProvided().get("c1")).toEqual([]);
+    const e = h.commit("after", (tx) => writeValue(tx, "note", "text", text("after")));
+    expect(deltaOf(e, gm.id)?.groups_removed).toEqual([]);
+    h.check();
+  });
+
   test("a commit that changes no group view in the window yields no log delta entry", () => {
     const h = new Harness();
     const gm = h.log();

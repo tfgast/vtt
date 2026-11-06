@@ -878,7 +878,7 @@ export class ProtocolClient {
         return;
       case "event":
         if (message.event === "commit") this.#onCommit(message);
-        else this.#emit("save", message);
+        else this.#onSave(message);
         return;
     }
   }
@@ -1007,6 +1007,19 @@ export class ProtocolClient {
     }
     for (const [sub, payload] of deltas) sub.emit("delta", payload);
     this.#emit("commit", event);
+  }
+
+  /**
+   * A save event. Its `deltas` (save-time compaction, vtt-qf5.71) are applied
+   * to the live mirrors at the unchanged revision, with no `delta` event;
+   * then `save` is emitted.
+   */
+  #onSave(event: SaveEvent): void {
+    for (const delta of event.deltas ?? []) {
+      const sub = this.#bound.get(delta.subscription);
+      if (sub?.state === "live") sub.mirror.apply(delta, sub.mirror.revision);
+    }
+    this.#emit("save", event);
   }
 
   #send<M extends MethodName, T = Result<M>>(

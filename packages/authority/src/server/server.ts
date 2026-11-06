@@ -26,7 +26,7 @@ import {
   type SaveEvent as WireSaveEvent,
 } from "@vtt/protocol";
 import { type WebSocket, WebSocketServer } from "ws";
-import type { TableHost } from "../host/table-host";
+import type { SaveEvent, TableHost } from "../host/table-host";
 import { TxnCache } from "../protocol/commands";
 import { createSubscriptionHub } from "../protocol/log-window";
 import { Connection, type ConnectionHost, type ConnectionTimers } from "./connection";
@@ -369,11 +369,12 @@ class AuthorityServer {
     };
   }
 
-  #broadcastSave(event: {
-    status: WireSaveEvent["status"];
-    revision: number;
-    message?: string;
-  }): void {
+  /**
+   * Sends a save event to every connection. When the save compacted the log
+   * (`firstIndex`), each connection's event also carries its `log`
+   * subscriptions' refreshed windows as deltas (vtt-qf5.71).
+   */
+  #broadcastSave(event: SaveEvent): void {
     const wire: WireSaveEvent = {
       type: "event",
       event: "save",
@@ -381,7 +382,15 @@ class AuthorityServer {
       revision: event.revision,
     };
     if (event.message !== undefined) wire.message = event.message;
-    for (const { conn } of this.#conns.values()) conn.send(wire);
+    if (event.firstIndex === undefined) {
+      for (const { conn } of this.#conns.values()) conn.send(wire);
+      return;
+    }
+    wire.first_index = event.firstIndex;
+    const deltas = this.#deps.hub.refreshProvided();
+    for (const [id, { conn }] of this.#conns) {
+      conn.send({ ...wire, deltas: deltas.get(id) ?? [] });
+    }
   }
 
   #tick(): void {

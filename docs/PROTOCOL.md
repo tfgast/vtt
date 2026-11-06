@@ -770,7 +770,7 @@ that revision counts as invisible. Per effect variant:
 
 ## 8. Subscriptions, commit events, ordering, reconnection
 
-Decisions: D10, D22, D23; M6-D35.
+Decisions: D10, D22, D23; M6-D35, M6-D42.
 
 **Scopes**, at a revision:
 
@@ -792,7 +792,8 @@ and `objects` and `covers` are empty.
 
 ```ts
 { type: "event"; event: "commit"; revision: number; group: GroupHeader; boards?: BoardView[]; deltas: SubscriptionDelta[] }
-{ type: "event"; event: "save"; status: "saved" | "saved_not_durable" | "failed"; revision: number; message?: string }
+{ type: "event"; event: "save"; status: "saved" | "saved_not_durable" | "failed"; revision: number; message?: string;
+  first_index?: number; deltas?: SubscriptionDelta[] }   // only when the save compacted the log (M6-D42)
 type SubscriptionDelta = { subscription: string; objects: ObjectView[]; removed: ObjectId[];
   covers?: { upsert: Cover[]; removed: string[] }; groups_upserted?: GroupView[]; groups_removed?: number[];
   patches?: ObjectPatch[] };   // cell_patches connections only (M6-D35)
@@ -825,6 +826,15 @@ type ObjectPatch = { object: ObjectId; cells: Record<string, CellView | null> };
   (an undone group re-sent with `undone: true`; older groups whose filtered
   view changed after a reveal, hide or remove); `groups_removed` are indices
   that left the window or became omitted.
+- Save-time compaction (M6-D42). A `save` event whose save dropped groups
+  (the keep-last policy, M6-D33; whatever its `status`, since the log is
+  compacted before the write) carries `first_index`, the retained log's new
+  first index, and `deltas`: per `log` subscription of that connection whose
+  window changed, a delta with `groups_removed` (the indices that left it)
+  and empty `objects` and `removed` (`[]` when none changed). The revision
+  does not change; clients apply the deltas to their mirrors at the current
+  revision and drop anything they cached from `log` pages below
+  `first_index`. A save that dropped nothing carries neither field.
 - Applying every delta to the initial result yields what a fresh `subscribe`
   at that revision returns.
 - Board creation and removal (including by undo) are visibility-relevant for
@@ -1207,7 +1217,9 @@ Protocol v1 grows only additively: new optional fields, new methods, new ops,
 new event kinds. M6 added the undo target `{type:"human"}` this way (an
 older authority refuses it as `bad_request`), the method and MCP tool
 `collect_assets` (M6-D32; an older authority answers `unknown_method`), and
-`hello.capabilities`, `welcome.capabilities` and `SubscriptionDelta.patches`
+`save` event fields `first_index` and `deltas` (M6-D42; an older client
+ignores them and sees compacted groups leave its log window at the next
+commit), `hello.capabilities`, `welcome.capabilities` and `SubscriptionDelta.patches`
 (M6-D35; an older authority refuses a `hello` with `capabilities` (4401), so
 a client meant for one is constructed with `cellPatches: false`; a client
 that does not ask never receives patches). M5 added `invoke` behaviour (its optional params `txn_id`,

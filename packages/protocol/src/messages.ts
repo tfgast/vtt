@@ -228,6 +228,16 @@ const SaveEventObject = z.object({
   status: z.enum(["saved", "saved_not_durable", "failed"]),
   revision: Count,
   message: z.string().optional(),
+  /**
+   * The retained log's new `first_index` when this save's compaction dropped
+   * groups (M6-D33, vtt-qf5.71); absent otherwise.
+   */
+  first_index: Count.optional(),
+  /**
+   * With `first_index`: this connection's `log` subscription deltas
+   * (`groups_removed` only), as in a commit event; the revision is unchanged.
+   */
+  deltas: z.array(SubscriptionDeltaSchema).optional(),
 });
 export const SaveEventSchema = looseNoProto(SaveEventObject);
 export type SaveEvent = z.infer<typeof SaveEventSchema>;

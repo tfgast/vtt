@@ -32,6 +32,15 @@
  *   (`refreshing`) and is rebuilt in order from the same boundary, each
  *   page's `before` derived from its refreshed predecessor, once the panel
  *   reports it in view (`showPage`).
+ * - **Compaction** (vtt-qf5.71; DESIGN.md §7, M6-D33): a `save` event
+ *   with `first_index` means the authority dropped every group below it. The
+ *   client has already applied the event's window deltas to the mirror; the
+ *   bridge and the older pages lose their groups below `first_index`, the
+ *   page holding it (or the first page entirely below it) ends the chain,
+ *   and the pages after it are dropped. No commit is needed. The floor is
+ *   kept (per authority session) and enforced on every page and bridge
+ *   response applied later, so a response to a request made before the
+ *   compaction never brings discarded groups back.
  * - Every request is tagged with the generation, viewer, authority session
  *   and revision it was made at; a response is applied only if the
  *   generation, viewer and session are unchanged, otherwise dropped.
@@ -47,6 +56,7 @@ import {
   type ProtocolError,
   ProtocolFailure,
   type ResyncInfo,
+  type SaveEvent,
   type Subscription,
   type Viewer,
 } from "@vtt/protocol";
@@ -188,6 +198,8 @@ class Log implements LogSession {
   #pumping: Promise<void> | null = null;
   #repump = false;
   #closed = false;
+  /** The highest `first_index` a compacting save reported, and the authority session it holds for. */
+  #floor: { session: string | null; index: number } | null = null;
 
   #snapshot: LogSnapshot;
 
@@ -200,6 +212,7 @@ class Log implements LogSession {
       session.subscribe(() => this.#onSession()),
       client.on("state", () => this.#onState()),
       client.on("commit", (event) => this.#onCommit(event)),
+      client.on("save", (event) => this.#onSave(event)),
     );
     void this.#reconcile();
   }
@@ -411,6 +424,39 @@ class Log implements LogSession {
     this.#refresh();
   }
 
+  /** A save that compacted the log: groups below `first_index` are gone (see the module comment). */
+  #onSave(event: SaveEvent): void {
+    const floor = event.first_index;
+    const held = this.#held;
+    if (floor === undefined || this.#closed) return;
+    const session = this.#session.client.session;
+    if (this.#floor === null || this.#floor.session !== session || this.#floor.index < floor) {
+      this.#floor = { session, index: floor };
+    }
+    if (held === null) return;
+    const chain = this.#chain;
+    if (chain !== null) {
+      for (const i of chain.bridge.keys()) if (i < floor) chain.bridge.delete(i);
+      for (let k = 0; k < chain.pages.length; k++) {
+        const page = chain.pages[k] as Page;
+        if (page.before > floor && page.groups.every((g) => g.index >= floor)) continue;
+        if (page.before <= floor) {
+          chain.pages.splice(k);
+        } else {
+          chain.pages[k] = { ...page, groups: page.groups.filter((g) => g.index >= floor) };
+          chain.pages.splice(k + 1);
+        }
+        chain.ended = true;
+        chain.more = 0;
+        chain.wanted = Math.min(chain.wanted, chain.pages.length);
+        break;
+      }
+      if (chain.boundary !== null && chain.boundary <= floor) chain.ended = true;
+    }
+    this.#window = new Map(held.sub.mirror.groups);
+    this.#refresh();
+  }
+
   #invalidate(): void {
     this.#generation++;
     const chain = this.#chain;
@@ -423,6 +469,12 @@ class Log implements LogSession {
 
   // -------------------------------------------------------------------------
   // Paging
+
+  /** The retained log's known first index on the current authority session (0 if none reported). */
+  #floorIndex(): number {
+    const floor = this.#floor;
+    return floor !== null && floor.session === this.#session.client.session ? floor.index : 0;
+  }
 
   #tag(): Tag {
     const client = this.#session.client;
@@ -567,6 +619,8 @@ class Log implements LogSession {
       if (!collected.has(i) && top !== undefined && i >= top) collected.set(i, g);
     }
     for (const i of held.sub.mirror.groups.keys()) collected.delete(i);
+    const floor = this.#floorIndex();
+    for (const i of collected.keys()) if (i < floor) collected.delete(i);
     chain.bridge = collected;
     chain.bridgeFresh = true;
     return "applied";
@@ -585,8 +639,18 @@ class Log implements LogSession {
     });
     if (result === "failed") return "failed";
     if (!this.#current(tag, chain)) return "dropped";
-    const groups = result.groups;
-    const ended = groups.length < LOG_PAGE_SIZE || groups.at(-1)?.index === result.first_index;
+    // A response to a request made before a compaction may hold groups below the floor.
+    const floor = this.#floorIndex();
+    if (before <= floor) {
+      chain.pages.splice(k);
+      chain.ended = true;
+      return "applied";
+    }
+    const groups = result.groups.filter((g) => g.index >= floor);
+    const ended =
+      groups.length < result.groups.length ||
+      groups.length < LOG_PAGE_SIZE ||
+      groups.at(-1)?.index === result.first_index;
     chain.pages[k] = { before, groups, fresh: true, revision: tag.revision };
     if (ended) {
       chain.pages.splice(k + 1);
