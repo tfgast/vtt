@@ -13,12 +13,19 @@
  *   view-as, the viewed character as `actor`.
  * - `invokeExtension` is the runtime's handler for that effect (vtt-3l6.23's
  *   extensions): one `invokeWithRetry` with the stamp's `baseRevision`
- *   (never the latest revision), whose single same-session resend is the
- *   only retry. A rejection is a notice (`describeRejection`; `when_false`
+ *   (never the latest revision; advanced only over own presses, below),
+ *   whose single same-session resend is the only retry. A rejection is a notice (`describeRejection`; `when_false`
  *   adds the guard's source for the GM; a stale write is a sticky `stale`
  *   notice); an unsettled outcome is the sticky `uncertain` notice. The
  *   notice is shown whatever happened to the board or viewer since; the
  *   outcome settles back to the tool, which changes nothing with it.
+ * - Invocations are queued per session (M6-D18): one sent while an earlier
+ *   own invocation is unacknowledged waits for that acknowledgement (and for
+ *   the mirror to show its commit), then is sent; a first one is sent at
+ *   once. Its `base_revision` is the stamp's, advanced over own invocations
+ *   that committed directly on top of it (each one's revision its base + 1):
+ *   so the only intervening changes skipped are the viewer's own presses,
+ *   and a press made before another client's change is still stale.
  */
 import {
   type InvokeResult,
@@ -144,61 +151,129 @@ function rejectionText(
   return withGuard(text, whenOf(session.objectView(payload.object), rejection.action));
 }
 
+/** A session's invocation queue (M6-D18; see the module comment). */
+interface InvokeQueue {
+  /** Settles when the latest queued invocation is acknowledged; null when none is pending. */
+  tail: Promise<void> | null;
+  /**
+   * Own commits made directly on top of their base: base revision → committed
+   * revision. Never pruned: a queued press may need every link back to its
+   * stamp, and the map is per session (two numbers per own press).
+   */
+  readonly own: Map<number, number>;
+}
+
+const queues = new WeakMap<TableSession, InvokeQueue>();
+
+function queueOf(session: TableSession): InvokeQueue {
+  let queue = queues.get(session);
+  if (queue === undefined) {
+    queue = { tail: null, own: new Map() };
+    queues.set(session, queue);
+  }
+  return queue;
+}
+
+/** `base` advanced over the own commits made directly on top of it. */
+function restamp(queue: InvokeQueue, base: number): number {
+  let revision = base;
+  for (let next = queue.own.get(revision); next !== undefined; next = queue.own.get(revision)) {
+    revision = next;
+  }
+  return revision;
+}
+
+function recordOwn(queue: InvokeQueue, base: number, revision: number): void {
+  if (revision !== base + 1) return;
+  queue.own.set(base, revision);
+}
+
 /**
  * The runtime's `invoke` extension handler over `session`, pushing its
  * notices to `notices` (normally `sessionNotices(session)`). Resolves to the
- * `InvokeOutcome`.
+ * `InvokeOutcome`. Invocations are queued per session (module comment).
  */
 export function invokeExtension(
   session: TableSession,
   notices: NoticeStore,
 ): ExtensionEffectHandler {
-  return async (effect): Promise<InvokeOutcome> => {
+  const queue = queueOf(session);
+  return (effect): Promise<InvokeOutcome> => {
     const { stamp, payload } = effect;
     if (stamp === undefined || !isPayload(payload)) {
       const error: ProtocolError = { code: "bad_request", message: "malformed invoke effect" };
       notices.push({ level: "error", text: "The action was not invoked: malformed request." });
-      return { status: "failed", error };
+      return Promise.resolve({ status: "failed", error });
     }
-    let result: InvokeResult;
-    try {
-      result = await invokeWithRetry(
-        session.client,
-        {
-          object: payload.object,
-          action: payload.action,
-          base_revision: stamp.baseRevision,
-          table: { board: payload.table.board, position: [...payload.table.position] },
-          ...(payload.actor === undefined ? {} : { actor: payload.actor }),
-        },
-        { retry: { timeoutMs: WRITE_RETRY_TIMEOUT_MS } },
+    const send = async (): Promise<InvokeOutcome> => {
+      const base = restamp(queue, stamp.baseRevision);
+      const outcome = await sendInvoke(session, notices, stamp, payload, base);
+      if (outcome.status === "committed") recordOwn(queue, base, outcome.revision);
+      return outcome;
+    };
+    const prior = queue.tail;
+    const outcome = prior === null ? send() : prior.then(send);
+    // The next press is sent once this one settles and the mirror shows its commit.
+    const tail = outcome
+      .then((o) => (o.status === "committed" ? session.whenRevision(o.revision) : undefined))
+      .then(
+        () => undefined,
+        () => undefined,
       );
-    } catch (e) {
-      const error: ProtocolError =
-        e instanceof ProtocolFailure ? e.error : { code: "internal", message: String(e) };
-      if (error.code === "uncertain") {
-        notices.push({
-          level: "warning",
-          kind: "uncertain",
-          text: `${payload.action} may or may not have been applied.`,
-        });
-        return { status: "uncertain", reason: describeError(error) };
-      }
-      notices.push({
-        level: "error",
-        text: `"${payload.action}" was not applied. ${describeError(error)}`,
-      });
-      return { status: "failed", error };
-    }
-    if (result.status === "rejected") {
-      const gm = stamp.viewer.type === "gm";
-      const text = rejectionText(session, result.rejection, payload, gm);
-      if (result.rejection.type === "stale_write") {
-        notices.push({ level: "warning", kind: "stale", text });
-      } else {
-        notices.push({ level: "error", text });
-      }
-    }
-    return result;
+    queue.tail = tail;
+    void tail.then(() => {
+      if (queue.tail === tail) queue.tail = null;
+    });
+    return outcome;
   };
+}
+
+/** Sends one invocation with `base` and pushes its notice; resolves to its outcome. */
+async function sendInvoke(
+  session: TableSession,
+  notices: NoticeStore,
+  stamp: InteractionStamp,
+  payload: InvokePayload,
+  base: number,
+): Promise<InvokeOutcome> {
+  let result: InvokeResult;
+  try {
+    result = await invokeWithRetry(
+      session.client,
+      {
+        object: payload.object,
+        action: payload.action,
+        base_revision: base,
+        table: { board: payload.table.board, position: [...payload.table.position] },
+        ...(payload.actor === undefined ? {} : { actor: payload.actor }),
+      },
+      { retry: { timeoutMs: WRITE_RETRY_TIMEOUT_MS } },
+    );
+  } catch (e) {
+    const error: ProtocolError =
+      e instanceof ProtocolFailure ? e.error : { code: "internal", message: String(e) };
+    if (error.code === "uncertain") {
+      notices.push({
+        level: "warning",
+        kind: "uncertain",
+        text: `${payload.action} may or may not have been applied.`,
+      });
+      return { status: "uncertain", reason: describeError(error) };
+    }
+    notices.push({
+      level: "error",
+      text: `"${payload.action}" was not applied. ${describeError(error)}`,
+    });
+    return { status: "failed", error };
+  }
+  if (result.status === "rejected") {
+    const gm = stamp.viewer.type === "gm";
+    const text = rejectionText(session, result.rejection, payload, gm);
+    if (result.rejection.type === "stale_write") {
+      notices.push({ level: "warning", kind: "stale", text });
+    } else {
+      notices.push({ level: "error", text });
+    }
+  }
+  return result;
 }

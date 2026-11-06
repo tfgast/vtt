@@ -299,4 +299,24 @@ describe("invokeExtension", () => {
       },
     ]);
   });
+
+  test("queued presses (M6-D18): 70 presses from one stamp are each stamped past every earlier own commit", async () => {
+    const n = 70;
+    const answers: Answer[] = Array.from({ length: n }, (_, i) => ({
+      status: "committed",
+      revision: 5 + i,
+      index: 4 + i,
+      created: [],
+    }));
+    const { session, sent } = stubSession(answers);
+    const queued = Object.assign(session, { whenRevision: async () => undefined });
+    const notices = createNoticeStore();
+    const handler = invokeExtension(queued, notices);
+    const outcomes = await Promise.all(
+      Array.from({ length: n }, () => handler(effectOf(PAYLOAD), {} as ExtensionContext)),
+    );
+    expect(outcomes.every((o) => (o as InvokeOutcome).status === "committed")).toBe(true);
+    expect(sent.map((p) => p.base_revision)).toEqual(Array.from({ length: n }, (_, i) => 4 + i));
+    expect(notices.list()).toEqual([]);
+  });
 });

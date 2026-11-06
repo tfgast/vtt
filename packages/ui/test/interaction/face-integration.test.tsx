@@ -1323,3 +1323,79 @@ describe("an expanded working copy dragged by its face (vtt-nb8.30)", () => {
     expect(w.ui.getState().selection).toEqual(selection);
   });
 });
+
+describe("two fast presses of a face button (vtt-qf5.62, M6-D18)", () => {
+  // The faced d20 `fd20` at [-8, -3]: its Roll button's local rect is [-0.4, 0.18, 0.8, 0.25].
+  const FD20_ROLL: Point = [-8, -3 + 0.18 + 0.25 / 2];
+  const rollGroups = (w: World) => w.groups().filter((g) => g.label === "Roll");
+  const firstResponseHeld = (w: World) => () =>
+    w.gate.held.some((h) => isResponseTo(w.gate.invokes[0] ?? "")(h.data));
+
+  test("Roll pressed twice before the first acknowledgement: the second waits for it, then rolls; no stale notice", async () => {
+    const w = await world({ dice: [roll("1d20", 15), roll("1d20", 4)] });
+    const r0 = w.host.revision;
+    // Hold every incoming message: the mirror has not seen the first commit at the second press.
+    w.gate.hold = () => true;
+    w.click(FD20_ROLL);
+    w.click(FD20_ROLL);
+    await until(firstResponseHeld(w), "the first response");
+    await settle();
+    expect(w.gate.invokes).toHaveLength(1);
+    expect(w.host.revision).toBe(r0 + 1);
+    w.gate.hold = () => false;
+    w.gate.flush();
+    await until(() => rollGroups(w).length === 2, "two roll groups");
+    await settle();
+    // Both presses began on r0; the second is stamped with the revision of the first's commit.
+    expect(w.invokes()).toMatchObject([
+      { object: "fd20", action: "Roll", base_revision: r0 },
+      { object: "fd20", action: "Roll", base_revision: r0 + 1 },
+    ]);
+    expect(w.invokes()).toHaveLength(2);
+    expect(rollGroups(w).map((g) => g.actor)).toEqual([GM, GM]);
+    expect(w.dice.remaining()).toBe(0);
+    expect(w.notices()).toEqual([]);
+    expect(w.host.revision).toBe(r0 + 2);
+  });
+
+  test("presses refused because another client rolled first still show the stale notice and are not restamped", async () => {
+    const w = await world({ dice: [roll("1d20", 15), roll("1d20", 4), roll("1d20", 9)] });
+    const r0 = w.host.revision;
+    // The other client's Roll commits unseen by the session.
+    w.gate.hold = () => true;
+    const theirs = await w.other.invoke({ object: "fd20", action: "Roll", base_revision: r0 });
+    expect(theirs.status).toBe("committed");
+    w.click(FD20_ROLL);
+    w.click(FD20_ROLL);
+    await until(firstResponseHeld(w), "the first response");
+    w.gate.hold = () => false;
+    w.gate.flush();
+    await until(() => w.invokes().length === 2, "the second invoke");
+    await until(() => w.notices().length > 0, "the notice");
+    await settle();
+    // The first press was refused, so the second keeps the revision it began on.
+    expect(w.invokes()).toMatchObject([
+      { object: "fd20", action: "Roll", base_revision: r0 },
+      { object: "fd20", action: "Roll", base_revision: r0 },
+    ]);
+    expect(w.notices().length).toBeGreaterThan(0);
+    for (const text of w.notices()) {
+      expect(text).toBe('Not applied: the table changed first ("Roll" by the GM).');
+    }
+    expect(rollGroups(w)).toHaveLength(1);
+    expect(w.host.revision).toBe(r0 + 1);
+    expect(w.dice.remaining()).toBe(2);
+  });
+
+  test("a first press is sent at once, with the revision it began on", async () => {
+    const w = await world({ dice: [roll("1d20", 15)] });
+    const r0 = w.host.revision;
+    w.gate.hold = () => true;
+    w.click(FD20_ROLL);
+    await until(() => w.gate.invokes.length === 1, "the invoke");
+    expect(w.invokes()).toMatchObject([{ object: "fd20", action: "Roll", base_revision: r0 }]);
+    w.gate.hold = () => false;
+    w.gate.flush();
+    await until(() => rollGroups(w).length === 1, "the roll group");
+  });
+});
