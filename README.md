@@ -34,7 +34,10 @@ pnpm start tables/crypt.table.json
   terminal prints the address to open; the server keeps running.
 - Ctrl+C in the terminal saves the table and stops the server.
 - Running the same command again reopens the table. A tab left open from the
-  previous run shows a banner offering Reload; press it to reconnect.
+  previous run shows a banner offering Reload; press it to reconnect. To
+  reopen without a second tab, add `--no-open`, which starts the server
+  without opening a browser:
+  `pnpm start tables/crypt.table.json --no-open`.
 
 For your first session, follow [docs/FIRST-SESSION.md](docs/FIRST-SESSION.md).
 

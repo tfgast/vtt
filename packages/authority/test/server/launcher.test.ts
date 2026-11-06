@@ -204,7 +204,9 @@ describe("parseStartArgs", () => {
       expect(() => parseStartArgs(argv), argv.join(" ")).toThrow(StartUsageError);
       expect(() => parseStartArgs(argv), argv.join(" ")).toThrow(START_USAGE);
     }
-    expect(START_USAGE).toBe("usage: pnpm start <file> [--no-build] [vtt-serve flags…]");
+    expect(START_USAGE).toBe(
+      "usage: pnpm start <file> [--no-build] [--no-open] [vtt-serve flags…]",
+    );
   });
 
   test("accepts a file that does not exist and forwards the rest", () => {
@@ -212,6 +214,7 @@ describe("parseStartArgs", () => {
       file: "tables/nope/crypt.table.json",
       forward: ["--port", "0"],
       build: true,
+      open: true,
     });
   });
 
@@ -226,6 +229,7 @@ describe("parseStartArgs", () => {
         file: "t.json",
         forward: ["--port", "0"],
         build: false,
+        open: true,
       });
     }
   });
@@ -235,8 +239,26 @@ describe("parseStartArgs", () => {
       file: "t.json",
       forward: ["--ui-dir", "/x"],
       build: false,
+      open: true,
     });
     expect(parseStartArgs(["t.json", "--ui-dir=/x"]).build).toBe(false);
+  });
+
+  test("strips --no-open anywhere and turns open off", () => {
+    for (const argv of [
+      ["--no-open", "t.json", "--port", "0"],
+      ["t.json", "--no-open", "--port", "0"],
+      ["t.json", "--port", "0", "--no-open"],
+      ["--no-open", "--no-build", "t.json", "--port", "0", "--no-open"],
+    ]) {
+      expect(parseStartArgs(argv), argv.join(" ")).toEqual({
+        file: "t.json",
+        forward: ["--port", "0"],
+        build: !argv.includes("--no-build"),
+        open: false,
+      });
+    }
+    expect(() => parseStartArgs(["--no-open"])).toThrow(START_USAGE);
   });
 });
 
@@ -322,6 +344,13 @@ describe("runStart", () => {
     expect(await s.run).toBe(0);
     expect(s.build.runs).toBe(0);
     expect(s.serve.calls).toEqual([["t.json", "--open"]]);
+  });
+
+  test("--no-open serves without --open", async () => {
+    await buildFresh();
+    const s = start(["t.json", "--no-open", "--port", "0"]);
+    expect(await s.run).toBe(0);
+    expect(s.serve.calls).toEqual([["t.json", "--port", "0"]]);
   });
 
   test("never builds with --no-build or --ui-dir, even when stale", async () => {

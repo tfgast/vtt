@@ -619,10 +619,11 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 1. Press Ctrl+S. The status bar shows "Saved".
 2. Close: press Ctrl+C in the terminal running `pnpm start`. It saves and
    stops.
-3. Reopen: run `pnpm start tables/<your table>.table.json` again, with
-   the same file you chose in setup.
+3. Reopen: run `pnpm start tables/<your table>.table.json --no-open`,
+   with the same file you chose in setup. `--no-open` keeps a second tab
+   from opening.
 4. In the old tab, press Reload on the banner that says the authority
-   restarted. (A new tab also opens; close it.)
+   restarted.
 5. Press Ctrl+Z once.
 
 You should see:

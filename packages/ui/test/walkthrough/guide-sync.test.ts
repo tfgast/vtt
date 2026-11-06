@@ -175,6 +175,13 @@ describe("docs/FIRST-SESSION.md", () => {
     }
   });
 
+  test("step 15 reopens the table with --no-open", () => {
+    const body = guideSteps()
+      .find((s) => s.n === 15)
+      ?.lines.join("\n");
+    expect(body).toContain("--no-open");
+  });
+
   test("ends with the Felt good line", () => {
     const lines = GUIDE.trimEnd().split("\n");
     expect(lines.at(-1)).toBe(FELT_GOOD);
@@ -185,6 +192,7 @@ describe("README.md", () => {
   test("has the quick start and the agent hookup", () => {
     expect(README).toContain("pnpm start tables/crypt.table.json");
     expect(README).toContain("--no-build");
+    expect(README).toContain("pnpm start tables/crypt.table.json --no-open");
     expect(README).toContain("pnpm --silent --dir");
     expect(README).toContain("claude mcp add vtt -- pnpm --silent --dir");
     expect(README).toContain('{"command": "pnpm", "args": ["--silent", "--dir", "<repo>", "mcp"]}');

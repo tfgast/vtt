@@ -1,15 +1,15 @@
 #!/usr/bin/env -S node --import tsx
 /**
- * `pnpm start <file> [--no-build] [vtt-serve flags…]` (DESIGN.md §7
- * Platform; PROTOCOL.md §2; M6-D5): builds the UI when its build is missing
- * or older than its sources (`pnpm --filter @vtt/ui build`; `--no-build` or a
- * forwarded `--ui-dir` skips that), then runs `vtt-serve <file> … --open`
- * with inherited stdio and exits with its exit code. The table file is
- * resolved against the working directory (the repo root under `pnpm start`)
- * and its parent directory is created; a missing file is created by
- * vtt-serve. Ctrl+C reaches vtt-serve through the terminal's process group;
- * a SIGTERM to the launcher is forwarded. The logic is `runStart` in
- * `server/launcher.ts`.
+ * `pnpm start <file> [--no-build] [--no-open] [vtt-serve flags…]` (DESIGN.md
+ * §7 Platform; PROTOCOL.md §2; M6-D5, M6-D23): builds the UI when its build
+ * is missing or older than its sources (`pnpm --filter @vtt/ui build`;
+ * `--no-build` or a forwarded `--ui-dir` skips that), then runs `vtt-serve
+ * <file> … --open` (`--no-open` leaves `--open` off) with inherited stdio and
+ * exits with its exit code. The table file is resolved against the working
+ * directory (the repo root under `pnpm start`) and its parent directory is
+ * created; a missing file is created by vtt-serve. Ctrl+C reaches vtt-serve
+ * through the terminal's process group; a SIGTERM to the launcher is
+ * forwarded. The logic is `runStart` in `server/launcher.ts`.
  */
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
