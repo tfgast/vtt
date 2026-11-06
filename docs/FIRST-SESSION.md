@@ -325,7 +325,7 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 1. Open the Crypt board. In View as, choose Aldric.
 2. Every room is covered: six covers.
 3. In View as, choose GM.
-4. Alt+click on room 1 until the zone is selected (it lies under the map).
+4. Click room 1 to select the zone.
 5. Set its `visible_to` to `all` in the inspector.
 6. View as Aldric again.
 
@@ -350,8 +350,8 @@ Do this in GM view; switch to view as Aldric only to check.
    positions and Crypt opens.
 4. Drag them into room 1: Aldric to `M + [2, 12]`, Brenna to
    `M + [3, 12]`, Corin to `M + [4, 12]` and Dara to `M + [5, 12]`.
-5. The party opens the door: Alt+click room 3 until it is selected, and set
-   its `visible_to` to `all`.
+5. The party opens the door: click room 3 to select it, and set its
+   `visible_to` to `all`.
 6. Drag Aldric into room 2, to `M + [9, 13]`.
 7. View as Aldric: room 2 is uncovered, leaving three covers (rooms 4, 5
    and 6). Switch back to GM.
