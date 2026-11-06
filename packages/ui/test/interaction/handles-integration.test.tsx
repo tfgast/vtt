@@ -24,6 +24,7 @@ import {
   selectTool,
   TableProvider,
   ToolRegistry,
+  undo,
   useInteraction,
   useSession,
   useTableSession,
@@ -115,6 +116,17 @@ const SETUP: WireOp[] = [
     shape: { type: "circle", radius: 0.25 },
     cells: { name: { type: "text", value: "Coin" } },
   }),
+  // A binder with a face, away from the room (M6-D14).
+  create("binder", [-5, 0], {
+    shape: { type: "rect", width: 6.6, height: 9.6 },
+    cells: { name: { type: "text", value: "Spells" } },
+    face: {
+      elements: [
+        { type: "value", cell: "name", rect: [-3.1, -4.6, 6.2, 0.8], min_size: 12 },
+        { type: "contents", rect: [-3.1, -3.6, 6.2, 8] },
+      ],
+    },
+  }),
 ];
 
 async function compose() {
@@ -157,7 +169,8 @@ async function compose() {
     const result = await gm.request("zones", { board: BOARD, viewer: { type: "gm" } });
     return result.zones.find((z) => z.id === "room")?.contents ?? [];
   };
-  return { gm, session, ui, runtime, canvas, cell, roomContents };
+  const face = (id: ObjectId) => session.objectView(id)?.face;
+  return { gm, session, ui, runtime, canvas, cell, roomContents, face };
 }
 
 /** Screen point of a board point under the default camera and the 800 × 600 canvas. */
@@ -256,5 +269,74 @@ describe("handles integration", () => {
     // The selection is unchanged, and the held preview clears once the write is visible.
     expect(c.ui.getState().selection).toEqual(["room"]);
     await until(() => c.runtime.getView().previews.size === 0, "the preview to clear");
+  });
+
+  test("resizing a binder scales its face in the same write; one undo restores shape and face", async () => {
+    const c = await compose();
+    // Snap off, so the s edge lands at 9.2 rather than on the half unit 9.
+    act(() => {
+      c.ui.setSnap(false);
+      c.ui.select(["binder"]);
+    });
+    move(c.canvas, [20, 20]);
+    const handles = c.runtime.getView().overlays.find((o) => o.kind === "handles");
+    expect(handles?.kind === "handles" ? handles.object : null).toBe("binder");
+    const before = c.session.getSnapshot().revision;
+
+    // The s edge (-5, 4.8) moves down to 9.2: the binder is 6.6 × 14 about (-5, 2.2).
+    down(c.canvas, [-5, 4.8]);
+    move(c.canvas, [-5, 7]);
+    move(c.canvas, [-5, 9.2]);
+    up(c.canvas, [-5, 9.2]);
+
+    await until(() => (c.face("binder")?.elements[1]?.rect[3] ?? 0) > 11, "the face to scale");
+    // One write: shape, position and face land in one revision.
+    expect(c.session.getSnapshot().revision).toBe(before + 1);
+    const shape = c.cell("binder", "shape");
+    expect(shape?.type === "shape" ? shape.shape : null).toEqual({
+      type: "rect",
+      width: 6.6,
+      height: 14,
+    });
+    const fy = 14 / 9.6;
+    const [name, contents] = c.face("binder")?.elements ?? [];
+    expect(contents?.rect[0]).toBeCloseTo(-3.1, 9);
+    expect(contents?.rect[2]).toBeCloseTo(6.2, 9);
+    expect(contents?.rect[1]).toBeCloseTo(-7 + 1.2 * fy, 9);
+    expect(contents?.rect[3]).toBeCloseTo(8 * fy, 9);
+    expect(name?.rect[3]).toBeCloseTo(0.8 * fy, 9);
+    expect(name?.min_size).toBe(12);
+
+    // One undo reverses shape, position and face together.
+    await act(() => undo(c.session));
+    await until(() => c.face("binder")?.elements[1]?.rect[3] === 8, "the undo");
+    expect(c.face("binder")?.elements[1]?.rect).toEqual([-3.1, -3.6, 6.2, 8]);
+    expect(c.cell("binder", "shape")).toEqual({
+      type: "shape",
+      shape: { type: "rect", width: 6.6, height: 9.6 },
+    });
+    expect(c.cell("binder", "position")).toEqual({
+      type: "list",
+      items: [
+        { type: "number", value: -5 },
+        { type: "number", value: 0 },
+      ],
+    });
+  });
+
+  test("resizing a token without a face writes no face", async () => {
+    const c = await compose();
+    act(() => c.ui.select(["coin"]));
+    move(c.canvas, [20, 20]);
+    // The coin's radius handle (12.75, 2.5) moves out to 13.
+    down(c.canvas, [12.75, 2.5]);
+    move(c.canvas, [12.9, 2.5]);
+    move(c.canvas, [13, 2.5]);
+    up(c.canvas, [13, 2.5]);
+    await until(() => {
+      const shape = c.cell("coin", "shape");
+      return shape?.type === "shape" && shape.shape.type === "circle" && shape.shape.radius === 0.5;
+    }, "the resize to land");
+    expect(c.face("coin")).toBeUndefined();
   });
 });

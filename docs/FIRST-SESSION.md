@@ -442,7 +442,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 
 1. In GM view, click Aldric to show his contents list, then drag his
    binder entry out of it onto Crypt, to the right of the map at
-   `M + [27, 15]`.
+   `M + [27, 15]`. If its list is cramped, select it and resize a binder
+   with its handles to see more entries: its rows keep their height.
 2. View as Aldric. Aldric's buttons are pressed as Aldric from here on.
 3. In Aldric's binder, expand the Attack template with its chevron. A
    working copy appears right after it, expanded and selected.
