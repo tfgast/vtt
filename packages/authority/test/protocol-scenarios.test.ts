@@ -385,15 +385,12 @@ async function ending(run: () => unknown): Promise<string> {
 /**
  * Every falsified expectation, one test per scenario file so each file's
  * runs (a fresh server per wire run) get their own timeout (vtt-qf5.65);
- * the last test checks the total across files.
+ * the last test counts the falsifiable expectations across files on its own.
  */
 describe("every falsified expectation fails the same way in both runners", () => {
-  const counts = new Map<string, number>();
-
   test.each(Object.keys(EXPECTED))(
     "%s",
     async (file) => {
-      let count = 0;
       const s = await loadScenarioFile(file);
       const lists = [s.expect ?? [], ...s.steps.map((step) => step.expect ?? [])];
       for (const [li, list] of lists.entries()) {
@@ -408,17 +405,20 @@ describe("every falsified expectation fails the same way in both runners", () =>
           const direct = await ending(() => runScenario(m));
           const wire = await ending(() => runScenarioOverProtocol(m));
           expect(wire, `${file}, list ${li}, expect #${ei}`).toBe(direct);
-          count++;
         }
       }
-      counts.set(file, count);
     },
     60_000,
   );
 
-  test("together they falsify more than 300 expectations", () => {
-    expect([...counts.keys()].sort()).toEqual(Object.keys(EXPECTED).sort());
-    const total = [...counts.values()].reduce((a, b) => a + b, 0);
+  test("together they falsify more than 300 expectations", async () => {
+    let total = 0;
+    for (const file of Object.keys(EXPECTED)) {
+      const s = await loadScenarioFile(file);
+      for (const list of [s.expect ?? [], ...s.steps.map((step) => step.expect ?? [])]) {
+        total += list.filter((e) => falsify(e) !== undefined).length;
+      }
+    }
     expect(total).toBeGreaterThan(300);
   });
 });
