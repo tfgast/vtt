@@ -48,7 +48,6 @@ import {
   App,
   assetUrl,
   bindCellUpload,
-  boardLabel,
   createAppRenderer,
   createBrowserUpload,
   createFaceStateStore,
@@ -505,16 +504,13 @@ export async function startWalkthrough(options: WalkthroughOptions): Promise<Dri
       app = mount();
       await connected(app);
       gm = await newGm();
-      if (board !== null && app.session.getSnapshot().activeBoard !== board) {
-        const view = app.session.getSnapshot().boards.find((b) => b.id === board);
-        if (view === undefined) throw new Error(`the board ${board} is gone after the restart`);
-        const tabs = within(app.root).getByRole("tablist", { name: "Boards" });
-        fireEvent.click(within(tabs).getByRole("tab", { name: boardLabel(view) }));
+      // The app reopens on the board that was active (vtt-qf5.57, M6-D24).
+      if (board !== null) {
         await until(
           () =>
             app.session.getSnapshot().activeBoard === board &&
             app.session.boardView()?.board === board,
-          `the board ${board} after the restart`,
+          `the remembered board ${board} after the restart`,
           CONNECT_MS,
         );
         await settle(60);

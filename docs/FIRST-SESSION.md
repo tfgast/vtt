@@ -630,8 +630,9 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 
 You should see:
 
-- After Reload: the Crypt board, with everything where you left it: the
-  tokens, hp, cards, tray, notes, ink, and G4 with its die.
+- After Reload: the Crypt board (the app reopens on the board you were
+  on), with everything where you left it: the tokens, hp, cards, tray,
+  notes, ink, and G4 with its die.
 - The Log tab: the same entries, with the same ones marked undone.
 - After Ctrl+Z: it undoes the wrong goblin's Roll damage (the fresh card's
   damage clears). That is the newest of your changes not yet undone,

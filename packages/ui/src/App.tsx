@@ -35,7 +35,8 @@
  *   `ImageCache` resolving `assetUrl`;
  * - the inspector's actions (vtt-1xv.19) get the same policy and the
  *   runtime (Run);
- * - on mount: the camera store connected, the first-visit fit, dependency
+ * - on mount: the last active board remembered and restored (vtt-qf5.57),
+ *   the camera store connected, the first-visit fit, dependency
  *   tracing and the keybindings; all undone on unmount.
  *
  * The renderer keeps vtt-3l6.6's order (objects with their faces, object
@@ -95,6 +96,7 @@ import { createSelectTool } from "./interaction/select-tool";
 import { createTextTool, EDIT_CREATED, editCreatedHandler } from "./interaction/text-tool";
 import { useInteraction } from "./interaction/use-interaction";
 import { BoardTabs } from "./nav/BoardTabs";
+import { rememberActiveBoard } from "./nav/board-memory";
 import { useFirstVisitFit } from "./nav/first-visit-fit";
 import { createCanvas2DRenderer } from "./render/canvas2d";
 import { drawFaceItem } from "./render/face-draw";
@@ -369,6 +371,7 @@ function Shell(props: AppProps & { ui: UiStore }) {
     return { policy, registry, runtime };
   });
 
+  useEffect(() => rememberActiveBoard({ session }), [session]);
   useEffect(() => cameraStore.connect(), [cameraStore]);
   useFirstVisitFit({ session, ui, cameraStore });
   useEffect(() => startTracing({ session, ui }), [session, ui]);
