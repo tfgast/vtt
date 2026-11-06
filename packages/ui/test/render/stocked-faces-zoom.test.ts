@@ -211,4 +211,43 @@ describe("stocked faces at zoom 0.5 (M6-D16)", () => {
     // Magnified, not cut: the whole word fits, as it does at any zoom.
     expect(badge[0]?.args[0]).toBe("true");
   });
+
+  describe("at the viewport edge (vtt-qf5.66)", () => {
+    /** The goblin's unmagnified cull bounds (no camera), from a scene of `table`. */
+    const goblinBounds = (table: Table, goblin: ObjectId) => {
+      const scene = buildFaceScene(
+        { views: views(table), covers: [], board: "gm_board", viewer: { type: "gm" } },
+        { faceState: createFaceStateStore() },
+      );
+      const item = scene.items.find((i) => i.id === goblin);
+      if (!item) throw new Error("no goblin item");
+      return faceCullBounds(item, scene);
+    };
+    /** The camera x at MIN_ZOOM that puts board x `minX` at screen x `screenX`. */
+    const cameraXFor = (minX: number, screenX: number) =>
+      minX - (screenX - VIEWPORT.width / 2) / (UNIT_PX * MIN_ZOOM);
+    const badgeCalls = (ctx: RecordingContext) =>
+      ctx.paints.filter((c) => c.name === "fillText" && c.args[0] === "true");
+
+    test("a goblin whose rect is just off the right edge still emits its magnified badge", () => {
+      const { table, goblin } = placed();
+      const bounds = goblinBounds(table, goblin);
+      // The whole unmagnified presentation lies right of the 800 px viewport.
+      const ctx = render(table, cameraXFor(bounds.minX, VIEWPORT.width + 1), 0, MIN_ZOOM);
+      const badge = badgeCalls(ctx);
+      expect(badge.length, texts(ctx).join(", ")).toBe(1);
+      const e = badge[0]?.extent;
+      // The magnified text reaches into the viewport.
+      expect(e?.minX).toBeLessThan(VIEWPORT.width);
+    });
+
+    test("a goblin well past the edge, badge included, is still culled", () => {
+      const { table, goblin } = placed();
+      const bounds = goblinBounds(table, goblin);
+      const ctx = render(table, cameraXFor(bounds.minX, VIEWPORT.width + 64), 0, MIN_ZOOM);
+      // Other objects' (conservatively padded) faces may reach in; the goblin's does not.
+      expect(badgeCalls(ctx)).toEqual([]);
+      expect(texts(ctx)).not.toContain("Goblin");
+    });
+  });
 });

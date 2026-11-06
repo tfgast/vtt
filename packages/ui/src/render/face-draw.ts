@@ -8,7 +8,7 @@
  * own drawing and before every object-related overlay and cover. The face
  * model (vtt-1xv.14) decides what is drawn; this file only paints it.
  */
-import type { ObjectId, Rect } from "@vtt/schema";
+import type { Bounds, ObjectId, Rect } from "@vtt/schema";
 import type {
   ButtonPrimitive,
   ContentsPrimitive,
@@ -24,7 +24,7 @@ import type {
 } from "../face/face-model";
 import { entryTransform } from "../face/face-model";
 import type { FaceScene } from "../face/face-scene";
-import { type Affine, compose, itemTransform, screenHeight } from "../face/face-transform";
+import { type Affine, aabb, compose, itemTransform, screenHeight } from "../face/face-transform";
 import { type Camera, cameraScale } from "../scene/camera";
 import type { DrawItem } from "../scene/scene";
 import type { FormatTone } from "../values/format";
@@ -292,6 +292,48 @@ function magnify([x, y, w, h]: Box, align: FaceTextAlign, k: number): Box {
 
 /** A rect in CSS px. */
 type Box = [number, number, number, number];
+
+/** Glyph overhang past a magnified text box allowed for in `persistentTextBounds`, in CSS px. */
+const TEXT_OVERHANG_PX = 2;
+
+/**
+ * Board bounds of what `drawing`'s persistent text (a top-level text
+ * primitive without `minSize`, M6-D17) can paint at `camera` once
+ * magnified to PERSISTENT_TEXT_MIN_PX, `transform` taking the drawing's
+ * frame to the board; null when it has none. Conservative, since the
+ * text's measured width is not known here: `fitText` magnifies by at most
+ * the floor over the unshrunk font, then by at most 1 / FACE_TEXT_MIN_SHRINK,
+ * so the box is grown about its alignment anchor by that product (at least
+ * 1). For draw culling only (vtt-qf5.66); hit testing keeps the rects.
+ */
+export function persistentTextBounds(
+  drawing: FaceDrawing,
+  transform: Affine,
+  camera: Camera,
+): Bounds | null {
+  const s = cameraScale(camera) * Math.hypot(transform[0], transform[1]);
+  if (!(s > 0) || !Number.isFinite(s)) return null;
+  let out: Bounds | null = null;
+  for (const p of drawing.primitives) {
+    if (p.kind !== "text" || p.minSize > 0) continue;
+    const full = p.rect[3] * s * FACE_TEXT_SCALE[p.size];
+    if (!(full > 0)) continue;
+    const k = Math.max(1, PERSISTENT_TEXT_MIN_PX / (full * FACE_TEXT_MIN_SHRINK));
+    const [x, y, w, h] = magnify(p.rect as Box, p.align, k);
+    const pad = TEXT_OVERHANG_PX / s;
+    const b = aabb([x - pad, y - pad, w + 2 * pad, h + 2 * pad], transform);
+    out =
+      out === null
+        ? b
+        : {
+            minX: Math.min(out.minX, b.minX),
+            minY: Math.min(out.minY, b.minY),
+            maxX: Math.max(out.maxX, b.maxX),
+            maxY: Math.max(out.maxY, b.maxY),
+          };
+  }
+  return out;
+}
 
 function fontOf(px: number): string {
   return `${Math.round(px * 1000) / 1000}px ${FONT_FAMILY}`;
