@@ -138,7 +138,7 @@ export interface PlayAObserved {
   /** Step 10: G1's position before and after the drop on `target`. */
   g1Before: number[];
   g1After: number[];
-  /** Step 10: the copy's `hit` element drawn in Aldric's view after Roll. */
+  /** Step 10: the copy's `hit` element drawn in GM view after Roll. */
   hitShown: boolean;
   /** Step 10: whether Aldric's view (the app's, as Aldric) has G1's `ac`. */
   g1AcInAldricView: boolean;
@@ -427,7 +427,7 @@ export async function runPlayA(ctx: DriverContext, prep: PrepResult): Promise<Pl
   const aldricBinder = pc.Aldric.binder;
   await g.click(pc.Aldric.token);
   await g.dragObject(aldricBinder, at(ALDRIC_BINDER_AT));
-  await g.viewAs("Aldric");
+  // The presses stay in GM view: the card is Aldric's, so they are his (M6-D15).
   await g.expandEntry(aldricBinder, pc.Aldric.attackTemplate);
   const attackCopy = selected(ctx, "the Attack card's working copy");
   const binderContents = refsOf(ctx, aldricBinder, "contents");
@@ -444,7 +444,10 @@ export async function runPlayA(ctx: DriverContext, prep: PrepResult): Promise<Pl
   await g.pressButton(attackCopy, "Roll");
   await g.bringIntoView({ object: attackCopy, element: { cell: "hit" } });
   const hitShown = g.elementShown(attackCopy, { cell: "hit" });
+  // View as Aldric to check that `ac` is hidden, then back to GM view.
+  await g.viewAs("Aldric");
   const g1AcInAldricView = ctx.session.objectView(g1)?.cells.ac !== undefined;
+  await g.viewAs("GM");
   await g.pressButton(attackCopy, "Roll damage");
   await g.pressButton(attackCopy, "Apply");
   await shows(ctx, g1, "hp", 1, "G1's hp 1");

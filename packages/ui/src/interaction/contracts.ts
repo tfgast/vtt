@@ -93,6 +93,12 @@ export interface Viewport {
  */
 export interface RuntimeInputs {
   views(id: ObjectId): ObjectView | null;
+  /**
+   * The GM directory's view of `id` (structural cells of every live object,
+   * on any board), or null; optional. Used only to resolve owning characters
+   * (M6-D15), never to show or read anything for the viewer.
+   */
+  directory?(id: ObjectId): ObjectView | null;
   scene(): Scene;
   viewport(): Viewport;
   activeBoard(): BoardId | null;

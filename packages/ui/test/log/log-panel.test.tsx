@@ -10,7 +10,12 @@ import userEvent from "@testing-library/user-event";
 import type { ProtocolClient } from "@vtt/protocol";
 import {
   createUiStore,
+  defaultFacePolicy,
+  type ExtensionContext,
+  type InteractionStamp,
+  invokeExtension,
   LogPanel,
+  requestInvoke,
   sessionNotices,
   type TableSession,
   type UiStore,
@@ -160,6 +165,51 @@ describe("a character actor", () => {
       "Aldric: Roll",
       "GM: Seed",
     ]);
+  });
+});
+
+describe("a GM-view press on a card Aldric owns (M6-D15)", () => {
+  test("is invoked as Aldric, so the log reads Aldric: Roll", async () => {
+    const { gm, session } = await setup(ATTACK_SEED, [roll("1d20", [12], 12)]);
+    await commit(
+      gm,
+      [
+        {
+          type: "set_value",
+          object: "attack",
+          cell: "owner",
+          value: { type: "ref", object: "aldric" },
+        },
+      ],
+      "Own",
+    );
+    await caughtUp(session, gm);
+    const ui = await mount(session);
+    const snapshot = session.getSnapshot();
+    expect(snapshot.viewer).toEqual({ type: "gm" });
+    const view = session.objectView("attack");
+    if (view === null) throw new Error("no attack view");
+    const stamp: InteractionStamp = {
+      interactionId: "log-press",
+      board: "gm_board",
+      viewer: snapshot.viewer,
+      baseRevision: snapshot.revision,
+    };
+    const [effect] = requestInvoke(defaultFacePolicy, view, "Roll", stamp, {
+      camera: ui.getState().camera,
+      views: (id) => session.objectView(id),
+    });
+    if (effect?.type !== "extension") throw new Error(JSON.stringify(effect));
+    const outcome = await invokeExtension(session, sessionNotices(session))(
+      effect,
+      {} as ExtensionContext,
+    );
+    expect(outcome).toMatchObject({ status: "committed" });
+    await caughtUp(session, gm);
+    await until(
+      () => groupItems()[0]?.getAttribute("aria-label") === "Aldric: Roll",
+      "Aldric: Roll",
+    );
   });
 });
 

@@ -93,6 +93,12 @@ export interface ReducerInput {
   camera: Camera;
   selection: ObjectId[];
   views: (id: ObjectId) => ObjectView | null;
+  /**
+   * The GM directory (`RuntimeInputs.directory`), when the inputs have one:
+   * structural cells of every live object on any board. Only for resolving
+   * owning characters (M6-D15; `ownerLookup`), never for what is shown.
+   */
+  directory?: (id: ObjectId) => ObjectView | null;
   /** The session's Snap (M6-D13; `UiState.snap`); absent counts as off. */
   snap?: boolean;
 }

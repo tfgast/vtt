@@ -217,8 +217,10 @@ Decision: D9.
 - `client.kind: "ui"` or `"test"` → `{type:"gm"}`.
 - A non-agent connection may pass `actor: {type:"character", id}` on
   `transact` and `invoke`, naming an existing object whose `is_character` is
-  true (the GM driving a character; M5-D11: a button pressed in view-as). An
-  agent passing `actor` is `bad_request`.
+  true (the GM driving a character). The UI passes one on `invoke` for a
+  button pressed in view-as (the viewed character, M5-D11) and, in GM view,
+  for a button on an object a character owns (that character, M6-D15;
+  DESIGN §4.5). An agent passing `actor` is `bad_request`.
 - Every connection has GM authority; `viewer` parameters select whose view is
   computed.
 

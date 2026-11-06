@@ -31,7 +31,7 @@ import { readFile } from "node:fs/promises";
 import { act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CRYPT_MAP, exampleAssetPath } from "@vtt/fixtures";
-import type { WireOp } from "@vtt/protocol";
+import type { WireOp, WireValue } from "@vtt/protocol";
 import type { BoardId, ObjectId } from "@vtt/schema";
 import { until } from "../support/authority";
 import type {
@@ -431,6 +431,10 @@ async function runAgent(ctx: DriverContext, crypt: BoardId): Promise<void> {
       return tags?.items?.some((t) => t.value === "binder") === true;
     });
     if (binder === undefined) throw new Error("prep: the agent found no binder on Aldric");
+    const binderOwner = binder.cells.owner?.value as WireValue | undefined;
+    if (binderOwner?.type !== "ref" || binderOwner.object !== aldric) {
+      throw new Error("prep: Aldric's binder is not owned by Aldric");
+    }
 
     const fireball: WireOp[] = [
       {
@@ -447,6 +451,8 @@ async function runAgent(ctx: DriverContext, crypt: BoardId): Promise<void> {
         value: { type: "text", value: "Fireball" },
       },
       { type: "set_value", object: "$fb", cell: "caster", value: { type: "ref", object: aldric } },
+      // M6-D15 (the MCP instructions): the card's owner is the binder's owner.
+      { type: "set_value", object: "$fb", cell: "owner", value: binderOwner },
       {
         type: "set_value",
         object: "$fb",

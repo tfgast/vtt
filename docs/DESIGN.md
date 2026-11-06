@@ -460,10 +460,19 @@ for formulas.
 
 **Pressing buttons in the UI.** The UI never invokes an action on a template:
 templates are not mutated by play (4.7), so a template's buttons (and the
-inspector's Run) refuse with the reason; the agent may still invoke one. In
-view-as a button press is the GM driving that character: the invocation's
-actor is the viewed character, and the log records it; other edits remain
-the GM's (4.6, **View as in the UI**). A disabled button (its `when` false or
+inspector's Run) refuse with the reason; the agent may still invoke one. A
+button press is the GM driving a character when one is known: in view-as
+the invocation's actor is the viewed character; in GM view it is the
+pressed object's **owning character** (M6-D15): the object itself if it is
+a character; else its `owner` cell when that is a reference to a
+character; else the owning character of its container, recursively; else
+none, and the press is the GM's. So a working copy in Aldric's binder (its
+`owner` Aldric) is pressed as Aldric from GM view, a goblin's die as that
+goblin, and the GM binder's templates and loose dice stay the GM's. The log
+records the actor, and what is shown stays the viewer's (the GM still sees
+`ac`). Other edits remain the GM's (4.6, **View as in the UI**). Only the
+UI's own presses resolve an owning character; an agent's invocations stay
+the agent's (PROTOCOL §3). A disabled button (its `when` false or
 an error) sends nothing and shows the reason. A press made while the
 viewer's own earlier press on the same table is still unacknowledged is sent
 after that acknowledgement, stamped past the earlier press when that press is
@@ -774,7 +783,9 @@ editor share one input grammar:
 **View as in the UI.** View-as (4.4) switches the viewer of what is drawn,
 inspected and traced. The inspector and formula bar are read-only there and
 show the character's view. Canvas edits are still the GM's, except that a
-button pressed in view-as invokes as the viewed character (4.5).
+button pressed in view-as invokes as the viewed character (4.5). The GM
+need not view as a character to act as them: in GM view a button on an
+object a character owns invokes as that character (4.5, M6-D15).
 
 ### 4.7 Procedure cards and the binder
 
@@ -847,9 +858,15 @@ rows inside a character's binder are visible only to that character.
   template (an entry or a board template) onto a binder's contents element
   **gives a template**: one `transact` `[spawn {template, to: {type:
   "container", container: binder, index}, as: "$copy"}, set_template_flag
-  {object: "$copy", value: true}]`, so the recipient holds a reusable
-  template (copy-versus-move intent is ignored for this drop; Alt held at
-  drag start moves the template instead). Dropping onto any other contents
+  {object: "$copy", value: true}]`, plus, when the binder's `owner` is a
+  character, `set_value {object: "$copy", cell: "owner", value: <that
+  character>}` in the same group (M6-D15), so the recipient holds a
+  reusable template whose working copies (which copy `owner` verbatim) are
+  pressed as that character (4.5) wherever they are dragged
+  (copy-versus-move intent is ignored for this drop; Alt held at drag start
+  moves the template instead). Every path that gives a template to a
+  character's binder sets `owner` this way: the UI's drop, and the agent
+  as the MCP instructions tell it. Dropping onto any other contents
   element copies an instance (4.6, **Gestures**).
 
 **Example templates** (M5-D19). The GM binder of a new table (7, **New
@@ -1208,8 +1225,8 @@ that conflicts in this sense is what FIXTURES.md 8 calls a *surviving*
 operation.
 
 **Undo and writes in the UI.** The UI's undo targets `human`: the latest
-group by the GM or by a character the GM drove (a button pressed in view-as,
-§4.5), docs/PROTOCOL.md §6, so the GM's undo never reverses the agent's
+group by the GM or by a character the GM drove (a button pressed in view-as
+or on an object that character owns, §4.5), docs/PROTOCOL.md §6, so the GM's undo never reverses the agent's
 newer work.
 Every UI write carries the revision its interaction began on (drag start,
 editor open, formula bar focus, or the click for instantaneous commands),
@@ -1501,7 +1518,7 @@ way; nothing about the tool assumes it.
 5. Through the MCP server, ask the agent: "Make room 4 difficult terrain and
    hatch it, and make a Fireball card for Aldric with DC 14 and 8d6." The
    agent gives Aldric's binder a copy of the Area Save card named Fireball
-   with `caster` Aldric and `damage_dice` 8d6, and writes 14 into Aldric's
+   with `caster` and `owner` Aldric and `damage_dice` 8d6, and writes 14 into Aldric's
    sheet `spell_dc`, which the card's `dc` follows. Check its work in the
    inspector. Correct the DC by typing over it.
 6. Scribble "trap on the third stair" in ink on a sticky note on the GM board.
@@ -1758,4 +1775,5 @@ a separate player window, shipped game-system content.
 | 2026-11-06 | M6-D17. Persistent text keeps a legibility floor: a value element shown as text without `min_size` (or with `min_size` 0), and the when_selected count badge, is drawn at any zoom, and where its fitted font (after shrink-to-fit) would be under 8 CSS px it is magnified about its alignment anchor (left, centre or right of its middle line) until the font is 8 px, the layout otherwise as at any larger zoom (no extra cut) and the 1 px no-text rule not applied to it; the magnified text may overhang its rect, and hit-testing still uses the rect. Elements with a positive `min_size`, editors, buttons and contents rows are unchanged. The floor is in CSS px like `min_size`, so the renderer's dpr scaling applies on top. DESIGN §4.6; amends M6-D12 and M6-D16 ("drawn at any zoom"). | Codex review of vtt-nb8.24 (vtt-qf5.61): at the minimum zoom (1/32) the HIT badge's 0.5-unit rect has 0.82 px after padding and was skipped, and the count badge drew at under 1 px, so "drawn at any zoom" was false; a 1 px badge is not legible, so the badge keeps a minimum size rather than just lowering the 1 px suppression; 8 px matches the smallest `min_size` the stocked faces use for legible text (M6-D16). An author who wants text to vanish when zoomed out gives it a `min_size`. |
 | 2026-11-06 | M6-D18. A face button press (any UI `invoke`: face button, `default_action` double-click, the inspector's Run) whose only intervening change is the viewer's own earlier press on the same table is sent after that press's acknowledgement and stamped with the revision the mirror then shows. Invocations are queued per session: a first one is sent at once; one made while an earlier own invocation is unacknowledged waits for it to settle (and, when it committed, for the mirror to show the commit), then is sent with its stamp advanced over own invocations that committed directly on top of it (committed revision = its base + 1). A press preceded by another client's change keeps its stamp and is refused as stale with the existing notice; nothing else is retried or rebased. Refines M4-D7 for own presses. DESIGN §4.5, §7. | Two quick clicks on Roll sent two invokes stamped with the revision at the first pointer down (the mirror had not seen the first commit), so the second was refused as `stale_write` against the GM's own roll: one roll and a stale notice for their own action. The precedent is the face editor's queue (vtt-nb8.22). Advancing only over own commits made directly on top of the base keeps M4-D7's guarantee that another client's change is never hidden. |
 | 2026-11-06 | M6-D14. A resize, radius or vertex handle drag of an object with a face layout also writes `set_face`, in the same write as `set_shape` (and `set_value position` where the anchor moves), when the shape's local bounding box changes: each rect of the full list (`elements`) becomes `[x0' + (x − x0)·fx, y0' + (y − y0)·fy, w·fx, h·fy]`, where `[x0, y0]` and `[x0', y0']` are the old and new box origins and `fx`, `fy` the new/old box width and height (a circle's radius handle gives `fx = fy = r'/r`). The factors are taken in the object's unrotated local frame, after Snap (M6-D13); the collapsed list (its frame is fixed), `min_size` and the rest of the layout are unchanged; one undo reverses shape, position and face. The layout scaled is the GM view's at the pointer down, or that of the drag's own pending handle write; the face is not previewed during the drag. Objects without a face layout and rotation are unchanged. `scaleFace` in `interaction/handles.ts`. Amends M5-D7 (rects stay board units, but a handle resize rewrites them). DESIGN §4.6, §4.7, §8.1. | Playtest 1 step 10: a binder made bigger kept its name and list at the old size inside the bigger box, so the only way to see more was to zoom the whole board. Scaling the rects with the box shows more rows at the same row height in a taller binder and wider rows in a wider one. |
+| 2026-11-06 | M6-D15. In GM view, a UI button press (face button, `default_action` double-click, the inspector's Run) on an object whose owning character is known invokes as that character (`invoke`'s `actor`); in view-as, as the viewed character (unchanged). The owning character of an object is the object itself if it is a character; else its `owner` cell when that is a reference to a character; else the owning character of its container, recursively; else none, and the press is the GM's as before. The UI resolves it from the session's GM directory (structural cells of every live object on any board; `owningCharacter` over `ownerLookup` in `actions/invoke.ts`), so a character on another board still counts; the directory decides only the attribution and the owner write, never what the viewer sees or what the press reads. Giving a template to a binder whose `owner` is a character also sets the new template's `owner` to that character, in the same group, on every path: the UI's give-template drop (`spawn` as `$copy`, `set_template_flag`, `set_value $copy owner`), the MCP instructions, and §8.4 step 5's agent; working copies copy `owner` verbatim. Agents are unchanged: PROTOCOL §3 still refuses an agent's `actor` and the MCP tools do not expose it. Visibility stays the viewer's; undo `human` covers these groups. Amends M5-D11 and M5-D18. DESIGN §4.5, §4.6, §4.7, §8.4 step 5; PROTOCOL §3. | Playtest 1 step 10: the GM had to view the world as a character to act as them, and then saw only that character's view. An owned card is the character's whichever view the GM is in; without the owner write a Fireball given by the recipe (which set only `caster`) and dragged onto the board would resolve to no one. Rights are not modelled (v1 has one person). |
 | 2026-11-06 | M6-D19. The inspector's Create face (`defaultLayoutFor`) always ends the generated layout with the object's contents list: after the name, cell and action rows, a contents element `{type: "contents", rect, min_size: 24, when_selected: true}` (entries collapsed by default), 6 units wide, centred under the frame, its top `STRIP_TOP_GAP` (0.15) below the last row, one 0.6-unit row per `contents` entry from 1 up to 8, as the faceless default places its list (`defaultContentsRect`, without the action strip, whose buttons are rows of the generated layout). It is included whether or not `contents` is empty. Amends M6-D12. DESIGN §4.6. | vtt-qf5.64: Create face dropped the contents list, so an object that showed its contents while faceless (M6-D12) lost them when a face was created. Every object may hold contents, and an empty when_selected list draws nothing while hidden (not even the badge) and is only an empty drop target while the object is selected, so including it always costs almost nothing, while a layout that silently lacks a list the object later acquires is the worse surprise. `min_size` 24 matches the stocked token faces. |

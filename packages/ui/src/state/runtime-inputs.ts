@@ -19,7 +19,9 @@ const sameViewport = (a: Viewport, b: Viewport) =>
   a.width === b.width && a.height === b.height && a.dpr === b.dpr;
 
 /**
- * `views` reads the current viewer's views (`session.objectView`); `scene()`
+ * `views` reads the current viewer's views (`session.objectView`);
+ * `directory` the GM directory (`session.directory()`), for owning
+ * characters across boards (M6-D15); `scene()`
  * is `buildScene` over the board view and its covers with the viewer,
  * selection and highlight and no previews, memoized until any of those (or
  * the views) change; `onChange` fires on any change of board, viewer,
@@ -37,6 +39,7 @@ export function createRuntimeInputs(session: TableSession, ui: UiStore): Runtime
 
   return {
     views: (id) => session.objectView(id),
+    directory: (id) => session.directory().get(id) ?? null,
     scene() {
       const snapshot = session.getSnapshot();
       const board = session.boardView();

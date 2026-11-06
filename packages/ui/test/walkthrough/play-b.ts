@@ -393,7 +393,7 @@ export async function runPlayB(
   await g.viewAs("GM");
   await g.dragObject(pc.Brenna.token, at(BRENNA_IN_ROOM3));
   const brennaAt = await gmPosition(ctx, pc.Brenna.token);
-  await g.viewAs("Aldric");
+  // The presses stay in GM view: the card is Aldric's, so they are his (M6-D15).
   const fireballCopy = await spawnEntry(
     ctx,
     g,

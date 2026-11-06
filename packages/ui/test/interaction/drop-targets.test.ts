@@ -228,6 +228,28 @@ describe("faceDropOverride", () => {
     });
   });
 
+  test("giving a template to a binder whose owner is a character also sets the copy's owner to it (M6-D15)", () => {
+    const hero: ObjectView = { ...mk("hero"), is_character: true };
+    const owned = mk("ba", { ...BA, cells: { owner: ref("hero") } });
+    const byNote = mk("ba", { ...BA, cells: { owner: ref("card") } });
+    const viewsWith = (binder: ObjectView) => (id: string) =>
+      id === "hero" ? hero : id === "ba" ? binder : (BY_ID.get(id) ?? null);
+    expect(giveTemplateWrite(input({ views: viewsWith(owned) }), "tpl", "ba", 2).ops).toEqual([
+      {
+        type: "spawn",
+        template: "tpl",
+        to: { type: "container", container: "ba", index: 2 },
+        as: "$copy",
+      },
+      { type: "set_template_flag", object: "$copy", value: true },
+      { type: "set_value", object: "$copy", cell: "owner", value: ref("hero") },
+    ]);
+    // An owner that is not a character sets nothing.
+    expect(giveTemplateWrite(input({ views: viewsWith(byNote) }), "tpl", "ba", 2).ops).toHaveLength(
+      2,
+    );
+  });
+
   test("with the copy intent into a non-binder container: an instance spawn at the index, selected", () => {
     expect(faceDropOverride(input(), rowAt(20, 17, 0), ["tpl"], COPY)).toEqual({
       ops: [

@@ -118,6 +118,8 @@ describe(`play B: ${WALKTHROUGH_STEPS.slice(11, 15)
     expect(value(card, "board")).toEqual(ref(prep.crypt));
     expect(position(card)).toEqual(at(FIREBALL_AT));
     expect(value(card, "caster")).toEqual(ref(pc.Aldric.token));
+    // Copied verbatim from the template (M6-D15), so the GM's presses are Aldric's.
+    expect(value(card, "owner")).toEqual(ref(pc.Aldric.token));
     expect(value(card, "damage_dice")).toEqual({ type: "dice", expr: "8d6" });
     expect(card.cells.dc).toMatchObject({
       kind: "formula",

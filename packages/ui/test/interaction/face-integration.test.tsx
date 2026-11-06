@@ -65,6 +65,7 @@ import {
   InPlaceEditor,
   type InteractionRuntime,
   invokeExtension,
+  LogPanel,
   type RecordedCall,
   RecordingContext,
   sessionNotices,
@@ -1397,5 +1398,281 @@ describe("two fast presses of a face button (vtt-qf5.62, M6-D18)", () => {
     w.gate.hold = () => false;
     w.gate.flush();
     await until(() => rollGroups(w).length === 1, "the roll group");
+  });
+});
+
+describe("GM-view presses invoke as the owning character (M6-D15)", () => {
+  const circle = { type: "circle" as const, radius: 0.5 };
+  const gob = (id: string, x: number): WireOp => ({
+    type: "create_object",
+    id,
+    to: at(x, 40),
+    init: {
+      is_character: true,
+      shape: circle,
+      cells: { name: text(id), visible_to: ALL, face_up: bool(true), ac: num(13) },
+    },
+  });
+  const BINDER_AT: Point = [20, 30];
+
+  /** Aldric (a stocked Character) with his binder moved onto the board at BINDER_AT. */
+  async function aldricWorld(options: Options = {}) {
+    const w = await world({ stocked: true, entryDrag: true, ...options });
+    const made = await w.gm.transact(
+      [
+        { type: "spawn", template: "tpl_character", to: at(10, 40), as: "$aldric" },
+        { type: "set_value", object: "$aldric", cell: "name", value: text("Aldric") },
+      ],
+      { label: "Aldric" },
+    );
+    if (made.status !== "committed") throw new Error(JSON.stringify(made));
+    const aldric = made.bindings.$aldric as ObjectId;
+    const store = w.host.table.store;
+    const binder = store.getObject(aldric)?.contents[1] as ObjectId;
+    const attackTemplate = store.getObject(binder)?.contents[0] as ObjectId;
+    const moved = await w.gm.transact([{ type: "move", object: binder, to: at(...BINDER_AT) }], {
+      label: "Binder out",
+    });
+    if (moved.status !== "committed") throw new Error(JSON.stringify(moved));
+    await until(() => w.session.boardView()?.objects.has(binder) === true, "the binder's view");
+    await settle();
+    return { w, aldric, binder, attackTemplate };
+  }
+
+  /** A point on `id`'s collapsed row (an `entry` hit), right of its chevron. */
+  function rowOf(w: World, id: ObjectId): Point {
+    const c = chevronOf(w, id);
+    for (let dx = 0.3; dx < 6; dx += 0.1) {
+      const p: Point = [c[0] + dx, c[1]];
+      const t = faceHitAt(w.faces(), p, w.ui.getState().camera)?.target;
+      if (t?.type === "entry" && t.id === id) return p;
+    }
+    throw new Error(`no row point for ${id}`);
+  }
+
+  /** Drags from `from` to `to` and waits for the write; resolves with the selected object. */
+  async function drag(w: World, from: Point, to: Point): Promise<ObjectId> {
+    const before = w.host.revision;
+    w.pointer("pointerDown", from);
+    w.pointer("pointerMove", [from[0] + 1, from[1] + 1]);
+    w.pointer("pointerMove", to);
+    w.pointer("pointerUp", to);
+    await until(() => w.host.revision > before, "the drag's write");
+    await settle();
+    return w.ui.getState().selection[0] as ObjectId;
+  }
+
+  const asAldric = (aldric: ObjectId) => ({ type: "character", id: aldric }) as const;
+
+  test("Aldric's Attack working copy in his binder is pressed as Aldric from GM view", async () => {
+    const { w, aldric, binder, attackTemplate } = await aldricWorld({
+      dice: [roll("1d20", 12)],
+    });
+    const made = await w.gm.transact(
+      [
+        gob("g1", 16),
+        {
+          type: "spawn",
+          template: attackTemplate,
+          to: { type: "container", container: binder, index: 1 },
+          as: "$copy",
+        },
+        { type: "set_value", object: "$copy", cell: "target", value: ref("g1") },
+      ],
+      { label: "Working copy" },
+    );
+    if (made.status !== "committed") throw new Error(JSON.stringify(made));
+    const copy = made.bindings.$copy as ObjectId;
+    expect(w.stored(copy, "owner")).toEqual(ref(aldric));
+    await until(
+      () =>
+        w.session.objectView(copy)?.action_states?.some((s) => s.name === "Roll" && s.enabled) ===
+        true,
+      "Roll enabled",
+    );
+    act(() => w.faceState.expand(copy));
+    await settle();
+    expect(w.session.getSnapshot().viewer).toEqual(GM);
+    w.click(buttonOf(w, copy, "Roll"));
+    await until(() => w.groups().at(-1)?.label === "Roll", "the Roll group");
+    expect(w.invokes()).toMatchObject([{ object: copy, action: "Roll", actor: asAldric(aldric) }]);
+    expect(w.groups().at(-1)?.actor).toEqual(asAldric(aldric));
+  });
+
+  test("a goblin's die is pressed as that goblin; a loose die from the GM binder as the GM", async () => {
+    const { w } = await aldricWorld({ dice: [roll("1d20", 7), roll("1d20", 9)] });
+    const made = await w.gm.transact(
+      [
+        gob("g2", 30),
+        {
+          type: "spawn",
+          template: "tpl_d20",
+          to: at(30, 44),
+          cells: { owner: ref("g2") },
+          as: "$owned",
+        },
+        { type: "spawn", template: "tpl_d20", to: at(34, 44), as: "$loose" },
+      ],
+      { label: "Dice" },
+    );
+    if (made.status !== "committed") throw new Error(JSON.stringify(made));
+    const owned = made.bindings.$owned as ObjectId;
+    const loose = made.bindings.$loose as ObjectId;
+    await until(() => w.session.boardView()?.objects.has(loose) === true, "the dice's views");
+    await settle();
+    w.dblClick([30, 44]);
+    await until(() => w.invokes().length === 1, "the goblin die's invoke");
+    await until(() => w.groups().at(-1)?.label === "Roll", "its Roll group");
+    expect(w.invokes()[0]).toMatchObject({ object: owned, actor: { type: "character", id: "g2" } });
+    expect(w.groups().at(-1)?.actor).toEqual({ type: "character", id: "g2" });
+    const r = w.host.revision;
+    w.dblClick([34, 44]);
+    await until(() => w.host.revision > r, "the loose die's roll");
+    expect(w.invokes()[1]?.object).toBe(loose);
+    expect(w.invokes()[1]?.actor).toBeUndefined();
+    expect(w.groups().at(-1)?.actor).toEqual(GM);
+  });
+
+  test("a Fireball made by the recipe and dragged onto the board is pressed as Aldric; the Log shows Aldric: Lock targets", async () => {
+    const { w, aldric, binder } = await aldricWorld();
+    // DESIGN.md §8.4 step 5's recipe (the MCP instructions): owner set to the binder's owner.
+    const recipe = await w.gm.transact(
+      [
+        {
+          type: "spawn",
+          template: "tpl_area_save",
+          to: { type: "container", container: binder },
+          as: "$fb",
+        },
+        { type: "set_template_flag", object: "$fb", value: true },
+        { type: "set_value", object: "$fb", cell: "name", value: text("Fireball") },
+        { type: "set_value", object: "$fb", cell: "caster", value: ref(aldric) },
+        { type: "set_value", object: "$fb", cell: "owner", value: ref(aldric) },
+      ],
+      { label: "Fireball for Aldric" },
+    );
+    if (recipe.status !== "committed") throw new Error(JSON.stringify(recipe));
+    const fireball = recipe.bindings.$fb as ObjectId;
+    await until(() => w.session.objectView(fireball) !== null, "the Fireball's view");
+    await settle();
+    const copy = await drag(w, rowOf(w, fireball), [30, 30]);
+    expect(copy).not.toBe(fireball);
+    expect(w.host.table.store.getObject(copy)?.board).toBe(BOARD);
+    expect(w.stored(copy, "owner")).toEqual(ref(aldric));
+    await until(() => w.session.objectView(copy)?.face !== undefined, "the copy's face");
+    await settle();
+    w.click(buttonOf(w, copy, "Lock targets"));
+    await until(() => w.groups().at(-1)?.label === "Lock targets", "the Lock targets group");
+    expect(w.invokes().at(-1)).toMatchObject({ object: copy, actor: asAldric(aldric) });
+    expect(w.groups().at(-1)?.actor).toEqual(asAldric(aldric));
+
+    render(<LogPanel session={w.session} ui={w.ui} />);
+    await until(
+      () =>
+        [...document.querySelectorAll<HTMLElement>("[data-log-index]")].some(
+          (el) => el.getAttribute("aria-label") === "Aldric: Lock targets",
+        ),
+      "the log's Aldric: Lock targets",
+    );
+  });
+
+  test("a template given to Aldric's binder through the UI drop has owner Aldric; its working copy on the board is pressed as Aldric", async () => {
+    const { w, aldric, binder, attackTemplate } = await aldricWorld();
+    // The Attack template's GM-binder row, dropped onto Aldric's binder's list, below its rows.
+    const given = await drag(w, rowOf(w, "tpl_attack"), [BINDER_AT[0], BINDER_AT[1] + 3]);
+    const store = w.host.table.store;
+    expect(store.getObject(binder)?.contents).toEqual([attackTemplate, given]);
+    expect(store.getObject(given)?.is_template).toBe(true);
+    expect(w.stored(given, "owner")).toEqual(ref(aldric));
+    expect(w.groups().at(-1)?.label).toBe("Give Attack");
+
+    const copy = await drag(w, rowOf(w, given), [30, 34]);
+    expect(store.getObject(copy)?.board).toBe(BOARD);
+    expect(store.getObject(copy)?.is_template).toBe(false);
+    expect(w.stored(copy, "owner")).toEqual(ref(aldric));
+    await until(() => w.session.objectView(copy)?.face !== undefined, "the copy's face");
+    await settle();
+    w.click(buttonOf(w, copy, "Discard"));
+    await until(() => w.groups().at(-1)?.label === "Discard", "the Discard group");
+    expect(w.invokes().at(-1)).toMatchObject({ object: copy, actor: asAldric(aldric) });
+    expect(w.groups().at(-1)?.actor).toEqual(asAldric(aldric));
+  });
+
+  /**
+   * Aldric stays on the GM board (unselected, so in neither the board nor the
+   * selection view) while his binder and the GM binder are moved to board
+   * `b2`, which the session then shows: his owner is known only to the GM
+   * directory (Codex review of vtt-nb8.33).
+   */
+  async function crossBoard() {
+    const base = await aldricWorld();
+    const { w, binder } = base;
+    const onB2 = (x: number, y: number) => ({
+      type: "board" as const,
+      board: "b2",
+      position: [x, y] as [number, number],
+    });
+    const moved = await w.gm.transact(
+      [
+        { type: "move", object: binder, to: onB2(...BINDER_AT) },
+        { type: "move", object: "gm_binder", to: onB2(0, 0) },
+      ],
+      { label: "To b2" },
+    );
+    if (moved.status !== "committed") throw new Error(JSON.stringify(moved));
+    await act(() => w.session.setView("b2", GM));
+    await until(() => w.session.boardView()?.objects.has(binder) === true, "the binder on b2");
+    await until(() => w.session.directory().has(base.aldric), "Aldric in the directory");
+    await settle();
+    expect(w.session.objectView(base.aldric)).toBeNull();
+    return base;
+  }
+
+  test("across boards: a working copy in Aldric's binder on another board is pressed as Aldric", async () => {
+    const { w, aldric, binder, attackTemplate } = await crossBoard();
+    const made = await w.gm.transact(
+      [
+        {
+          type: "spawn",
+          template: attackTemplate,
+          to: { type: "container", container: binder, index: 1 },
+          as: "$copy",
+        },
+      ],
+      { label: "Working copy" },
+    );
+    if (made.status !== "committed") throw new Error(JSON.stringify(made));
+    const copy = made.bindings.$copy as ObjectId;
+    await until(() => w.session.objectView(copy)?.face !== undefined, "the copy's face");
+    act(() => w.faceState.expand(copy));
+    await settle();
+    w.click(buttonOf(w, copy, "Discard"));
+    await until(() => w.groups().at(-1)?.label === "Discard", "the Discard group");
+    expect(w.invokes().at(-1)).toMatchObject({ object: copy, actor: asAldric(aldric) });
+    expect(w.groups().at(-1)?.actor).toEqual(asAldric(aldric));
+  });
+
+  test("across boards: a template dropped on Aldric's binder on another board gets owner Aldric", async () => {
+    const { w, aldric, binder, attackTemplate } = await crossBoard();
+    const given = await drag(w, rowOf(w, "tpl_attack"), [BINDER_AT[0], BINDER_AT[1] + 3]);
+    expect(w.host.table.store.getObject(binder)?.contents).toEqual([attackTemplate, given]);
+    expect(w.stored(given, "owner")).toEqual(ref(aldric));
+  });
+
+  test("a view-as press is unchanged: the viewed character, whoever owns the object", async () => {
+    const { w } = await aldricWorld({ dice: [roll("1d20", 5)] });
+    const made = await w.gm.transact(
+      [
+        gob("g3", 30),
+        { type: "spawn", template: "tpl_d20", to: at(30, 44), cells: { owner: ref("g3") } },
+      ],
+      { label: "Die" },
+    );
+    if (made.status !== "committed") throw new Error(JSON.stringify(made));
+    await act(() => w.session.setView(BOARD, ALDRIC));
+    await settle();
+    w.dblClick([30, 44]);
+    await until(() => w.invokes().length === 1, "the invoke");
+    expect(w.invokes()[0]?.actor).toEqual(ALDRIC);
   });
 });

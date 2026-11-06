@@ -293,13 +293,15 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 > Through the MCP server, ask the agent: "Make room 4 difficult terrain and
 > hatch it, and make a Fireball card for Aldric with DC 14 and 8d6." The agent
 > gives Aldric's binder a copy of the Area Save card named Fireball with
-> `caster` Aldric and `damage_dice` 8d6, and writes 14 into Aldric's sheet
+> `caster` and `owner` Aldric and `damage_dice` 8d6, and writes 14 into Aldric's sheet
 > `spell_dc`, which the card's `dc` follows. Check its work in the inspector.
 > Correct the DC by typing over it.
 
 1. Paste the quoted request into your agent, verbatim.
 2. Wait for it to finish. If it says it cannot read a character's cells,
-   tell it to call `get_objects` with `cells: "all"`.
+   tell it to call `get_objects` with `cells: "all"`. If it did not set the
+   card's `owner`, tell it to set the card's `owner` to Aldric (its
+   instructions say so): the card's buttons are then pressed as Aldric.
 
 The walkthrough's agent commits two changes, labelled "Room 4: difficult
 terrain, hatched" and "Fireball for Aldric". Yours may label or split them
@@ -310,7 +312,7 @@ differently; note it if it does.
    expand his binder entry. It now holds a Fireball entry after the Attack
    template.
 5. Click the gear on the Fireball entry. The inspector shows `dc` 14,
-   `caster` Aldric and `damage_dice` 8d6.
+   `caster` Aldric, `owner` Aldric and `damage_dice` 8d6.
 6. Correct the DC: set `dc` to `15` in the inspector.
 
 You should see: room 4 hatched, with the tag `difficult`; Aldric's sheet
@@ -444,7 +446,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
    binder entry out of it onto Crypt, to the right of the map at
    `M + [27, 15]`. If its list is cramped, select it and resize a binder
    with its handles to see more entries: its rows keep their height.
-2. View as Aldric. Aldric's buttons are pressed as Aldric from here on.
+2. You can stay in GM view; the buttons are pressed as Aldric because the
+   card is his. View as Aldric to check that `ac` is hidden.
 3. In Aldric's binder, expand the Attack template with its chevron. A
    working copy appears right after it, expanded and selected.
 4. Drag G1 onto the copy's `target` field. G1 does not move.
@@ -461,7 +464,8 @@ You should see:
   minus the damage rolled. The Log tab's newest entry is "Apply" by Aldric,
   with a sentence naming G1.
 - Apply stays drawn but disabled. Pressing it shows the notice "Apply: its
-  condition is false." and changes nothing.
+  condition is false" (in GM view followed by the condition itself) and
+  changes nothing.
 
 The walkthrough rolled 15 (total 20, a hit) and 6 damage, leaving G1 at
 `hp` 1.
@@ -509,7 +513,8 @@ miss.
 
 1. In GM view, drag Brenna out of the strip into room 3, to
    `M + [17, 11]`.
-2. View as Aldric.
+2. You can stay in GM view; the buttons are pressed as Aldric because the
+   card is his. View as Aldric to check that `ac` is hidden.
 3. Drag the Fireball entry out of Aldric's binder onto the table, below his
    binder at `M + [27, 22]`. This drops a copy; its `dc` is your 15.
 4. Drag the zone's row out of the card's contents list onto room 3, to
