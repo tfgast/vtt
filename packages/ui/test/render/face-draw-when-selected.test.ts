@@ -17,6 +17,8 @@ import {
   type FaceScene,
   faceCullBounds,
   ImageCache,
+  MIN_ZOOM,
+  PERSISTENT_TEXT_MIN_PX,
   RecordingContext,
   type Viewport,
 } from "@vtt/ui";
@@ -100,6 +102,14 @@ describe("the count badge", () => {
     // The badge sits right of the anchor and below the token (screen centre 400, 300).
     expect(badge?.extent?.minX ?? 0).toBeGreaterThan(400);
     expect(badge?.extent?.minY ?? 0).toBeGreaterThan(300);
+  });
+
+  test("is painted at the minimum zoom at the persistent-text floor (vtt-qf5.61)", () => {
+    const ctx = render(MIN_ZOOM, []);
+    const badge = ctx.paints.find((c) => c.name === "fillText" && c.args[0] === "3");
+    expect(badge, texts(ctx).join(", ")).toBeDefined();
+    const px = Number(/(\d+(?:\.\d+)?)px/.exec(badge?.style?.font ?? "")?.[1]);
+    expect(px).toBeGreaterThanOrEqual(PERSISTENT_TEXT_MIN_PX);
   });
 
   test("is painted at zoom 1 too, and not once the object is selected", () => {

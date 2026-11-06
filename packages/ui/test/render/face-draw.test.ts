@@ -37,6 +37,7 @@ import {
   ImageCache,
   INK_STROKE,
   INK_WIDTH,
+  PERSISTENT_TEXT_MIN_PX,
   PLACEHOLDER_STROKE,
   type RecordedCall,
   RecordingContext,
@@ -511,6 +512,37 @@ describe("minSize", () => {
     expect(texts(at2)).not.toContain("7");
     expect(at2.paints.some((c) => c.name === "fill")).toBe(true); // the token's base
     expect(texts(render([bag, tok], { camera: { x: 0, y: 0, zoom: 4 } }))).toContain("7");
+  });
+});
+
+describe("the persistent-text floor (M6-D17)", () => {
+  // 0.4 × 0.25 units: at zoom 1/16 (4 px per unit) a 1.6 × 1 px box, under 1 px wide after padding.
+  const face = (extra: Extra): FaceView => ({
+    elements: [value("hp", [0.5, -1, 0.4, 0.25], 0, { style: { align: "left" }, ...extra })],
+  });
+  const at = { x: 0, y: 0, zoom: 1 / 16 };
+
+  test("a value element without min_size is magnified about its anchor to the floor", () => {
+    const tok = mk("tok", { shape: circle(1), at: [0, 0], cells: { hp: num(7) }, face: face({}) });
+    const call = textCall(render([tok], { camera: at }), "7");
+    expect(fontPx(call)).toBeCloseTo(PERSISTENT_TEXT_MIN_PX);
+    // Left-aligned: magnified about the left of its middle line (402, 296.5 on screen), so
+    // the text starts one magnified pad (0.15 × 8 / 0.6 = 2 px) right of x 402.
+    expect(call.extent?.minX).toBeCloseTo(404);
+    const mid = ((call.extent?.minY ?? 0) + (call.extent?.maxY ?? 0)) / 2;
+    expect(mid).toBeCloseTo(296.5);
+  });
+
+  test("an element with a min_size it meets keeps its fitted size", () => {
+    const tok = mk("tok", {
+      shape: circle(1),
+      at: [0, 0],
+      cells: { hp: num(7) },
+      face: face({ min_size: 4 }),
+    });
+    // At zoom 1/4 the rect is 4 px high: shown, font 4 × 0.6 = 2.4 px, not floored.
+    const call = textCall(render([tok], { camera: { x: 0, y: 0, zoom: 1 / 4 } }), "7");
+    expect(fontPx(call)).toBeCloseTo(2.4);
   });
 });
 

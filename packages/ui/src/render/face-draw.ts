@@ -66,6 +66,14 @@ export const FACE_TEXT_SCALE: Readonly<Record<FaceTextSize, number>> = Object.fr
 });
 /** Text shrinks to fit its width down to this fraction of its style size, then truncates with `…`. */
 export const FACE_TEXT_MIN_SHRINK = 0.5;
+/**
+ * The legibility floor for persistent text (M6-D17), in CSS px: a value
+ * element without `min_size` (and so the HIT badge, M6-D16) and the
+ * when_selected count badge (M6-D12) are drawn at any zoom, and where their
+ * fitted font would be smaller than this they are magnified about their
+ * alignment anchor until it is this size.
+ */
+export const PERSISTENT_TEXT_MIN_PX = 8;
 /** What a redacted or missing contents entry shows. */
 export const HIDDEN_TEXT = "hidden";
 /** The scroll indicator's width, in CSS px. */
@@ -193,7 +201,11 @@ function toneFill(tone: FormatTone): string {
  * One line of `text` in `rect`, vertically centred: font size = the rect's
  * height × the style's factor, shrunk to fit the width (down to
  * FACE_TEXT_MIN_SHRINK of it), then cut with `…`. Drawn in CSS px so the
- * font is a whole-pixel-friendly size.
+ * font is a whole-pixel-friendly size. With `floor` (persistent text,
+ * M6-D17), a font below PERSISTENT_TEXT_MIN_PX magnifies the box about its
+ * alignment anchor (vertically its middle) until the fitted font reaches the
+ * floor, MIN_TEXT_PX notwithstanding; the layout (shrink, cut) is otherwise
+ * the one drawn at any larger zoom.
  */
 function fitText(
   ctx: Ctx2D,
@@ -203,24 +215,35 @@ function fitText(
   align: FaceTextAlign,
   fill: string,
   s: number,
+  floor = false,
 ): void {
   if (text === "") return;
-  const [x, y, w, h] = rect.map((n) => n * s) as [number, number, number, number];
-  const pad = h * TEXT_PAD_RATIO;
-  const maxWidth = w - 2 * pad;
-  if (maxWidth < MIN_TEXT_PX) return;
-  const full = h * FACE_TEXT_SCALE[size];
   ctx.save();
   ctx.scale(1 / s, 1 / s);
-  ctx.font = fontOf(full);
-  let font = full;
-  let line = text;
-  const width = ctx.measureText(text).width;
-  if (width > maxWidth) {
-    font = Math.max(full * FACE_TEXT_MIN_SHRINK, (full * maxWidth) / width);
-    ctx.font = fontOf(font);
-    line = truncate(ctx, text, maxWidth);
+  let box = rect.map((n) => n * s) as Box;
+  if (floor) {
+    // First up to the floor's unshrunk size, so a box too narrow for any text still draws.
+    const full = box[3] * FACE_TEXT_SCALE[size];
+    if (full > 0 && full < PERSISTENT_TEXT_MIN_PX) {
+      box = magnify(box, align, PERSISTENT_TEXT_MIN_PX / full);
+    }
   }
+  let fit = fitLine(ctx, text, box, size);
+  if (floor && fit !== null && fit.font < PERSISTENT_TEXT_MIN_PX) {
+    // Then by however much shrink-to-fit took, so the fitted font is the floor.
+    box = magnify(box, align, PERSISTENT_TEXT_MIN_PX / fit.font);
+    fit = fitLine(ctx, text, box, size);
+    if (fit !== null && fit.font < PERSISTENT_TEXT_MIN_PX) {
+      fit = { ...fit, font: PERSISTENT_TEXT_MIN_PX };
+    }
+  }
+  if (fit === null || fit.line === "") {
+    ctx.restore();
+    return;
+  }
+  const [x, y, w, h] = box;
+  const pad = h * TEXT_PAD_RATIO;
+  ctx.font = fontOf(fit.font);
   ctx.textBaseline = "middle";
   ctx.fillStyle = fill;
   let tx: number;
@@ -234,9 +257,41 @@ function fitText(
     ctx.textAlign = "center";
     tx = x + w / 2;
   }
-  if (line !== "") ctx.fillText(line, tx, y + h / 2);
+  ctx.fillText(fit.line, tx, y + h / 2);
   ctx.restore();
 }
+
+/**
+ * The font size and line for `text` in the CSS-px `box` (the context is in
+ * CSS px); null when the box is narrower than MIN_TEXT_PX after padding.
+ * Leaves `ctx.font` set to some size; the caller sets the final one.
+ */
+function fitLine(
+  ctx: Ctx2D,
+  text: string,
+  [, , w, h]: Box,
+  size: FaceTextSize,
+): { font: number; line: string } | null {
+  const maxWidth = w - 2 * h * TEXT_PAD_RATIO;
+  if (maxWidth < MIN_TEXT_PX) return null;
+  const full = h * FACE_TEXT_SCALE[size];
+  ctx.font = fontOf(full);
+  const width = ctx.measureText(text).width;
+  if (width <= maxWidth) return { font: full, line: text };
+  const font = Math.max(full * FACE_TEXT_MIN_SHRINK, (full * maxWidth) / width);
+  ctx.font = fontOf(font);
+  return { font, line: truncate(ctx, text, maxWidth) };
+}
+
+/** `box` scaled by `k` about its alignment anchor: the left, centre or right of its middle line. */
+function magnify([x, y, w, h]: Box, align: FaceTextAlign, k: number): Box {
+  const ax = align === "left" ? x : align === "right" ? x + w : x + w / 2;
+  const ay = y + h / 2;
+  return [ax + (x - ax) * k, ay + (y - ay) * k, w * k, h * k];
+}
+
+/** A rect in CSS px. */
+type Box = [number, number, number, number];
 
 function fontOf(px: number): string {
   return `${Math.round(px * 1000) / 1000}px ${FONT_FAMILY}`;
@@ -261,8 +316,10 @@ function captioned(p: { text: string; caption?: string }): string {
   return p.caption === undefined ? p.text : `${p.caption}: ${p.text}`;
 }
 
+/** A text primitive without `minSize` is persistent: it keeps the legibility floor (M6-D17). */
 function drawText(ctx: Ctx2D, p: TextPrimitive, env: Env): void {
-  fitText(ctx, captioned(p), p.rect, p.size, p.align, toneFill(p.tone), env.s);
+  const floor = !(p.minSize > 0);
+  fitText(ctx, captioned(p), p.rect, p.size, p.align, toneFill(p.tone), env.s, floor);
 }
 
 function drawEditor(ctx: Ctx2D, p: EditorPrimitive, env: Env): void {
