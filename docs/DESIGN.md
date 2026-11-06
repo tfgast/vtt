@@ -594,7 +594,10 @@ overrides marked, and each action with its steps and precondition. Here cells
 are added, removed, renamed, and given their own visibility; actions are
 edited; broken references are repaired. A layout mode lets the GM drag cells
 onto the face, which is how "I want HP visible on all these tokens" happens
-without code.
+without code. Its contents list reorders entries by drag, takes one out
+beside the outermost container with Take out, and moves an entry dragged
+from it onto the canvas to the active board at the drop point (snapped
+while Snap is on, as an entry dragged out of a list on the board).
 
 **The formula bar.** One persistent bar, as in a spreadsheet, showing the
 formula of whichever cell is focused, whether focused on the face or in the

@@ -12,7 +12,10 @@
  *   those ids against that revision, so a list changed meanwhile by another
  *   client is rejected `stale_write` instead of reordering something else;
  * - "Take out" moves the entry to the board of the outermost container, at
- *   its position + (1, 0); disabled when that chain is not on a board.
+ *   its position + (1, 0); disabled when that chain is not on a board;
+ * - an entry's drag also carries `OBJECT_DRAG_MIME` (`objectDragData`), so
+ *   dropping it on the canvas moves it onto the active board at the drop
+ *   point (vtt-qf5.13, `createObjectDropHandler`).
  *
  * Read-only (view-as) lists the entries without drag or "Take out".
  */
@@ -22,6 +25,7 @@ import { type CSSProperties, type DragEvent, useRef } from "react";
 import type { TableSession } from "../session/table-session";
 import type { UiStore } from "../state/ui-state";
 import { inspectorRefLabel, useInspectorWrites } from "./CellRow";
+import { OBJECT_DRAG_MIME, objectDragData } from "./object-drop";
 
 export interface ContentsListProps {
   object: ObjectId;
@@ -140,6 +144,7 @@ export function ContentsList({ object, view, session, ui, readOnly = false }: Co
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", id);
+      event.dataTransfer.setData(OBJECT_DRAG_MIME, objectDragData(id, object));
     }
   };
 
