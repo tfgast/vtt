@@ -74,6 +74,7 @@ describe("UiStore", () => {
       hoveredCell: null,
       hoveredZone: null,
       altHover: null,
+      snap: true,
       highlight: [],
       tool: { id: "select", options: {} },
       camera: { x: 0, y: 0, zoom: 1 },

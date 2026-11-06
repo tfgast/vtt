@@ -243,7 +243,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
   // Snapshots and cancellation
 
   const snapshot = (): ReducerInput => {
-    const { camera, selection } = ui.getState();
+    const { camera, selection, snap } = ui.getState();
     return {
       scene: inputs.scene(),
       viewport: inputs.viewport(),
@@ -253,6 +253,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
       camera,
       selection: [...selection],
       views: (id) => inputs.views(id),
+      snap,
     };
   };
 

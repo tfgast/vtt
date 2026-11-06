@@ -45,6 +45,12 @@ zoom about the middle of the screen. Over a list that scrolls (a binder, a
 token's contents), the wheel scrolls the list instead. A board you open for
 the first time is fitted to what is on it. `?` lists every key and gesture.
 
+**Snap.** The toolbar's Snap checkbox, next to Fog, is on when the table
+opens. While it is on, a faint grid of whole units is drawn under the
+objects, and an object you move or drop on the board lands with its centre
+on the nearest half unit. Untick it to place objects freely; it is not
+saved with the table.
+
 ### Positions
 
 Positions on the Crypt board are given as `M + [x, y]`. M is the top-left
@@ -52,8 +58,10 @@ corner of the map. `x` counts board units to the right, `y` counts units
 down. One unit is 100 map pixels, so the map is 24 × 16 units. The
 walkthrough puts the map so that M is `[0, 0]`, which makes its positions
 equal to the `position` row of the inspector. You do not need to be exact:
-landing in the right room, near the right spot, is enough. Positions on the
-GM board are plain `[x, y]`; the GM binder's centre is `[0, 0]`.
+landing in the right room, near the right spot, is enough. With Snap on,
+positions land on half units, so every position the guide puts an object
+at is a whole or half unit, and a drop near one lands on it. Positions on
+the GM board are plain `[x, y]`; the GM binder's centre is `[0, 0]`.
 
 ### Words used below
 
@@ -504,12 +512,12 @@ miss.
    binder at `M + [27, 22]`. This drops a copy; its `dc` is your 15.
 4. Drag the zone's row out of the card's contents list onto room 3, to
    `M + [15.5, 11.5]`. The card's `targets` now holds G1, G2 and Brenna.
-5. Nudge the zone so its centre is at `M + [14.8, 12]`: drag the zone from
+5. Nudge the zone so its centre is at `M + [14.5, 12]`: drag the zone from
    a point inside it, clear of the tokens in it. The goblins are not
    selected, so their contents lists are hidden (only their count badges
    show), and releasing over where a list would be leaves the zone on the
    board. The walkthrough grabs it just above its centre and releases it
-   at `M + [14.6, 11.5]`, below G1, where G1's list shows when G1 is
+   at `M + [14.3, 11.5]`, below G1, where G1's list shows when G1 is
    selected. `targets` updates as the zone moves: G1, G2 and G3, without
    Brenna.
 6. Press Lock targets. Three save rows appear in the card's list.

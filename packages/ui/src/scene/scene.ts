@@ -103,6 +103,11 @@ export interface Scene {
   objectOverlays: OverlayItem[];
   /** Views not drawn on this board (contained, on another board, or no valid position), by id. */
   skipped: ObjectId[];
+  /**
+   * Draw the 1-unit grid under the items (M6-D13): set from the session's
+   * Snap by whoever builds the scene for drawing; absent is no grid.
+   */
+  grid?: boolean;
 }
 
 /** Ids are compared by code point (FORMULAS.md §5). */

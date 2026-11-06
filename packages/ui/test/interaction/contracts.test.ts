@@ -326,6 +326,7 @@ describe("tools", () => {
       camera: Camera;
       selection: ObjectId[];
       views: (id: ObjectId) => ObjectView | null;
+      snap?: boolean;
     }>();
     expectTypeOf<ToolInput>().toEqualTypeOf<ReducerInput & { interactionId: string }>();
   });

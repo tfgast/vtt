@@ -545,6 +545,8 @@ async function world(options: Options = {}) {
   await until(() => session.boardView()?.objects.has(card) === true, "the card's view");
 
   const ui = createUiStore({ session });
+  // These drops check exact off-grid positions: Snap (M6-D13) off.
+  ui.setSnap(false);
   const faceState = createFaceStateStore();
   const registry = new ToolRegistry();
   const gestures = [

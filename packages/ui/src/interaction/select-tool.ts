@@ -24,6 +24,12 @@
  *   another non-zone object, one `move` per object into its `contents`
  *   (M4-D9); else one `move` per object onto the active board, back to front
  *   so the landing rule keeps their stacking order.
+ * - Snap (M6-D13; DESIGN.md §4.6 On the canvas): with `input.snap` at the
+ *   release, a spawn or board move moves the grabbed object's anchor to the
+ *   nearest half-unit point (`snapPoint`) and the rest of the drag by the
+ *   same delta, keeping their offsets; the held previews match. Live
+ *   previews follow the pointer unsnapped; containment and drop overrides
+ *   (the board point they get is the pointer's) are unaffected.
  * - Alt-hover (DESIGN.md §4.6 Only when selected, M6-D12): during a drag,
  *   each pointer move (and an Alt key release) recomputes `altHoverAt`, kept
  *   in the drag gesture and emitted as an `alt_hover` effect when it
@@ -40,7 +46,7 @@ import { altHoverAt } from "../face/face-scene";
 import { hitsAt, marqueeHit } from "../scene/hit-test";
 import type { DrawItem, Scene, ScenePreview } from "../scene/scene";
 import type { InteractionStamp, Previews } from "./contracts";
-import type { Continuation, Effect } from "./effects";
+import { type Continuation, type Effect, snapPoint } from "./effects";
 import type { InteractionEvent, Modifiers, PointerInteractionEvent } from "./events";
 import { selectKeyEffects } from "./keys";
 import { PRIMARY_BUTTON } from "./machine";
@@ -114,6 +120,8 @@ export interface DragPlan {
   stamp: InteractionStamp;
   /** Back to front. */
   items: DraggedItem[];
+  /** The dragged object under the pointer at pointer down, whose anchor snaps (M6-D13). */
+  grabbed: ObjectId;
   spawn: boolean;
   /** Alt at pointer down. */
   alt: boolean;
@@ -219,6 +227,17 @@ function dragPreviews(plan: DragPlan, delta: Point): Previews {
   );
 }
 
+/**
+ * The drop's delta: `delta`, or with `snap` the delta that puts the grabbed
+ * object's anchor on the nearest half-unit point (M6-D13).
+ */
+function dropDelta(plan: DragPlan, delta: Point, snap: boolean): Point {
+  if (!snap) return delta;
+  const item = plan.items.find((i) => i.id === plan.grabbed) ?? (plan.items[0] as DraggedItem);
+  const at = snapPoint(moved(item, delta), true);
+  return [at[0] - item.anchor[0], at[1] - item.anchor[1]];
+}
+
 function ghost(plan: DragPlan, delta: Point): ToolOverlay {
   return {
     kind: "drag_ghost",
@@ -259,9 +278,11 @@ function planDrag(input: ToolInput, hits: ObjectId[], modifiers: Modifiers): Dra
       shape: item.shape,
     }));
   if (items.length === 0) return null;
+  const dragged = new Set(items.map((item) => item.id));
+  const grabbed = hits.find((id) => dragged.has(id)) ?? (items[0] as DraggedItem).id;
   const only = items.length === 1 ? input.views((items[0] as DraggedItem).id) : null;
   const spawn = only?.is_template === true && !modifiers.alt;
-  return { stamp, items, spawn, alt: modifiers.alt, select };
+  return { stamp, items, grabbed, spawn, alt: modifiers.alt, select };
 }
 
 export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPhase, "select"> {
@@ -510,7 +531,8 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
       };
     }
     const { plan } = g;
-    const delta: Point = [event.board[0] - g.grab[0], event.board[1] - g.grab[1]];
+    const raw: Point = [event.board[0] - g.grab[0], event.board[1] - g.grab[1]];
+    const delta = dropDelta(plan, raw, input.snap === true);
     const altHover = nextAltHover(g, event, input);
     const { ops, label, continuations } = dropWrite(plan, delta, event, input, altHover);
     return {

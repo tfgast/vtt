@@ -72,11 +72,11 @@ export const BRENNA_IN_ROOM3: Point = [17, 11];
 export const FIREBALL_AT: Point = [27, 22];
 /** The Fireball zone: dropped on room 3, then nudged (§8.4 step 12), relative to M. */
 export const ZONE_DROP: Point = [15.5, 11.5];
-export const ZONE_NUDGE: Point = [14.8, 12];
+export const ZONE_NUDGE: Point = [14.5, 12];
 /**
  * Where the nudge grabs the zone, from its anchor: pressed at M + [15.3,
  * 11], inside the zone clear of the tokens, so a plain press picks the zone
- * (M6-D10); released at M + [14.6, 11.5], clear of G1's body and over G1's
+ * (M6-D10); released at M + [14.3, 11.5], clear of G1's body and over G1's
  * contents list, which an unselected G1 hides (M6-D12), so the release
  * point is the board.
  */

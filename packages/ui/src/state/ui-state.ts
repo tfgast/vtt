@@ -10,7 +10,8 @@
  * runtime from the select tool's `hover` effect (vtt-3l6.23, vtt-3l6.7), and
  * `hoveredZone` also the object list (vtt-3l6.12); `highlight` — only
  * dependency tracing (vtt-3l6.24); `altHover` — the interaction runtime
- * from the select tool's `alt_hover` effect (M6-D12).
+ * from the select tool's `alt_hover` effect (M6-D12); `snap` — the
+ * toolbar's Snap checkbox (M6-D13), per session and never stored in the table.
  */
 import type { Viewer } from "@vtt/protocol";
 import type { BoardId, ObjectId } from "@vtt/schema";
@@ -38,6 +39,8 @@ export interface UiState {
   readonly hoveredZone: ObjectId | null;
   /** The object an Alt-held drag hovers, whose `when_selected` lists show (M6-D12). */
   readonly altHover: ObjectId | null;
+  /** Snap to half units, with the grid drawn (M6-D13); default true, per session. */
+  readonly snap: boolean;
   readonly highlight: readonly ObjectId[];
   readonly tool: UiTool;
   readonly camera: Camera;
@@ -65,6 +68,7 @@ export interface UiStore {
   setHoveredCell(cell: CellAddress | null): void;
   setHoveredZone(id: ObjectId | null): void;
   setAltHover(id: ObjectId | null): void;
+  setSnap(snap: boolean): void;
   setHighlight(ids: readonly ObjectId[]): void;
   /** Activates a tool with `options`, else the options it last had, else its defaults. */
   setTool<K extends ToolId>(id: K, options?: ToolOptionsMap[K]): void;
@@ -117,6 +121,7 @@ export function createUiStore(options: UiStoreOptions): UiStore {
     hoveredCell: null,
     hoveredZone: null,
     altHover: null,
+    snap: true,
     highlight: [],
     tool: { id: "select", options: DEFAULT_TOOL_OPTIONS.select },
     camera: { ...(options.camera ?? DEFAULT_CAMERA) },
@@ -167,6 +172,9 @@ export function createUiStore(options: UiStoreOptions): UiStore {
     },
     setAltHover(id) {
       if (state.altHover !== id) update({ altHover: id });
+    },
+    setSnap(snap) {
+      if (state.snap !== snap) update({ snap });
     },
     setHighlight(ids) {
       if (!sameIds(state.highlight, ids)) update({ highlight: [...ids] });

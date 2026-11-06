@@ -6,7 +6,7 @@
  * emitted them as a `settled` event with the stamp's `interactionId`.
  */
 import type { WireOp } from "@vtt/protocol";
-import type { Bounds, ObjectId } from "@vtt/schema";
+import type { Bounds, ObjectId, Point } from "@vtt/schema";
 import type { Camera } from "../scene/camera";
 import type { CommittedWrite, InteractionStamp, NoticeLevel, Previews } from "./contracts";
 import type { ToolOverlay } from "./overlays";
@@ -62,6 +62,19 @@ export type Effect =
   | { type: "close_editor" }
   /** A named runtime extension (M5 Q1 A1/A2); with a stamp it settles back as `extension`. */
   | { type: "extension"; name: string; stamp?: InteractionStamp; payload: unknown };
+
+/** The snap step in board units (M6-D13): positions snap to half units. */
+export const SNAP_STEP = 0.5;
+
+/**
+ * `point` snapped to the nearest half-unit point per axis when `snap` is on
+ * (M6-D13; DESIGN.md §4.6 On the canvas), else `point` unchanged. Never -0.
+ */
+export function snapPoint(point: Point, snap: boolean): Point {
+  if (!snap) return point;
+  const to = (v: number) => Math.round(v / SNAP_STEP) * SNAP_STEP + 0;
+  return [to(point[0]), to(point[1])];
+}
 
 /**
  * The id created by op `opIndex` of a committed write: the `created` record

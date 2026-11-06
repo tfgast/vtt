@@ -1,7 +1,8 @@
 /**
  * The Canvas2D renderer (DESIGN.md §4.6 Appearance cells and Default
  * rendering until faces, §7 Platform; M4-D4, M4-D5, M4-D10, M4-D15, M4-D16).
- * One frame: clear; scene items back to front, culled against the view; the
+ * One frame: clear; the grid when the scene asks for it (M6-D13); scene
+ * items back to front, culled against the view; the
  * object-related overlays (the scene's outlines, then the object kinds of the
  * tool overlays); covers; then chrome overlays only. Nothing object-related is
  * drawn after the first cover. No per-object bitmap cache (vtt-qf5.10).
@@ -53,12 +54,16 @@ export const DRAFT_STROKE = "#2f7cf6";
 export const MARQUEE_FILL = "rgba(47, 124, 246, 0.1)";
 export const MARQUEE_STROKE = "#1d5fd1";
 export const CROSSHAIR_STROKE = "#e11d48";
+/** The faint 1-unit grid drawn under the items while Snap is on (M6-D13). */
+export const GRID_STROKE = "rgba(60, 60, 70, 0.14)";
 
 // Sizes fixed on screen, in CSS pixels.
 export const HATCH_SPACING_PX = 8;
 export const HANDLE_PX = 8;
 export const TEXT_FONT_PX = 14;
 export const LABEL_FONT_PX = 12;
+/** The grid is drawn only while one board unit is at least this many CSS pixels (M6-D13). */
+export const GRID_MIN_PX = 8;
 const FONT_FAMILY = "system-ui, sans-serif";
 const TEXT_PADDING_PX = 4;
 const TEXT_LINE_HEIGHT = 1.25;
@@ -498,6 +503,35 @@ function paintObjectToolOverlay(ctx: Ctx2D, overlay: ObjectToolOverlay, px: numb
   ctx.restore();
 }
 
+/**
+ * The 1-unit grid lines within `view`, one CSS pixel wide (M6-D13); nothing
+ * when a unit is under `GRID_MIN_PX` on screen.
+ */
+function paintGrid(ctx: Ctx2D, view: Bounds, camera: Camera): void {
+  const s = cameraScale(camera);
+  if (!(s >= GRID_MIN_PX)) return;
+  const x0 = Math.ceil(view.minX);
+  const x1 = Math.floor(view.maxX);
+  const y0 = Math.ceil(view.minY);
+  const y1 = Math.floor(view.maxY);
+  if (x0 > x1 && y0 > y1) return;
+  ctx.save();
+  ctx.beginPath();
+  for (let x = x0; x <= x1; x++) {
+    ctx.moveTo(x, view.minY);
+    ctx.lineTo(x, view.maxY);
+  }
+  for (let y = y0; y <= y1; y++) {
+    ctx.moveTo(view.minX, y);
+    ctx.lineTo(view.maxX, y);
+  }
+  ctx.strokeStyle = GRID_STROKE;
+  ctx.lineWidth = 1 / s;
+  ctx.globalAlpha = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
 function paintCover(ctx: Ctx2D, cover: CoverItem, view: Bounds): void {
   ctx.save();
   ctx.fillStyle = COVER_FILL;
@@ -577,6 +611,9 @@ export function createCanvas2DRenderer<S extends Scene = Scene>(
       );
       const view = visibleBounds(camera, viewport);
       const { images, drawItem, cullBounds } = options;
+
+      // 0. The grid, under everything (M6-D13).
+      if (scene.grid === true) paintGrid(ctx, view, camera);
 
       // 1. Scene items, back to front.
       for (const item of scene.items) {

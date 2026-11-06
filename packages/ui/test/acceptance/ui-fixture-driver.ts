@@ -247,6 +247,8 @@ async function openWorld(scenario: Scenario): Promise<World> {
   });
   const request = vi.spyOn(session.client, "request");
   const ui = createUiStore({ session });
+  // These drops check exact off-grid positions: Snap (M6-D13) off.
+  ui.setSnap(false);
   const faceState = createFaceStateStore();
   const ctx = new RecordingContext();
   const utils = render(

@@ -82,7 +82,7 @@ export type ToolState<TPhase = unknown, K extends ToolId = ToolId> = {
 /**
  * A snapshot taken by the runtime for each event, from `RuntimeInputs`
  * (scene, views, viewport, board, viewer, revision) and `UiStore` (camera,
- * selection). The scene is built without previews.
+ * selection, snap). The scene is built without previews.
  */
 export interface ReducerInput {
   scene: Scene;
@@ -93,6 +93,8 @@ export interface ReducerInput {
   camera: Camera;
   selection: ObjectId[];
   views: (id: ObjectId) => ObjectView | null;
+  /** The session's Snap (M6-D13; `UiState.snap`); absent counts as off. */
+  snap?: boolean;
 }
 
 /**
