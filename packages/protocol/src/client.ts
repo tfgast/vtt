@@ -180,6 +180,8 @@ export type TransactOptions = {
   /** Defaults to a new UUID. */
   txn_id?: string;
   actor?: TransactParams["actor"];
+  /** The read set (PROTOCOL.md §6): cells whose change since `base_revision` refuses the write. */
+  expect?: TransactParams["expect"];
 };
 
 /**
@@ -683,6 +685,7 @@ export class ProtocolClient {
     };
     if (options.label !== undefined) params.label = options.label;
     if (options.actor !== undefined) params.actor = options.actor;
+    if (options.expect !== undefined) params.expect = options.expect;
     return this.request("transact", params);
   }
 

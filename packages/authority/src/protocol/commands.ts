@@ -165,10 +165,13 @@ function sortedJson(v: unknown): string {
   return JSON.stringify(v);
 }
 
-/** The deduplication fingerprint: the canonical JSON of the params except `retry` (§6). */
+/**
+ * The deduplication fingerprint: the canonical JSON of the params except
+ * `retry` (§6), an empty `expect` dropped since it means the same as none.
+ */
 export function txnFingerprint(params: TransactParams): string {
-  const { retry: _retry, ...rest } = params;
-  return sortedJson(rest);
+  const { retry: _retry, expect, ...rest } = params;
+  return sortedJson(expect === undefined || expect.length === 0 ? rest : { ...rest, expect });
 }
 
 /**
@@ -670,6 +673,9 @@ const rejected = (
 
 const union = (keys: Iterable<string>): string[] => [...new Set(keys)];
 
+/** The key an `expect` entry checks (PROTOCOL.md §6 step 4b; M6-D31). */
+const expectKey = (e: { object: ObjectId; cell: string }): string => `cell:${e.object}/${e.cell}`;
+
 /** PROTOCOL.md §6 steps 3–7, after validation and a deduplication miss. */
 function execute(ctx: CommandContext, params: TransactParams): WireTransactResult {
   const store = ctx.table.store;
@@ -687,9 +693,22 @@ function execute(ctx: CommandContext, params: TransactParams): WireTransactResul
     });
   }
   const stale = base < current;
+  const expected = params.expect ?? [];
   if (stale) {
-    const declared = staleConflicts(store.history, base, union(params.ops.flatMap(declaredKeys)));
+    const declared = staleConflicts(
+      store.history,
+      base,
+      union([...params.ops.flatMap(declaredKeys), ...expected.map(expectKey)]),
+    );
     if (declared !== null) return rejected(declared);
+  }
+  // After the stale check, so an object removed since `base_revision` is `stale_write`.
+  const unknown = expected.find((e) => store.getObject(e.object) === undefined);
+  if (unknown !== undefined) {
+    return rejected({
+      type: "invalid",
+      message: `expect names unknown object "${unknown.object}"`,
+    });
   }
 
   const s: RunState = { bindings: new Bindings(), created: [], copies: [] };

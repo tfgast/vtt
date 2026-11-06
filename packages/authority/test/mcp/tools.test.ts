@@ -181,6 +181,17 @@ describe("tool list", () => {
       const extra = { base_revision: 3, ops: [{ type, ...fields, extra: 1 }] };
       expect(validate(extra).issues, `${type} + extra`).toBeDefined();
     }
+    // The optional `expect` read set (vtt-qf5.5): `{object, cell}` entries, strict.
+    const remove = [{ type: "remove", object: "coin" }];
+    const read = { object: "goblin", cell: "hp" };
+    expect(validate({ base_revision: 3, ops: remove, expect: [read] }).issues).toBeUndefined();
+    expect(validate({ base_revision: 3, ops: remove, expect: [] }).issues).toBeUndefined();
+    expect(
+      validate({ base_revision: 3, ops: remove, expect: [{ ...read, extra: 1 }] }).issues,
+    ).toBeDefined();
+    expect(
+      validate({ base_revision: 3, ops: remove, expect: [{ object: "goblin" }] }).issues,
+    ).toBeDefined();
     for (const field of ["actor", "retry", "txn_id"]) {
       const input = { base_revision: 3, ops: [{ type: "remove", object: "coin" }], [field]: "x" };
       expect(validate(input).issues, field).toBeDefined();
@@ -366,6 +377,31 @@ describe("happy paths and errors, one per tool", () => {
       revision: 4,
       conflicts: [{ index: 0, label: "gm heal" }],
     });
+  });
+
+  test("transact: expect is sent and an intervening write to an expected cell is stale_write", async () => {
+    const h = await startHarness();
+    const gm = await h.gm();
+    await gm.transact([setHp(9)] as never, { base_revision: 3, label: "gm heal" });
+    const ac = {
+      type: "set_value",
+      object: "goblin",
+      cell: "ac",
+      value: { type: "number", value: 15 },
+    };
+    const read = [{ object: "goblin", cell: "hp" }];
+    const stale = failed(await h.call("transact", { base_revision: 3, ops: [ac], expect: read }));
+    expect(stale.rejection).toMatchObject({
+      type: "stale_write",
+      conflicts: [{ index: 0, label: "gm heal", keys: ["cell:goblin/hp"] }],
+    });
+    expect(h.sockets.requestsFor("transact").at(-1)?.params.expect).toEqual(read);
+    ok(await h.call("transact", { base_revision: 4, ops: [ac], expect: read }));
+  });
+
+  test("the transact description documents expect", () => {
+    const transact = TOOLS.find((t) => t.name === "transact");
+    expect(transact?.description).toMatch(/`expect`/);
   });
 
   test("undo", async () => {
