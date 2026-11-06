@@ -4,7 +4,7 @@
  * "Replace formula with value", structural rows, add/rename/delete and hover.
  * jsdom against a real in-process authority through the shared helper.
  */
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CellView, WireOp } from "@vtt/protocol";
 import type { ObjectId, OpGroup } from "@vtt/schema";
@@ -711,8 +711,8 @@ describe("add, rename, delete", () => {
     const { session, transacts } = await setup();
     await user.type(screen.getByRole("textbox", { name: "New cell name" }), "Max HP");
     await user.click(screen.getByRole("button", { name: "Add cell" }));
-    await until(() => hasRow("Max HP"), "the Max HP row");
-    const editor = await openEditor(user, "Max HP");
+    await until(() => editorOf("Max HP") !== null, "the Max HP editor");
+    const editor = editorOf("Max HP") as HTMLInputElement;
     expect(editor.value).toBe("empty");
     await user.clear(editor);
     await user.type(editor, "20{Enter}");
@@ -766,6 +766,102 @@ describe("add, rename, delete", () => {
     const notices = sessionNotices(session);
     await until(() => notices.list().length > 0, "the refusal notice");
     expect(notices.list()[0]?.level).toBe("error");
+  });
+});
+
+/** Records the elements `scrollIntoView` is called on (jsdom has none). */
+function recordScrolls(): { scrolled: Element[]; restore(): void } {
+  const scrolled: Element[] = [];
+  const proto = Element.prototype as { scrollIntoView?: unknown };
+  const had = Object.hasOwn(proto, "scrollIntoView");
+  const previous = proto.scrollIntoView;
+  proto.scrollIntoView = function (this: Element) {
+    scrolled.push(this);
+  };
+  return {
+    scrolled,
+    restore: () => {
+      if (had) proto.scrollIntoView = previous;
+      else delete proto.scrollIntoView;
+    },
+  };
+}
+
+describe("the Cells section (vtt-nb8.25)", () => {
+  test("the user cells have a Cells heading and the add-cell form precedes Structural", async () => {
+    await setup();
+    const heading = screen.getByRole("heading", { name: "Cells" });
+    expect(heading.tagName).toBe("H4");
+    const structural = screen.getByRole("button", { name: "Structural" });
+    const input = screen.getByRole("textbox", { name: "New cell name" });
+    const add = screen.getByRole("button", { name: "Add cell" });
+    const visibility = screen.getByRole("heading", { name: "Visibility rules" });
+    const follows = (a: Node, b: Node) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    // Heading, then the user cells, then the form, then Structural, then the rules.
+    expect(follows(heading, row("ac"))).toBe(true);
+    expect(follows(row("temp"), input)).toBe(true);
+    expect(follows(input, add)).toBe(true);
+    expect(follows(add, structural)).toBe(true);
+    expect(follows(structural, visibility)).toBe(true);
+    expect(follows(add, row("position"))).toBe(true);
+  });
+
+  test("Add cell scrolls the new row into view and focuses its value input", async () => {
+    const scrolls = recordScrolls();
+    try {
+      const user = userEvent.setup();
+      const { session, transacts } = await setup();
+      await user.type(screen.getByRole("textbox", { name: "New cell name" }), "notes");
+      await user.click(screen.getByRole("button", { name: "Add cell" }));
+      await until(() => editorOf("notes") !== null, "the notes editor");
+      const editor = editorOf("notes") as HTMLInputElement;
+      await until(() => document.activeElement === editor, "the focused notes editor");
+      expect(scrolls.scrolled).toContain(row("notes"));
+      // The prefilled text is selected, so typing replaces it.
+      await user.keyboard("7{Enter}");
+      await until(() => cellOf(session, "goblin", "notes")?.value.type === "number", "notes = 7");
+      expect(cellOf(session, "goblin", "notes")?.value).toEqual(num(7));
+      expect(transacts().map((t) => t.ops)).toEqual([
+        [{ type: "set_value", object: "goblin", cell: "notes", value: { type: "empty" } }],
+        [{ type: "set_value", object: "goblin", cell: "notes", value: num(7) }],
+      ]);
+    } finally {
+      scrolls.restore();
+    }
+  });
+
+  test("the new cell's editor, left untouched, closes when focus moves to another field", async () => {
+    const user = userEvent.setup();
+    const { transacts } = await setup();
+    const name = screen.getByRole("textbox", { name: "New cell name" });
+    await user.type(name, "notes{Enter}");
+    await until(() => document.activeElement === editorOf("notes"), "the focused notes editor");
+    await user.click(name);
+    await until(() => editorOf("notes") === null, "the closed notes editor");
+    expect(shown("notes").textContent).toBe("empty");
+    expect(transacts()).toHaveLength(1);
+  });
+
+  test("a value draft survives a window blur and writes nothing", async () => {
+    const user = userEvent.setup();
+    const { transacts } = await setup();
+    const editor = await openEditor(user, "ac");
+    await user.clear(editor);
+    await user.type(editor, "15");
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    try {
+      // The window loses focus: the editor blurs while the document has no focus.
+      fireEvent.blur(editor);
+      fireEvent.focusOut(editor);
+    } finally {
+      hasFocus.mockRestore();
+    }
+    // The window comes back and the editor is focused again.
+    editor.focus();
+    expect(editorOf("ac")).toBe(editor);
+    expect(editor.value).toBe("15");
+    expect(transacts()).toEqual([]);
   });
 });
 

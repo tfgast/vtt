@@ -127,11 +127,13 @@ First, the HIT badge on the character template:
 1. In the GM binder, click the gear on the Character entry. A banner says
    "Editing template Character", and the inspector shows the template.
 2. In the inspector's Cells section, type `hit` into the new cell name box
-   and press Add cell.
-3. Set the new `hit` cell's value to
-   `=any(on(this).where(tag has "d20").total >= ac)`.
+   (right below the cells, above Structural) and press Add cell. The new
+   `hit` row scrolls into view with its value box open and focused.
+3. Type the new `hit` cell's value,
+   `=any(on(this).where(tag has "d20").total >= ac)`, and press Enter.
 4. In the inspector's Face section, press Add value. A new element row
-   appears.
+   appears at the end of the list, marked "new", with its Cell picker
+   focused.
 5. In that row, pick `hit` as its Cell. Then set x to `-0.5`, y to `-0.95`,
    w to `1`, h to `0.3` and Show when to `hit`; Enter, Tab or a click on
    the next field each commits a value.
@@ -390,7 +392,8 @@ The tray:
 2. Draw a zone below the map from `M + [0, 17]` to `M + [6, 20]`.
 3. While it is selected, set its `name` to `Tray` in the inspector.
 4. Add a cell `text` to it (the Cells section's new cell name box, then
-   Add cell) with the value `=sum(contents(this).where(tag has "die").value)`.
+   Add cell; the new row's value box opens focused) with the value
+   `=sum(contents(this).where(tag has "die").value)`.
    There is no tray template; the formula is the tray.
 
 The rolls, one die per character, in the order Aldric, Brenna, Corin, Dara:

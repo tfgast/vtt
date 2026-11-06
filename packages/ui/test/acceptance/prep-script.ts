@@ -401,9 +401,13 @@ export async function typeIntoRow(
   text: string,
   done: (v: WireResult | undefined) => boolean,
 ): Promise<void> {
-  const value = (await row(cell)).querySelector<HTMLElement>('[data-part="value"]');
-  if (value === null) throw new Error(`no value in row ${cell}`);
-  await user.dblClick(value);
+  const r = await row(cell);
+  // A cell just added opens its value editor by itself (vtt-nb8.25).
+  if (within(r).queryByRole("textbox", { name: `Value of ${cell}` }) === null) {
+    const value = r.querySelector<HTMLElement>('[data-part="value"]');
+    if (value === null) throw new Error(`no value in row ${cell}`);
+    await user.dblClick(value);
+  }
   const input = within(inspector()).getByRole("textbox", { name: `Value of ${cell}` });
   await user.clear(input);
   await user.type(input, `${text}{Enter}`);

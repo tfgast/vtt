@@ -1590,10 +1590,14 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
       await select(object);
       await onInspector(async () => {
         const row = await cellRow(object, cell);
+        // A cell just added opens its value editor by itself (vtt-nb8.25).
+        const open = within(row).queryByRole("textbox", { name: `Value of ${cell}` });
         const shown = row.querySelector<HTMLElement>('[data-part="value"]');
-        if (shown === null) throw new Error(`inspectorSet: ${object}.${cell} cannot be edited`);
+        if (open === null && shown === null) {
+          throw new Error(`inspectorSet: ${object}.${cell} cannot be edited`);
+        }
         const before = ctx.gm.revision;
-        await user.dblClick(shown);
+        if (open === null && shown !== null) await user.dblClick(shown);
         const box = await waitFor(() =>
           within(row).getByRole("textbox", { name: `Value of ${cell}` }),
         ).catch(() => {
