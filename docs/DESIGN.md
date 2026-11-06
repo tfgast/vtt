@@ -545,8 +545,25 @@ The Attack card face:
   {"type": "value", "cell": "dmg", "rect": [-1.2, -0.1, 2.4, 0.4], "style": {"caption": true}},
   {"type": "button", "action": "Roll", "rect": [-1.2, 0.5, 1.1, 0.45], "show_when": "roll = empty"},
   {"type": "button", "action": "Roll damage", "rect": [0.1, 0.5, 1.1, 0.45], "show_when": "hit and dmg = empty"},
-  {"type": "button", "action": "Apply", "rect": [-1.2, 1.1, 2.4, 0.45], "show_when": "not applied"}],
+  {"type": "button", "action": "Apply", "rect": [-1.2, 1.1, 1.15, 0.45], "show_when": "dmg != empty"},
+  {"type": "button", "action": "Discard", "rect": [0.05, 1.1, 1.15, 0.45]}],
  "default_action": "Roll"}
+```
+
+The Area save card face:
+
+```json
+{"elements": [
+  {"type": "value", "cell": "name", "rect": [-1.2, -1.7, 2.4, 0.4], "style": {"size": "large"}},
+  {"type": "editor", "cell": "caster", "rect": [-1.2, -1.25, 1.15, 0.35], "style": {"caption": true}},
+  {"type": "value", "cell": "dc", "rect": [0.05, -1.25, 1.15, 0.35], "style": {"caption": true}},
+  {"type": "value", "cell": "damage", "rect": [-1.2, -0.85, 2.4, 0.3], "style": {"caption": true}},
+  {"type": "value", "cell": "targets", "rect": [-1.2, -0.5, 2.4, 0.3], "style": {"caption": true}},
+  {"type": "contents", "rect": [-1.2, -0.15, 2.4, 1.1], "entries": "collapsed"},
+  {"type": "button", "action": "Lock targets", "rect": [-1.2, 1.0, 1.15, 0.35], "show_when": "not locked"},
+  {"type": "button", "action": "Roll damage", "rect": [0.05, 1.0, 1.15, 0.35], "show_when": "locked and damage = empty"},
+  {"type": "button", "action": "Apply all", "rect": [-1.2, 1.4, 1.15, 0.3], "show_when": "damage != empty"},
+  {"type": "button", "action": "Discard", "rect": [0.05, 1.4, 1.15, 0.3]}]}
 ```
 
 **The inspector.** A side panel. Select an object and it lists every cell as
