@@ -26,11 +26,10 @@ import { itemScope } from "../eval/scope";
 import { truthy } from "../eval/values";
 import type { EvalEnv } from "../host";
 import type { Expr } from "../syntax/ast";
+import { anchorOf, geometryNumber } from "./geometry";
 import type { FunctionDef } from "./registry";
 import {
-  anchorOf,
   failed,
-  geometryNumber,
   isTrue,
   place,
   queryResult,

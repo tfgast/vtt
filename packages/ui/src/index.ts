@@ -50,6 +50,7 @@ export * from "./interaction/entry-drag";
 export * from "./interaction/events";
 export * from "./interaction/face-tool";
 export * from "./interaction/handles";
+export * from "./interaction/ink-pen";
 export * from "./interaction/ink-tool";
 export * from "./interaction/keys";
 export * from "./interaction/machine";

@@ -91,7 +91,7 @@ has one tagged encoding:
 | dice | `{"type":"dice","expr":"2d6+3"}` |
 | roll result | `{"type":"roll","expr":"4d6dl1","dice":[6,4,3],"dropped":[1],"total":13}` |
 | viewers | `{"type":"viewers","viewers":["gm", {"type":"ref","object":"aldric"}]}` |
-| ink | `{"type":"ink","strokes":[[[0,0],[1,1]]]}` |
+| ink | `{"type":"ink","strokes":[[[0,0],[1,1]], {"points":[[2,2]],"color":"#d32f2f","width":0.08}]}` |
 
 A **formula** is a separate tagged form, never a value:
 `{"type":"formula","source":"max_hp - damage_taken"}`. `{"type":"text"}` is
@@ -107,7 +107,9 @@ Notes:
 - A viewer set is one or more of `"all"`, `"gm"`, `"owner"`, or a reference to
   a character. A single viewer is a one-element set.
 - Ink is opaque to formulas (§2); fixtures only need "some ink" versus
-  `empty`, so strokes are lists of points.
+  `empty`, so strokes are lists of points, or `{points, color?, width?}`
+  with a `#rrggbb` colour and a width over 0 and at most 1 (DESIGN.md
+  §4.6, M6-D28).
 - **Records** (§2) are not storable, so they have no encoding; they appear
   only inside spawn step source text.
 - **Errors are expectations, never values.** There is no error encoding; a

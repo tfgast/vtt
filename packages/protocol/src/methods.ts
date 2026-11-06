@@ -118,6 +118,15 @@ export const TransactParamsSchema = z
     retry: z.literal(true).optional(),
     /** The GM driving a character (§3). */
     actor: z.strictObject({ type: z.literal("character"), id: ObjectIdSchema }).optional(),
+    /**
+     * The read set (§6; M6-D31): cells the ops were computed from. A group
+     * after `base_revision` touching one rejects `stale_write`; `[]` is the
+     * same as absent.
+     */
+    expect: z
+      .array(z.strictObject({ object: ObjectIdSchema, cell: CellNameSchema }))
+      .max(LIMITS.max_ops)
+      .optional(),
   })
   .refine((p) => p.retry === undefined || p.txn_id !== undefined, {
     message: "retry requires txn_id",

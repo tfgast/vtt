@@ -113,6 +113,7 @@ describe("the tables", () => {
         effect: "expand or collapse it (a template entry makes a working copy)",
       },
       { gesture: "Gear", effect: "edit a template" },
+      { gesture: "Drag with the ink eraser (E)", effect: "erase the whole strokes it crosses" },
       {
         gesture: "Tab or Shift+Tab, one object selected",
         effect:
@@ -135,6 +136,7 @@ describe("the tables", () => {
   test("KEY_BINDINGS is what dispatch reads: every row's command, ? included", () => {
     expect(KEY_BINDINGS.map((b) => b.keys)).toEqual([
       ...Object.keys(TOOL_KEYS).map((k) => k.toUpperCase()),
+      "E",
       "Ctrl/Cmd+Z",
       "Ctrl/Cmd+S",
       "+",

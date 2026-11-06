@@ -25,6 +25,7 @@ import type {
 import { entryTransform } from "../face/face-model";
 import type { FaceScene } from "../face/face-scene";
 import { type Affine, aabb, compose, itemTransform, screenHeight } from "../face/face-transform";
+import { DEFAULT_INK_COLOR, DEFAULT_INK_WIDTH, strokePen } from "../interaction/ink-pen";
 import { type Camera, cameraScale } from "../scene/camera";
 import type { DrawItem } from "../scene/scene";
 import type { FormatTone } from "../values/format";
@@ -39,7 +40,7 @@ import {
 import type { Ctx2D } from "./renderer";
 
 // Colors.
-export const INK_STROKE = "#202020";
+export const INK_STROKE = DEFAULT_INK_COLOR;
 export const MUTED_TEXT = "#6b6b75";
 export const ERROR_TEXT = "#b3261e";
 export const BUTTON_FILL = "#ecebf3";
@@ -56,8 +57,8 @@ export const SCROLL_FILL = "rgba(60, 60, 72, 0.45)";
 export const TILE_FILL = "#ffffff";
 export const TILE_STROKE = "#8a8a96";
 
-/** The one pen (DESIGN.md §4.6 Ink and text; M5-D20): its width in object-local units. */
-export const INK_WIDTH = 0.04;
+/** The default pen (DESIGN.md §4.6 Ink and text; M5-D20): its width in object-local units. */
+export const INK_WIDTH = DEFAULT_INK_WIDTH;
 /** A disabled button, or any button of a template, is drawn at this alpha. */
 export const DISABLED_ALPHA = 0.4;
 /** Font size as a fraction of the element rect's height, by `style.size`. */
@@ -465,15 +466,20 @@ function drawImagePrimitive(ctx: Ctx2D, p: ImagePrimitive, env: Env): void {
   ctx.restore();
 }
 
-/** Strokes in the drawing's frame: INK_WIDTH wide but at least one CSS px, round joins and caps. */
+/**
+ * Strokes in the drawing's frame, each in its own colour and width (the
+ * default pen's, INK_STROKE and INK_WIDTH, where absent; M6-D28) but at
+ * least one CSS px wide, round joins and caps.
+ */
 function drawInk(ctx: Ctx2D, p: InkPrimitive, env: Env): void {
   ctx.save();
-  ctx.strokeStyle = INK_STROKE;
-  ctx.lineWidth = Math.max(INK_WIDTH, env.px);
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   for (const stroke of p.strokes) {
-    const [first, ...rest] = stroke;
+    const { points, color, width } = strokePen(stroke);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(width, env.px);
+    const [first, ...rest] = points;
     if (first === undefined) continue;
     ctx.beginPath();
     ctx.moveTo(first[0], first[1]);

@@ -67,9 +67,21 @@ const TextValueSchema = z.strictObject({ type: z.literal("text"), value: z.strin
 const BooleanValueSchema = z.strictObject({ type: z.literal("boolean"), value: z.boolean() });
 const EmptyValueSchema = z.strictObject({ type: z.literal("empty") });
 const DiceValueSchema = z.strictObject({ type: z.literal("dice"), expr: SourceSchema });
+/** A stroke: a point list, or a pen stroke with its colour and width (M6-D28). */
+const StrokeSchema = z.union([
+  z.array(PointSchema).min(1),
+  z.strictObject({
+    points: z.array(PointSchema).min(1),
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional(),
+    width: z.number().positive().max(1).optional(),
+  }),
+]);
 const InkValueSchema = z.strictObject({
   type: z.literal("ink"),
-  strokes: z.array(z.array(PointSchema).min(1)).min(1),
+  strokes: z.array(StrokeSchema).min(1),
 });
 
 /** Lists hold tagged values; a list literal may nest. */

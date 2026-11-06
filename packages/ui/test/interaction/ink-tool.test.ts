@@ -14,6 +14,7 @@ import {
   type CancelReason,
   type CoverItem,
   createInkTool,
+  DEFAULT_TOOL_OPTIONS,
   type Effect,
   INK_MAX_POINTS,
   INK_MIN_SIZE,
@@ -133,7 +134,7 @@ function drive(
   events: (InteractionEvent | { cancel: CancelReason })[],
   options: { input?: (n: number) => Partial<ReducerInput>; state?: S } = {},
 ) {
-  let state: S = options.state ?? tool.init({});
+  let state: S = options.state ?? tool.init(DEFAULT_TOOL_OPTIONS.ink);
   const effects: Effect[] = [];
   let n = 1;
   for (const event of events) {
@@ -570,7 +571,7 @@ describe("cancellation", () => {
 
   test("cancel with nothing in progress emits nothing", () => {
     const tool = createInkTool();
-    expect(tool.cancel(tool.init({}), "escape").effects).toEqual([]);
+    expect(tool.cancel(tool.init(DEFAULT_TOOL_OPTIONS.ink), "escape").effects).toEqual([]);
   });
 
   test("through the machine: Escape mid-stroke cancels it", () => {

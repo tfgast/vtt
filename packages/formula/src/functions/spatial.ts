@@ -1,6 +1,7 @@
 /**
  * Geometry reads and query plumbing for the spatial functions (FORMULAS.md
- * §5, §6; DESIGN.md §4.3). Used only by queries.ts.
+ * §5, §6; DESIGN.md §4.3). Used only by queries.ts. The shared geometry
+ * readings and id order live in geometry.ts.
  */
 import {
   type Bounds,
@@ -15,6 +16,7 @@ import {
   type Shape,
 } from "@vtt/schema";
 import type { EvalEnv } from "../host";
+import { anchorOf, compareIds, geometryNumber } from "./geometry";
 
 /** An object's geometry cells as read, in read order. A missing cell reads as empty. */
 export interface RawGeometry {
@@ -71,29 +73,6 @@ export function isTrue(r: Result): boolean {
   return r.type === "boolean" && r.value;
 }
 
-/** A z or rotation as a number: empty as 0, a roll result as its total, else undefined. */
-export function geometryNumber(r: Result): number | undefined {
-  switch (r.type) {
-    case "number":
-      return r.value;
-    case "empty":
-      return 0;
-    case "roll":
-      return r.total;
-    default:
-      return undefined;
-  }
-}
-
-/** The anchor, if `r` is a list of two finite numbers. */
-export function anchorOf(r: Result): Point | undefined {
-  if (r.type !== "list" || r.items.length !== 2) return undefined;
-  const [x, y] = r.items;
-  if (x?.type !== "number" || y?.type !== "number") return undefined;
-  if (!Number.isFinite(x.value) || !Number.isFinite(y.value)) return undefined;
-  return [x.value, y.value];
-}
-
 /**
  * The placement of `id` from its raw geometry: `null` when it is not on a
  * board or its position is not two finite numbers (excluded, not an
@@ -121,20 +100,6 @@ export function place(id: ObjectId, raw: RawGeometry): Placed | ErrorValue | nul
 export function readPlaced(env: EvalEnv, id: ObjectId): Placed | ErrorValue | null {
   const raw = readGeometry(env, id);
   return failed(raw) ? raw : place(id, raw);
-}
-
-/** Compares ids by Unicode code point. */
-export function compareIds(a: string, b: string): number {
-  const ai = a[Symbol.iterator]();
-  const bi = b[Symbol.iterator]();
-  for (;;) {
-    const x = ai.next();
-    const y = bi.next();
-    if (x.done || y.done) return x.done && y.done ? 0 : x.done ? -1 : 1;
-    const cx = x.value.codePointAt(0) as number;
-    const cy = y.value.codePointAt(0) as number;
-    if (cx !== cy) return cx < cy ? -1 : 1;
-  }
 }
 
 /** Distinct ids in code point order. */

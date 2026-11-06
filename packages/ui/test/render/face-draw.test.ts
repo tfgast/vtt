@@ -14,7 +14,7 @@ import type {
   WireResult,
   WireValue,
 } from "@vtt/protocol";
-import type { Bounds, ObjectId, Point, Rect, Shape } from "@vtt/schema";
+import type { Bounds, ObjectId, Rect, Shape, Stroke } from "@vtt/schema";
 import {
   BACK_FILL,
   buildFaceScene,
@@ -58,7 +58,7 @@ const num = (value: number): WireValue => ({ type: "number", value });
 const bool = (value: boolean): WireValue => ({ type: "boolean", value });
 const ref = (object: string): WireValue => ({ type: "ref", object });
 const EMPTY: WireResult = { type: "empty" };
-const ink = (...strokes: Point[][]): WireValue => ({ type: "ink", strokes });
+const ink = (...strokes: Stroke[]): WireValue => ({ type: "ink", strokes });
 const rect = (width: number, height: number): Shape => ({ type: "rect", width, height });
 const circle = (radius: number): Shape => ({ type: "circle", radius });
 
@@ -480,6 +480,44 @@ describe("text, buttons, editors, images, ink", () => {
     );
     expect(far[0]?.style?.lineWidth).toBeCloseTo(0.5);
     expect((far[0]?.style?.lineWidth ?? 0) * scaleOf(far[0] as RecordedCall)).toBeCloseTo(1);
+  });
+  test("a pen stroke is drawn in its own colour and width; a bare one with the default pen (M6-D28)", () => {
+    const note = mk("note", {
+      shape: rect(2, 2),
+      at: [0, 0],
+      cells: {
+        ink: ink(
+          {
+            points: [
+              [-0.5, 0],
+              [0.5, 0],
+            ],
+            color: "#d32f2f",
+            width: 0.16,
+          },
+          [
+            [0, -0.5],
+            [0, 0.5],
+          ],
+          { points: [[0.2, 0.2]], width: 0.08 },
+        ),
+      },
+    });
+    const strokes = render([note]).paints.filter((c) => c.name === "stroke");
+    const red = strokes.filter((c) => c.style?.strokeStyle === "#d32f2f");
+    expect(red).toHaveLength(1);
+    expect(red[0]?.style?.lineWidth).toBeCloseTo(0.16);
+    expect(red[0]?.path).toEqual(["moveTo", "lineTo"]);
+    const dark = strokes.filter((c) => c.style?.strokeStyle === INK_STROKE);
+    expect(dark.map((c) => c.style?.lineWidth)).toEqual([INK_WIDTH, 0.08]);
+    for (const c of [...red, ...dark]) {
+      expect(c.style).toMatchObject({ lineJoin: "round", lineCap: "round" });
+    }
+    // At zoom 1/32 a pen stroke still keeps a one-pixel floor.
+    const far = render([note], { camera: { x: 0, y: 0, zoom: 1 / 32 } }).paints.filter(
+      (c) => c.name === "stroke" && c.style?.strokeStyle === "#d32f2f",
+    );
+    expect(far[0]?.style?.lineWidth).toBeCloseTo(0.5);
   });
 });
 

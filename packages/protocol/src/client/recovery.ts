@@ -555,6 +555,7 @@ export function transactWithRetry(
   };
   if (options.label !== undefined) built.label = options.label;
   if (options.actor !== undefined) built.actor = options.actor;
+  if (options.expect !== undefined) built.expect = options.expect;
   // A snapshot: the caller mutating `ops` or `actor` later must not change the resend (§6).
   return writeWithRetry(client, "transact", structuredClone(built), txn_id, options);
 }

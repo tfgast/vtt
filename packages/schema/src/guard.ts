@@ -4,7 +4,7 @@
  */
 import type { CellContent } from "./cell";
 import { ID_PATTERN } from "./ids";
-import type { Value } from "./values";
+import { isInkColor, isInkWidth, type Value } from "./values";
 
 type Obj = Record<string, unknown>;
 
@@ -36,6 +36,22 @@ const isIntArray = (x: unknown): boolean =>
 
 const isPoint = (x: unknown): boolean =>
   Array.isArray(x) && x.length === 2 && isFiniteNumber(x[0]) && isFiniteNumber(x[1]);
+
+const isPointList = (x: unknown): boolean =>
+  Array.isArray(x) && x.length > 0 && everyIndex(x, isPoint);
+
+/** A stroke: a non-empty point list, or `{points, color?, width?}` (M6-D28). */
+function isStroke(x: unknown): boolean {
+  if (Array.isArray(x)) return isPointList(x);
+  if (!isPlainObject(x)) return false;
+  const own = Reflect.ownKeys(x);
+  const allowed = ["points", "color", "width"];
+  if (!own.every((k) => typeof k === "string" && allowed.includes(k))) return false;
+  if (!Object.hasOwn(x, "points") || !isPointList(x.points)) return false;
+  if (Object.hasOwn(x, "color") && !isInkColor(x.color)) return false;
+  if (Object.hasOwn(x, "width") && !isInkWidth(x.width)) return false;
+  return true;
+}
 
 function isRef(x: unknown): boolean {
   return (
@@ -105,7 +121,7 @@ export function isValue(x: unknown): x is Value {
         hasExactKeys(x, ["strokes"]) &&
         Array.isArray(x.strokes) &&
         x.strokes.length > 0 &&
-        everyIndex(x.strokes, (s) => Array.isArray(s) && s.length > 0 && everyIndex(s, isPoint))
+        everyIndex(x.strokes, isStroke)
       );
     case "shape":
       return hasExactKeys(x, ["shape"]) && isShape(x.shape);

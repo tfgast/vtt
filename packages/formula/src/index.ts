@@ -13,6 +13,7 @@ export * from "./eval/refs";
 export * from "./eval/scope";
 export * from "./eval/values";
 export * from "./functions/core";
+export * from "./functions/geometry";
 export * from "./functions/library";
 export * from "./functions/queries";
 export * from "./functions/registry";
