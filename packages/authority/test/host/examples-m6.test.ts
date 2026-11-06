@@ -391,6 +391,62 @@ describe("tpl_area_save against token copies whose dex_save is never set", () =>
   });
 });
 
+describe("tpl_marker: an initiative marker that shows the character it is of (M6-D26)", () => {
+  const MARKER_IMAGE = 0;
+  const MARKER_OF = 1;
+  const MARKER_WHO = 2;
+
+  test("an unset marker shows blanks, not errors, and offers its `of` editor", () => {
+    const s = session();
+    const marker = s.onBoard("tpl_marker", 0, 4).root;
+    expect(s.table.value(marker, "name")).toEqual(text("Marker"));
+    expect(s.table.value(marker, "of")).toEqual(EMPTY);
+    expect(s.table.value(marker, "who")).toEqual(EMPTY);
+    expect(s.table.value(marker, "image")).toEqual(EMPTY);
+    expect(s.shown(marker, s.element(marker, MARKER_OF, "editor", "of"))).toBe(true);
+    expect(s.shown(marker, s.element(marker, MARKER_WHO, "value", "who"))).toBe(true);
+    expect(s.shown(marker, s.element(marker, MARKER_IMAGE, "value", "image"))).toBe(true);
+  });
+
+  test("with `of` set to a character it shows that character's name and image; the token stays put", () => {
+    const s = session();
+    const character = s.onBoard("tpl_character", 3, 3).root;
+    s.prep("name", (tx) => {
+      writeValue(tx, character, "name", text("Aldric"));
+      writeValue(tx, character, "image", text("crypt.assets/aldric-0123abcd.png"));
+    });
+    const marker = s.onBoard("tpl_marker", 0, 4).root;
+    // Dropping the character on the marker's `of` editor sets a reference (DESIGN §4.6, Gestures).
+    s.prep("drop", (tx) => writeValue(tx, marker, "of", ref(character)));
+    expect(s.table.value(marker, "who")).toEqual(text("Aldric"));
+    expect(s.table.value(marker, "image")).toEqual(text("crypt.assets/aldric-0123abcd.png"));
+    expect(s.shown(marker, s.element(marker, MARKER_OF, "editor", "of"))).toBe(false);
+    expect(s.table.value(character, "position")).toEqual({
+      type: "list",
+      items: [n(3), n(3)],
+    });
+    // Renaming the character renames its marker.
+    s.prep("rename", (tx) => writeValue(tx, character, "name", text("Aldric the Bold")));
+    expect(s.table.value(marker, "who")).toEqual(text("Aldric the Bold"));
+  });
+
+  test("a marker is not a creature, so an area save's targets skip it", () => {
+    const s = session();
+    const token = s.onBoard("tpl_token", 10, 0).root;
+    const marker = s.onBoard("tpl_marker", 10.5, 0).root;
+    s.prep("of", (tx) => writeValue(tx, marker, "of", ref(token)));
+    const spawnedCard = s.onBoard("tpl_area_save", 0, 6);
+    const zone = spawnedCard.copies.get("tpl_area_save_zone") as ObjectId;
+    s.prep("zone", (tx) =>
+      move(tx, zone, { type: "board", board: "gm_board", position: [10.25, 0] }),
+    );
+    expect(s.table.value(spawnedCard.root, "targets")).toEqual({
+      type: "list",
+      items: [ref(token)],
+    });
+  });
+});
+
 describe("the amended records", () => {
   test("every face passes faceProblem", () => {
     for (const o of Object.values(exampleObjects())) {

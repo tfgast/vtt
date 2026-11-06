@@ -3,9 +3,10 @@
  * 12–15 as amended by vtt-nb8.2 (M6-D1, M6-D3), read as M6 plan decision
  * Q3 states (the readings table of vtt-nb8.9), driven through the real app
  * with vtt-nb8.18's gestures from where `runPlayA` left the table: GM view,
- * the select tool, Crypt active, the Log tab open; the party in the
- * Initiative strip; Aldric's binder on Crypt at M + [27, 15] holding
- * [Attack template, the step-10 working copy, Fireball].
+ * the select tool, Crypt active, the Log tab open; the party in room 1,
+ * their markers in the Initiative strip; Aldric's binder on Crypt at
+ * M + [27, 15] holding [Attack template, the step-10 working copy,
+ * Fireball].
  *
  * Local helpers are built only from the `DriverContext` and `Gestures`;
  * the GM assertion client is only read. `runPlayB` returns what it observed

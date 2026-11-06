@@ -744,18 +744,24 @@ describe("contents elements", () => {
       contentsCell?.type === "list"
         ? contentsCell.items.map((i) => (i.type === "ref" ? i.object : ""))
         : [];
-    expect(entryIds).toHaveLength(14);
+    expect(entryIds).toHaveLength(15);
     const ctx = render(views as ObjectView[], {
       board: "gm_board",
       camera: { x: 0, y: 0, zoom: 0.5 },
     });
     const drawn = texts(ctx);
+    // 15 rows of 0.66 overflow the 8.8-unit list: every row that starts inside
+    // it is drawn; the last (d20, at 9.24) is reached by scrolling.
+    const inView = entryIds.filter((_, i) => i * 0.66 < 8.8);
+    expect(inView).toHaveLength(14);
     for (const id of entryIds) {
       const name = views.find((v) => v.id === id)?.cells.name?.value;
       expect(name?.type).toBe("text");
-      if (name?.type === "text") expect(drawn).toContain(name.value);
+      if (name?.type !== "text") continue;
+      if (inView.includes(id)) expect(drawn).toContain(name.value);
+      else expect(drawn).not.toContain(name.value);
     }
-    // One gear per template row.
+    // One gear per template row in view.
     const gears = ctx.paints.filter((c) => c.style?.fillStyle === GEAR_FILL && c.name === "fill");
     expect(gears).toHaveLength(14);
   });
