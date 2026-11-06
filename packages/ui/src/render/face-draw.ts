@@ -383,26 +383,11 @@ function drawEditor(ctx: Ctx2D, p: EditorPrimitive, env: Env): void {
 // ---------------------------------------------------------------------------
 // Buttons, gears, chevrons
 
-/** A rounded rect as the current path (Ctx2D has no `roundRect`). */
-function roundedRect(ctx: Ctx2D, [x, y, w, h]: Rect, r: number): void {
-  const q = Math.PI / 2;
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arc(x + w - r, y + r, r, -q, 0);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arc(x + w - r, y + h - r, r, 0, q);
-  ctx.lineTo(x + r, y + h);
-  ctx.arc(x + r, y + h - r, r, q, 2 * q);
-  ctx.lineTo(x, y + r);
-  ctx.arc(x + r, y + r, r, 2 * q, 3 * q);
-  ctx.closePath();
-}
-
 function drawButton(ctx: Ctx2D, p: ButtonPrimitive, env: Env): void {
   ctx.save();
   if (!p.enabled || p.template) ctx.globalAlpha = ctx.globalAlpha * DISABLED_ALPHA;
-  roundedRect(ctx, p.rect, Math.min(p.rect[2], p.rect[3]) * BUTTON_RADIUS_RATIO);
+  ctx.beginPath();
+  ctx.roundRect(...p.rect, Math.min(p.rect[2], p.rect[3]) * BUTTON_RADIUS_RATIO);
   ctx.fillStyle = BUTTON_FILL;
   ctx.fill();
   ctx.strokeStyle = BUTTON_STROKE;
@@ -477,16 +462,13 @@ function drawImagePrimitive(ctx: Ctx2D, p: ImagePrimitive, env: Env): void {
   ctx.restore();
 }
 
-type InkCtx = Ctx2D & Partial<Pick<CanvasRenderingContext2D, "lineJoin" | "lineCap">>;
-
 /** Strokes in the drawing's frame: INK_WIDTH wide but at least one CSS px, round joins and caps. */
 function drawInk(ctx: Ctx2D, p: InkPrimitive, env: Env): void {
-  const ink = ctx as InkCtx;
   ctx.save();
   ctx.strokeStyle = INK_STROKE;
   ctx.lineWidth = Math.max(INK_WIDTH, env.px);
-  ink.lineJoin = "round";
-  ink.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
   for (const stroke of p.strokes) {
     const [first, ...rest] = stroke;
     if (first === undefined) continue;
@@ -501,15 +483,6 @@ function drawInk(ctx: Ctx2D, p: InkPrimitive, env: Env): void {
 
 // ---------------------------------------------------------------------------
 // Contents
-
-/** `m` applied to the context; `m` is a similarity (rotation and uniform scale), as entry transforms are. */
-function applyAffine(ctx: Ctx2D, m: Affine): void {
-  ctx.translate(m[4], m[5]);
-  const angle = Math.atan2(m[1], m[0]);
-  if (angle !== 0) ctx.rotate(angle);
-  const k = Math.hypot(m[0], m[1]);
-  if (k !== 1) ctx.scale(k, k);
-}
 
 /**
  * The element's background, then, clipped to its rect and scrolled by
@@ -573,7 +546,7 @@ function drawEntry(ctx: Ctx2D, p: ContentsPrimitive, entry: FaceEntry, env: Env)
   if (entry.gear !== undefined) drawGear(ctx, local(entry.gear), env);
   ctx.restore();
   ctx.save();
-  applyAffine(ctx, entry.transform);
+  ctx.transform(...entry.transform);
   const child: DrawFaceOptions = {
     camera: env.camera,
     images: env.images,

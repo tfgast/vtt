@@ -29,6 +29,8 @@ export interface Ctx2D {
   fillStyle: string | CanvasGradient | CanvasPattern;
   strokeStyle: string | CanvasGradient | CanvasPattern;
   lineWidth: number;
+  lineJoin: CanvasLineJoin;
+  lineCap: CanvasLineCap;
   globalAlpha: number;
   font: string;
   textAlign: CanvasTextAlign;
@@ -36,6 +38,7 @@ export interface Ctx2D {
   save(): void;
   restore(): void;
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
+  transform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   translate(x: number, y: number): void;
   rotate(angle: number): void;
   scale(x: number, y: number): void;
@@ -44,6 +47,13 @@ export interface Ctx2D {
   moveTo(x: number, y: number): void;
   lineTo(x: number, y: number): void;
   rect(x: number, y: number, w: number, h: number): void;
+  roundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii?: number | DOMPointInit | (number | DOMPointInit)[],
+  ): void;
   arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void;
   fill(): void;
   stroke(): void;

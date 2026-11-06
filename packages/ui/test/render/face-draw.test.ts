@@ -384,8 +384,8 @@ describe("text, buttons, editors, images, ink", () => {
     );
     expect(applyBody.length).toBeGreaterThanOrEqual(2);
     for (const p of applyBody) expect(p.style?.globalAlpha).toBeCloseTo(0.4);
-    // A rounded rect: arcs in the path.
-    expect(applyBody[0]?.path).toContain("arc");
+    // A rounded rect.
+    expect(applyBody[0]?.path).toEqual(["roundRect"]);
 
     const tpl = mk("tpl", {
       shape: rect(4, 4),
@@ -470,6 +470,8 @@ describe("text, buttons, editors, images, ink", () => {
     expect(near).toHaveLength(2);
     expect(near[0]?.style?.lineWidth).toBeCloseTo(0.04);
     expect(near[0]?.path).toEqual(["moveTo", "lineTo", "lineTo"]);
+    // Round joins and caps on every ink stroke.
+    for (const c of near) expect(c.style).toMatchObject({ lineJoin: "round", lineCap: "round" });
     // 0.04 units at zoom 1 is 2.56 device px.
     expect((near[0]?.style?.lineWidth ?? 0) * scaleOf(near[0] as RecordedCall)).toBeCloseTo(2.56);
     // At zoom 1/32 (2 px per unit) 0.04 units is 0.08 px: one pixel instead.

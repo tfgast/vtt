@@ -15,6 +15,8 @@ export interface RecordedStyle {
   fillStyle: string;
   strokeStyle: string;
   lineWidth: number;
+  lineJoin: CanvasLineJoin;
+  lineCap: CanvasLineCap;
   globalAlpha: number;
   lineDash: number[];
   font: string;
@@ -50,6 +52,8 @@ interface State {
   fillStyle: string | CanvasGradient | CanvasPattern;
   strokeStyle: string | CanvasGradient | CanvasPattern;
   lineWidth: number;
+  lineJoin: CanvasLineJoin;
+  lineCap: CanvasLineCap;
   globalAlpha: number;
   font: string;
   textAlign: CanvasTextAlign;
@@ -107,6 +111,8 @@ export class RecordingContext implements Ctx2D {
     fillStyle: "#000000",
     strokeStyle: "#000000",
     lineWidth: 1,
+    lineJoin: "miter",
+    lineCap: "butt",
     globalAlpha: 1,
     font: "10px sans-serif",
     textAlign: "start",
@@ -154,6 +160,18 @@ export class RecordingContext implements Ctx2D {
   set lineWidth(v) {
     this.#state.lineWidth = v;
   }
+  get lineJoin() {
+    return this.#state.lineJoin;
+  }
+  set lineJoin(v) {
+    this.#state.lineJoin = v;
+  }
+  get lineCap() {
+    return this.#state.lineCap;
+  }
+  set lineCap(v) {
+    this.#state.lineCap = v;
+  }
   get globalAlpha() {
     return this.#state.globalAlpha;
   }
@@ -195,6 +213,8 @@ export class RecordingContext implements Ctx2D {
       fillStyle: String(s.fillStyle),
       strokeStyle: String(s.strokeStyle),
       lineWidth: s.lineWidth,
+      lineJoin: s.lineJoin,
+      lineCap: s.lineCap,
       globalAlpha: s.globalAlpha,
       lineDash: [...s.lineDash],
       font: s.font,
@@ -240,6 +260,18 @@ export class RecordingContext implements Ctx2D {
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void {
     this.#state.transform = [a, b, c, d, e, f];
     this.#record("setTransform", [a, b, c, d, e, f]);
+  }
+
+  transform(a: number, b: number, c: number, d: number, e: number, f: number): void {
+    const m = this.#state.transform;
+    this.#state.transform = [
+      m[0] * a + m[2] * b,
+      m[1] * a + m[3] * b,
+      m[0] * c + m[2] * d,
+      m[1] * c + m[3] * d,
+      ...apply(m, e, f),
+    ];
+    this.#record("transform", [a, b, c, d, e, f]);
   }
 
   translate(x: number, y: number): void {
@@ -297,6 +329,20 @@ export class RecordingContext implements Ctx2D {
     this.#path.push(apply(m, x, y), apply(m, x + w, y), apply(m, x + w, y + h), apply(m, x, y + h));
     this.#pathOps.push("rect");
     this.#record("rect", [x, y, w, h]);
+  }
+
+  /** Extent is the rect's box (rounded corners lie inside it). */
+  roundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii?: number | DOMPointInit | (number | DOMPointInit)[],
+  ): void {
+    const m = this.#state.transform;
+    this.#path.push(apply(m, x, y), apply(m, x + w, y), apply(m, x + w, y + h), apply(m, x, y + h));
+    this.#pathOps.push("roundRect");
+    this.#record("roundRect", radii === undefined ? [x, y, w, h] : [x, y, w, h, radii]);
   }
 
   arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void {
