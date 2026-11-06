@@ -474,9 +474,28 @@ function countBadge(view: ObjectView, rect: Rect, element: number): TextPrimitiv
 }
 
 /**
+ * The default face's contents list rect, in `view`'s frame: below the frame
+ * and its action strip, centred, one row per entry up to
+ * `DEFAULT_CONTENTS_ROWS`; null when `contents` has no entries.
+ */
+export function defaultContentsRect(view: ObjectView): Rect | null {
+  const count = contentsRefs(view).length;
+  if (count === 0) return null;
+  const frame = shapeFrame(view);
+  const centre = frame[0] + frame[2] / 2;
+  let bottom = frame[1] + frame[3];
+  if (view.actions.length > 0) bottom += STRIP_TOP_GAP + STRIP_BUTTON_HEIGHT;
+  const w = DEFAULT_CONTENTS_WIDTH;
+  const rows = Math.min(count, DEFAULT_CONTENTS_ROWS);
+  return [centre - w / 2, bottom + STRIP_TOP_GAP, w, rows * rowHeight(w)];
+}
+
+/**
  * The default face (Q11): the `ink` cell over the frame, a strip of action
  * buttons below the frame, and a collapsed contents list below that, each
- * centred under the frame.
+ * centred under the frame. The list behaves as a `when_selected` one
+ * (M6-D12, amending M5-D10): while `view` is not revealed, its count badge
+ * stands in its place.
  */
 function defaultPrimitives(
   view: ObjectView,
@@ -497,7 +516,7 @@ function defaultPrimitives(
     });
   }
   const centre = frame[0] + frame[2] / 2;
-  let bottom = frame[1] + frame[3];
+  const bottom = frame[1] + frame[3];
   const n = view.actions.length;
   if (n > 0) {
     const width = n * STRIP_BUTTON_WIDTH + (n - 1) * STRIP_BUTTON_GAP;
@@ -507,13 +526,12 @@ function defaultPrimitives(
       const rect: Rect = [x, top, STRIP_BUTTON_WIDTH, STRIP_BUTTON_HEIGHT];
       out.push(buttonPrimitive(view, name, name, rect, DEFAULT_FACE_MIN_PX, null));
     });
-    bottom = top + STRIP_BUTTON_HEIGHT;
   }
-  const count = contentsRefs(view).length;
-  if (count > 0) {
-    const w = DEFAULT_CONTENTS_WIDTH;
-    const rows = Math.min(count, DEFAULT_CONTENTS_ROWS);
-    const rect: Rect = [centre - w / 2, bottom + STRIP_TOP_GAP, w, rows * rowHeight(w)];
+  const rect = defaultContentsRect(view);
+  if (rect !== null && !ctx.revealed(view.id)) {
+    const badge = countBadge(view, rect, DEFAULT_CONTENTS_ELEMENT);
+    if (badge !== null) out.push(badge);
+  } else if (rect !== null) {
     out.push(
       layoutContents(
         view,

@@ -12,6 +12,7 @@ import type { Camera } from "../scene/camera";
 import { hitsAt } from "../scene/hit-test";
 import { buildScene, type DrawItem, type Scene, type SceneInput } from "../scene/scene";
 import {
+  defaultContentsRect,
   type FaceDrawing,
   faceBaseItem,
   presentationBounds,
@@ -153,9 +154,15 @@ export function faceCullBounds(item: DrawItem, scene: FaceScene): Bounds {
   return scene.presentation.get(item.id) ?? item.bounds;
 }
 
-/** The `when_selected` contents element of `view`'s full list that its face shows, if any. */
+/**
+ * The `when_selected` contents element of `view`'s full list that its face
+ * shows, if any; for an object without a face, its default contents list
+ * (`defaultContentsRect`), which shows only when selected too (M6-D12).
+ */
 function whenSelectedRect(view: ObjectView | null | undefined): Rect | null {
-  const e = view?.face?.elements.find((x) => x.type === "contents" && x.when_selected === true);
+  if (view == null) return null;
+  if (view.face == null) return defaultContentsRect(view);
+  const e = view.face.elements.find((x) => x.type === "contents" && x.when_selected === true);
   return e === undefined || !e.shown ? null : e.rect;
 }
 
@@ -187,7 +194,8 @@ export interface AltHoverInput {
  * list keeps the list); otherwise it starts on the first non-dragged object
  * whose footprint is under the pointer (`hitsAt` order, as the Alt drop
  * picks its target) when that object is not a zone and its face shows a
- * `when_selected` contents element; else null.
+ * `when_selected` contents element (or, without a face, has contents);
+ * else null.
  */
 export function altHoverAt(input: AltHoverInput): ObjectId | null {
   const { scene, views, previous, point, camera, alt } = input;
