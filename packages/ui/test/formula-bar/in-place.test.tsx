@@ -78,7 +78,7 @@ const rect = (width: number, height: number) => ({ type: "rect" as const, width,
 
 /**
  * A note (`text`), a token (no `text`), a sign whose `text` is a formula, a
- * big 6 × 4 object, Aldric, `goblin2`, and the goblin with an overridden
+ * big 6 × 4 object, Aldric, `goblin2`, a memo whose `text` and `note` are `""`, and the goblin with an overridden
  * formula, a roll, a dangling ref and a tiny number.
  */
 const SEED: WireOp[] = [
@@ -122,6 +122,12 @@ const SEED: WireOp[] = [
     init: { cells: { name: text("Goblin 2") } },
   },
   { type: "create_object", id: "ghost", to: at(-20, 12), init: { cells: { name: text("Ghost") } } },
+  {
+    type: "create_object",
+    id: "memo",
+    to: at(-5, -3),
+    init: { shape: rect(2, 1), cells: { name: text("Memo"), text: text(""), note: text("") } },
+  },
   {
     type: "create_object",
     id: "goblin",
@@ -505,6 +511,98 @@ describe("in-place editor", () => {
     expect(editorOf("temp")).toBeNull();
     await settle();
     expect(transacts()).toEqual([]);
+  });
+
+  test("vtt-qf5.43: an empty text cell opens blank; a blank commit writes nothing", async () => {
+    const { session, port, stamp, transacts } = await setup();
+    act(() => port.open({ stamp: stamp(), object: "memo" }));
+    const editor = await openEditor("text");
+    expect(editor.tagName).toBe("TEXTAREA");
+    expect(editor.value).toBe("");
+    const user = userEvent.setup();
+    await user.type(editor, "{Enter}");
+    expect(editorOf("text")).toBeNull();
+    // Blur commits too: still nothing (a blank field is not `empty`).
+    act(() => port.open({ stamp: stamp(), object: "memo" }));
+    const again = await openEditor("text");
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    act(() => again.blur());
+    await settle();
+    expect(editorOf("text")).toBeNull();
+    expect(transacts()).toEqual([]);
+    expect(cellOf(session, "memo", "text")?.value).toEqual(text(""));
+  });
+
+  test("vtt-qf5.43: typing into a blank text cell writes the text, no clearing needed", async () => {
+    const { session, port, stamp, transacts } = await setup();
+    act(() => port.open({ stamp: stamp(), object: "memo" }));
+    const editor = await openEditor("text");
+    const user = userEvent.setup();
+    await user.type(editor, "abc{Enter}");
+    await until(
+      () => JSON.stringify(cellOf(session, "memo", "text")?.value) === JSON.stringify(text("abc")),
+      "the typed text",
+    );
+    expect(transacts()).toHaveLength(1);
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_value", object: "memo", cell: "text", value: text("abc") },
+    ]);
+  });
+
+  test('vtt-qf5.43: typing "" into a blank text cell is unchanged; typing empty clears it', async () => {
+    const { session, port, stamp, transacts } = await setup();
+    act(() => port.open({ stamp: stamp(), object: "memo" }));
+    const editor = await openEditor("text");
+    const user = userEvent.setup();
+    await user.type(editor, '""{Enter}');
+    expect(editorOf("text")).toBeNull();
+    await settle();
+    expect(transacts()).toEqual([]);
+    act(() => port.open({ stamp: stamp(), object: "memo" }));
+    const again = await openEditor("text");
+    await user.type(again, "empty{Enter}");
+    await until(() => cellOf(session, "memo", "text")?.value.type === "empty", "the empty cell");
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_value", object: "memo", cell: "text", value: { type: "empty" } },
+    ]);
+  });
+
+  test("vtt-qf5.43: an empty text value in another cell opens blank too", async () => {
+    const { port, stamp, transacts } = await setup();
+    act(() => port.open({ stamp: stamp(), object: "memo", cell: "note" }));
+    const editor = await openEditor("note");
+    expect(editor.tagName).toBe("INPUT");
+    expect(editor.value).toBe("");
+    const user = userEvent.setup();
+    await user.type(editor, "{Enter}");
+    expect(editorOf("note")).toBeNull();
+    await settle();
+    expect(transacts()).toEqual([]);
+  });
+
+  test("vtt-qf5.43: an overridden formula whose override is the empty text opens blank", async () => {
+    const { session, other, port, stamp, transacts } = await setup();
+    await other.transact([{ type: "set_value", object: "goblin", cell: "temp", value: text("") }], {
+      label: "Scribe blanks the override",
+    });
+    await until(
+      () => JSON.stringify(cellOf(session, "goblin", "temp")?.value) === JSON.stringify(text("")),
+      "the empty override",
+    );
+    expect(cellOf(session, "goblin", "temp")?.overridden).toBe(true);
+    act(() => port.open({ stamp: stamp(), object: "goblin", cell: "temp" }));
+    const editor = await openEditor("temp");
+    expect(editor.value).toBe("");
+    const user = userEvent.setup();
+    await user.type(editor, "{Enter}");
+    expect(editorOf("temp")).toBeNull();
+    await settle();
+    expect(transacts()).toEqual([]);
+    expect(cellOf(session, "goblin", "temp")).toMatchObject({
+      kind: "formula",
+      overridden: true,
+      value: text(""),
+    });
   });
 
   test("the window losing focus keeps the draft and writes nothing; Enter on return commits (vtt-nb8.21, vtt-qf5.59)", async () => {

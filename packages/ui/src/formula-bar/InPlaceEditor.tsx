@@ -20,8 +20,10 @@
  *
  * A formula target that is not overridden focuses the formula bar instead
  * (`requestFormulaBarFocus`). The editor writes literals or overrides,
- * prefilled with `valueToInputText`; a value with no input text opens an
- * empty replace-value input with its reason; `=…` writes a formula (not in
+ * prefilled with `valueToInputText`, except that a cell whose value is the
+ * empty text opens blank rather than as `""` (vtt-qf5.43, `isBlankText`); a
+ * value with no input text opens an empty replace-value input with its
+ * reason; `=…` writes a formula (not in
  * `name`, whose input is always text). A `textarea` for `text` (Shift+Enter
  * is a newline), else an `input`. Enter and blur commit with the stamp's
  * `baseRevision` (unchanged input writes nothing, except over a formula cell
@@ -36,7 +38,7 @@
  * the viewer changes, when the active board is no longer `stamp.board`, when
  * the object is gone, or on `EditorPort.close`.
  */
-import type { ObjectView, Viewer, WireResult } from "@vtt/protocol";
+import type { CellView, ObjectView, Viewer, WireResult } from "@vtt/protocol";
 import { type Bounds, type Footprint, footprintsOverlap, type Point } from "@vtt/schema";
 import {
   type CSSProperties,
@@ -98,6 +100,11 @@ interface Draft {
   readonly request: InPlaceEditRequest;
   readonly cell: string;
   readonly initial: string;
+  /**
+   * The field opened blank over a cell holding the empty text (`isBlankText`): `initial`
+   * stays `""`, the literal, and committing a blank field writes nothing.
+   */
+  readonly blank?: true;
   /** Why the value has no input text (the replace-value input). */
   readonly reason?: string;
   readonly text: string;
@@ -115,6 +122,18 @@ function sameViewer(a: Viewer, b: Viewer): boolean {
 function targetCell(request: InPlaceEditRequest, view: ObjectView): string {
   if (request.cell !== undefined) return request.cell;
   return Object.hasOwn(view.cells, "text") ? "text" : "name";
+}
+
+/**
+ * Whether the editor opens blank instead of prefilled with `""`: the cell's
+ * value is the empty text, held as a literal (in any cell) or as the override
+ * of a formula. (A formula without an override never opens here: it focuses
+ * the formula bar.) A blank field would read back as `empty` under the input
+ * grammar, so a blank commit is "unchanged", never a write (vtt-qf5.43).
+ */
+function isBlankText(view: CellView | undefined): boolean {
+  if (view === undefined || view.value.type !== "text" || view.value.value !== "") return false;
+  return view.kind === "literal" || (view.kind === "formula" && view.overridden === true);
 }
 
 /**
@@ -263,9 +282,11 @@ export function InPlaceEditor({ session, ui, camera, scene }: InPlaceEditorProps
     }
     const input = valueToInputText(cellView?.value ?? EMPTY, cell);
     setDraft(
-      input.kind === "literal"
-        ? { request, cell, initial: input.text, text: input.text }
-        : { request, cell, initial: "", reason: input.reason, text: "" },
+      isBlankText(cellView) && input.kind === "literal"
+        ? { request, cell, initial: input.text, text: "", blank: true }
+        : input.kind === "literal"
+          ? { request, cell, initial: input.text, text: input.text }
+          : { request, cell, initial: "", reason: input.reason, text: "" },
     );
   }, [request]);
 
@@ -337,10 +358,12 @@ export function InPlaceEditor({ session, ui, camera, scene }: InPlaceEditorProps
     // while the editor was open) takes any literal as an override (M4-D6),
     // even the shown value: the inspector's rule (vtt-1xv.29, vtt-qf5.47).
     const followsFormula = cellView?.kind === "formula" && cellView.overridden !== true;
+    // A blank field opened over the empty text writes nothing (vtt-qf5.43).
     const noChange =
-      current.reason === undefined
+      (current.blank === true && current.text === "") ||
+      (current.reason === undefined
         ? !followsFormula && isUnchangedInput(current.initial, current.text, cell)
-        : current.text === "";
+        : current.text === "");
     if (noChange) {
       close(current);
       return;
