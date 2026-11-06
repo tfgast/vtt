@@ -130,7 +130,8 @@ First, the HIT badge on the character template:
 4. In the inspector's Face section, press Add value. A new element row
    appears.
 5. In that row, pick `hit` as its Cell. Then set x to `-0.5`, y to `-0.95`,
-   w to `1`, h to `0.3` and Show when to `hit`, pressing Enter after each.
+   w to `1`, h to `0.3` and Show when to `hit`; Enter, Tab or a click on
+   the next field each commits a value.
 
 Then the four characters, one at a time:
 
