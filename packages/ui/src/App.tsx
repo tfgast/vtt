@@ -38,6 +38,8 @@
  *   viewport; the board tab under a release (`boardTabResolver` over the
  *   camera store, vtt-qf5.35); the in-place editor in its overlay; images through an
  *   `ImageCache` resolving `assetUrl`;
+ * - the minimap (vtt-qf5.19) of the scene's items in the canvas area's
+ *   bottom-right corner, recentring the store's camera;
  * - the inspector's actions (vtt-1xv.19) get the same policy and the
  *   runtime (Run);
  * - on mount: the last active board remembered and restored (vtt-qf5.57),
@@ -48,6 +50,7 @@
  * overlays, covers, chrome); the shell draws nothing on the canvas itself.
  */
 import type { WebSocketConstructor } from "@vtt/protocol";
+import type { Point } from "@vtt/schema";
 import {
   type CSSProperties,
   StrictMode,
@@ -107,6 +110,7 @@ import { BoardTabs } from "./nav/BoardTabs";
 import { rememberActiveBoard } from "./nav/board-memory";
 import { boardTabResolver, showBoardHandler } from "./nav/board-tab-drop";
 import { useFirstVisitFit } from "./nav/first-visit-fit";
+import { type CreateMinimapRenderer, defaultCreateMinimapRenderer, Minimap } from "./nav/Minimap";
 import { createCanvas2DRenderer } from "./render/canvas2d";
 import { drawFaceItem, faceCacheBounds, faceCacheKey } from "./render/face-draw";
 import { ImageCache } from "./render/image-cache";
@@ -236,6 +240,12 @@ export interface AppProps {
   session: TableSession;
   /** Default: `appCreateRenderer`. */
   createRenderer?: CreateRenderer<FaceScene>;
+  /**
+   * The minimap's renderer (vtt-qf5.19); null draws nothing. Default:
+   * `defaultCreateMinimapRenderer`, or null when `createRenderer` is
+   * injected (a test's recording renderer: no native canvas to draw on).
+   */
+  createMinimapRenderer?: CreateMinimapRenderer | null;
   /** Default: a new store over `session`. */
   ui?: UiStore;
   /** The session's face state (expanded entries, scroll offsets); default: a new store. */
@@ -432,6 +442,13 @@ function Shell(props: AppProps & { ui: UiStore }) {
                   faceState={faceState}
                   cameraStore={cameraStore}
                   createRenderer={props.createRenderer ?? appCreateRenderer}
+                  createMinimapRenderer={
+                    props.createMinimapRenderer !== undefined
+                      ? props.createMinimapRenderer
+                      : props.createRenderer === undefined
+                        ? defaultCreateMinimapRenderer
+                        : null
+                  }
                 />
               )}
             </div>
@@ -465,6 +482,7 @@ interface CanvasPaneProps {
   faceState: FaceStateStore;
   cameraStore: CameraStore;
   createRenderer: CreateRenderer<FaceScene>;
+  createMinimapRenderer: CreateMinimapRenderer | null;
 }
 
 function CanvasPane({
@@ -473,6 +491,7 @@ function CanvasPane({
   faceState,
   cameraStore,
   createRenderer,
+  createMinimapRenderer,
 }: CanvasPaneProps) {
   const session = useTableSession();
   const ui = useUiStore();
@@ -487,6 +506,7 @@ function CanvasPane({
   const hover = useUi((s) => s.hover);
   const highlight = useUi((s) => s.highlight);
   const camera = useUi((s) => s.camera);
+  const viewport = useUi((s) => s.viewport);
   const altHover = useUi((s) => s.altHover);
   const snap = useUi((s) => s.snap);
   const faceVersion = useFaceStateVersion(faceState);
@@ -522,7 +542,11 @@ function CanvasPane({
     altHover,
     snap,
   ]);
-  const setViewport = useCallback((viewport: Viewport) => ui.setViewport(viewport), [ui]);
+  const setViewport = useCallback((next: Viewport) => ui.setViewport(next), [ui]);
+  const recenter = useCallback(
+    ([x, y]: Point) => ui.setCamera({ ...ui.getState().camera, x, y }),
+    [ui],
+  );
 
   const machine = runtime.machine();
   const active = registry.get(machine.tool);
@@ -541,6 +565,13 @@ function CanvasPane({
         setViewport={setViewport}
         boardTabAt={boardTabAt}
         overlay={<InPlaceEditor session={session} ui={ui} camera={camera} scene={scene} />}
+      />
+      <Minimap
+        items={scene.items}
+        camera={camera}
+        viewport={viewport}
+        onRecenter={recenter}
+        createRenderer={createMinimapRenderer}
       />
     </div>
   );
