@@ -8,7 +8,8 @@
  * built with `ViewBuilder`, turned into a scene by `buildFaceScene`, and drawn
  * by the Canvas2D renderer with `drawFaceItem` over a `RecordingContext` at
  * camera zoom 0.5, the zoom a GM looking at the whole map sits at. No
- * element is brought into view.
+ * element is brought into view. At the renderer's minimum zoom the badge
+ * still draws, at the persistent-text floor (vtt-qf5.61).
  */
 import {
   move,
@@ -30,6 +31,8 @@ import {
   type FaceScene,
   faceCullBounds,
   ImageCache,
+  MIN_ZOOM,
+  PERSISTENT_TEXT_MIN_PX,
   type RecordedCall,
   RecordingContext,
   type Viewport,
@@ -191,5 +194,21 @@ describe("stocked faces at zoom 0.5 (M6-D16)", () => {
     );
     expect(header).toEqual(["Aldric"]);
     expect(texts(ctx)).not.toContain("Binder");
+  });
+
+  test("at the minimum zoom the HIT badge draws at the persistent-text floor (vtt-qf5.61)", () => {
+    const { table, goblin } = placed();
+    const ctx = render(table, 0, 0, MIN_ZOOM);
+    const box = screenBox(faceRect(table, goblin, "hit"), [0, 0], [0, 0], MIN_ZOOM);
+    // The rect is 1 × 0.6 px on screen here; the badge is magnified about its centre.
+    const badge = textsIn(ctx, box).filter((c) => {
+      const t = String(c.args[0]).replace(/…$/, "");
+      return t !== "" && "true".startsWith(t);
+    });
+    expect(badge.length, texts(ctx).join(", ")).toBe(1);
+    const px = Number(/(\d+(?:\.\d+)?)px/.exec(badge[0]?.style?.font ?? "")?.[1]);
+    expect(px).toBeGreaterThanOrEqual(PERSISTENT_TEXT_MIN_PX);
+    // Magnified, not cut: the whole word fits, as it does at any zoom.
+    expect(badge[0]?.args[0]).toBe("true");
   });
 });
