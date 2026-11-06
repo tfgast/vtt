@@ -157,6 +157,8 @@ You should see:
 - No token shows a HIT badge yet.
 - Each character's binder (the other entry in its token's list) holds an
   Attack template.
+- Each binder's header on the board shows its character's name; its entry
+  in the token's list still reads Binder.
 
 Result: ok / friction / broken — game went differently: yes / no — notes:
 
@@ -235,7 +237,8 @@ Check the badge with a loose die:
    `M + [-4, 8]`.
 10. Double-click the die to roll it. The goblin's HIT badge shows when the
     die's total is 13 or more. If it rolled less, double-click it again
-    until it does.
+    until it does. The badge is drawn at any zoom, so you do not need to
+    zoom in to see it.
 11. Click the die and press Delete. The HIT badge disappears.
 
 Give the goblin its own attack die:
@@ -462,7 +465,9 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 You should see: the die leaves G2's list and sits on Aldric. Its `total` is
 the roll plus G2's attack bonus (4). Aldric's HIT badge shows when that
 total is at least Aldric's AC (16). The walkthrough rolled 13, a total of
-17: HIT. A lower total leaves the badge hidden, which is correct too.
+17: HIT. A lower total leaves the badge hidden, which is correct too. The
+badge is drawn at any zoom, so you can watch for it with the whole map in
+view.
 
 Result: ok / friction / broken — game went differently: yes / no — notes:
 
@@ -497,6 +502,7 @@ miss.
 
 You should see:
 
+- The card shows `targets` (G1, G2 and G3) above its contents list.
 - A row passes when its `save_roll` plus the goblin's `dex_save` (2) is at
   least the card's `dc` (15). A passing goblin takes half the damage,
   rounded down; a failing one takes all of it.

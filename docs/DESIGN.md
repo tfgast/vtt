@@ -805,9 +805,10 @@ in `_<digits>`.
   `ac: empty`, `max_hp: empty`, `damage_taken: 0`, `attack_bonus: empty`,
   `dex_save: empty`, `hit: false`, `hp = max_hp - damage_taken`; face
   `value image [-0.5, -0.5, 1, 1]`, `value name [-0.8, 0.55, 1.6, 0.3]
-  m=12`, `value hp [0.2, -0.6, 0.5, 0.3] m=12`, `value hit [-0.7, -0.6,
-  0.5, 0.3] m=12 sw="hit"` (the HIT badge; a copy's GM replaces `hit` with
-  a formula), `contents [-0.8, 0.9, 1.6, 0.8] m=24` (entries collapsed).
+  m=8`, `value hp [0.2, -0.6, 0.5, 0.3] m=8`, `value hit [-0.7, -0.6,
+  0.5, 0.3] sw="hit"` (the HIT badge, drawn at any zoom; a copy's GM
+  replaces `hit` with a formula), `contents [-0.8, 0.9, 1.6, 0.8] m=24`
+  (entries collapsed).
 - `tpl_zone`: rect 4 × 4, `is_zone`; `name: "Zone"`; no face.
 - `tpl_card`: rect 2.5 × 3.5; `name: "Card"`, `title: ""`, `body: ""`; face
   `editor title [-1.15, -1.65, 2.3, 0.5] L`, `editor body [-1.15, -1.05,
@@ -835,15 +836,19 @@ in `_<digits>`.
   `visible_to = owner`; face `value name [-2.9, -0.95, 5.8, 0.35]`,
   `contents [-2.9, -0.55, 5.8, 1.5]` (entries collapsed).
 - `tpl_binder`: rect 7 × 10; tag binder; `name: "Binder"`, `owner: empty`,
-  `visible_to = owner`; face as `gm_binder`'s.
+  `visible_to = owner`; face `value name [-3.3, -4.8, 6.6, 0.6] L
+  sw="owner = empty"`, `value owner [-3.3, -4.8, 6.6, 0.6] L sw="owner !=
+  empty"` (an owned binder's header shows its owner's name, as the sheet's
+  does; its collapsed row still shows `name`), `contents [-3.3, -4.0, 6.6,
+  8.8]` (entries collapsed).
 - `tpl_character`: circle r 0.5; `is_character`; tag pc, creature; `name:
   "Character"`, `image: ""`, `sheet: @tpl_character_sheet`, `damage_taken:
   0`, `ac = sheet.ac`, `hp = sheet.hp`, `attack_bonus =
   sheet.attack_bonus`, `damage_dice = sheet.damage_dice`, `dex_save =
   sheet.dex_save`, `spell_dc = sheet.spell_dc`; contents
   `tpl_character_sheet`, `tpl_character_binder`; face `value image [-0.5,
-  -0.5, 1, 1]`, `value name [-0.8, 0.55, 1.6, 0.3] m=12`, `value hp [0.2,
-  -0.6, 0.5, 0.3] m=12`, `contents [-1.5, 0.9, 3, 1.2] m=24` (entries
+  -0.5, 1, 1]`, `value name [-0.8, 0.55, 1.6, 0.3] m=8`, `value hp [0.2,
+  -0.6, 0.5, 0.3] m=8`, `contents [-1.5, 0.9, 3, 1.2] m=24` (entries
   collapsed).
   - `tpl_character_sheet` (**not** a template): `tpl_sheet`'s record with
     `owner: @tpl_character`.
@@ -886,7 +891,8 @@ in `_<digits>`.
   set(applied, true)`; `Discard: remove(zone) ; remove(this)`; face `value
   name [-1.2, -1.7, 2.4, 0.4] L`, `editor caster [-1.2, -1.25, 1.15, 0.35]
   C`, `value dc [0.05, -1.25, 1.15, 0.35] C`, `value damage [-1.2, -0.85,
-  2.4, 0.35] C`, `contents [-1.2, -0.45, 2.4, 1.4]` (entries collapsed),
+  2.4, 0.3] C`, `value targets [-1.2, -0.5, 2.4, 0.3] C`, `contents [-1.2,
+  -0.15, 2.4, 1.1]` (entries collapsed),
   `button "Lock targets" [-1.2, 1.0, 1.15, 0.35] sw="not locked"`, `button
   "Roll damage" [0.05, 1.0, 1.15, 0.35] sw="locked and damage = empty"`,
   `button "Apply all" [-1.2, 1.4, 1.15, 0.3] sw="damage != empty"`, `button
@@ -1656,3 +1662,4 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M6-D6. The MCP server sends `instructions` at `initialize`. DESIGN §5.2; PROTOCOL §11. | A bring-your-own agent should find the templates and the write rules without being told by the GM. |
 | 2026-11-05 | M6-D7. Example images (`crypt-map.png`, `goblin.png`) ship in `@vtt/fixtures/assets`, generated in-repo. | §8.4 step 3 needs a map; generated art has no licence question. |
 | 2026-11-05 | M6-D8. A group's `names` are the touched objects' plus, when the actor is a character, that character's, captured at commit (before removal if the group removes it). Gm and agent actors add nothing. Character group views filter `names` as before. Amends the operation group entry above. DESIGN §7; PROTOCOL §7.6. | The log must name the character the GM drove (M5-D1) and keep names as they were (4.8); a view-as Apply touches only the card and its target, so the header showed the character's id. |
+| 2026-11-06 | M6-D16. Stocked faces: the HIT badge has no `min_size`, token `name` and `hp` use 8 px, a binder's header shows its owner, the Area save face shows `targets`. `tpl_token` and `tpl_character` `name` and `hp` are `m=8`; `tpl_binder` (and so each character's binder) is headed by `value name sw="owner = empty"` and `value owner sw="owner != empty"`, `name` staying the literal "Binder" (its collapsed row); `gm_binder`, which has no `owner`, keeps its plain `name` header; `tpl_area_save` adds `value targets` between `damage` and a shorter contents list. Amends M6-D3. DESIGN §4.7. | Playtest 1 (vtt-nb8.14): a 0.3-unit element under `m=12` never draws below zoom 0.6, where a GM viewing the map sits, so the badge, name and hp were invisible; `name` is literal-only, so a binder could not name its character; `targets` showed only in the inspector. |
