@@ -78,3 +78,36 @@ describe("ViewMirror", () => {
     expect(mirror.objects.size + mirror.covers.size + mirror.groups.size).toBe(0);
   });
 });
+
+describe("ViewMirror cell patches (vtt-qf5.4)", () => {
+  const cell = (n: number) => ({
+    value: { type: "number" as const, value: n },
+    kind: "literal" as const,
+  });
+
+  test("a patch sets and deletes only the named cells of the stored view", () => {
+    const a = { ...obj("a", 1), cells: { hp: cell(1), ac: cell(12), note: cell(3) } };
+    const mirror = new ViewMirror({ ...initial, objects: [a, obj("b", 2)] });
+    const before = mirror.objects.get("a");
+    mirror.apply(
+      delta("s1", { patches: [{ object: "a", cells: { hp: cell(9), note: null, xp: cell(5) } }] }),
+      11,
+    );
+    expect(mirror.revision).toBe(11);
+    expect(mirror.objects.get("a")).toEqual({
+      ...a,
+      cells: { hp: cell(9), ac: cell(12), xp: cell(5) },
+    });
+    // The stored view is replaced, not mutated.
+    expect(before).toEqual(a);
+    expect(mirror.objects.get("a")).not.toBe(before);
+    expect(mirror.objects.get("b")).toEqual(obj("b", 2));
+  });
+
+  test("a patch for an object the mirror does not hold is ignored", () => {
+    const mirror = new ViewMirror(initial);
+    mirror.apply(delta("s1", { patches: [{ object: "zz", cells: { hp: cell(1) } }] }), 11);
+    expect(mirror.objects.has("zz")).toBe(false);
+    expect(mirror.revision).toBe(11);
+  });
+});

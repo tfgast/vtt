@@ -1365,3 +1365,49 @@ describe("ids in views and results are real ids, never bindings", () => {
     }
   });
 });
+
+describe("cell patches negotiation (vtt-qf5.4)", () => {
+  test("hello may carry capabilities; each is a 1–64 character string, at most 32", () => {
+    clientRoundTrip({ ...hello, capabilities: ["cell_patches"] });
+    clientRoundTrip({ ...hello, capabilities: [] });
+    // Unknown capability names parse (the authority ignores them).
+    clientRoundTrip({ ...hello, capabilities: ["cell_patches", "future_thing"] });
+    expectClientError(JSON.stringify({ ...hello, capabilities: "cell_patches" }));
+    expectClientError(JSON.stringify({ ...hello, capabilities: [""] }));
+    expectClientError(JSON.stringify({ ...hello, capabilities: ["x".repeat(65)] }));
+    expectClientError(
+      JSON.stringify({ ...hello, capabilities: Array.from({ length: 33 }, (_, i) => `c${i}`) }),
+    );
+  });
+
+  test("welcome may echo capabilities; a delta may carry patches with null deletions", () => {
+    serverRoundTrip({ ...welcome, capabilities: ["cell_patches"] });
+    serverRoundTrip({
+      type: "event",
+      event: "commit",
+      revision: 4,
+      group: { index: 0, revision: 4, actor: { type: "gm" }, kind: "edit", label: null },
+      deltas: [
+        {
+          subscription: "s1",
+          objects: [],
+          removed: [],
+          patches: [
+            {
+              object: "goblin1",
+              cells: {
+                hp: { value: { type: "number", value: 3 }, kind: "literal" },
+                notes: null,
+              },
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("a patch naming a __proto__ cell is refused", () => {
+    const text = `{"type":"event","event":"commit","revision":4,"group":{"index":0,"revision":4,"actor":{"type":"gm"},"kind":"edit","label":null},"deltas":[{"subscription":"s1","objects":[],"removed":[],"patches":[{"object":"a","cells":{"__proto__":null}}]}]}`;
+    expect(parseServerMessage(text).ok).toBe(false);
+  });
+});

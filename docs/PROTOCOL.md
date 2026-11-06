@@ -89,14 +89,17 @@ Decisions: D1, D3; M4-D1, M4-D3.
 
 ## 2. Handshake, authentication, origin, discovery, new table
 
-Decisions: D4, D5, D8, D25, D33; M4-D1; M6-D5.
+Decisions: D4, D5, D8, D25, D33; M4-D1; M6-D5, M6-D35.
 
 ```ts
 { type: "hello"; protocol: 1; token: string;
   client: { name: string /* 1–100 chars */; kind: "ui" | "agent" | "test"; instance: string /* 1–64 chars of [A-Za-z0-9_-] */ };
-  agent_name?: string /* 1–100 chars */ }
+  agent_name?: string /* 1–100 chars */;
+  capabilities?: string[] /* at most 32, each 1–64 chars */ }
 { type: "welcome"; protocol: 1; session: string; actor: Actor; revision: number; boards: BoardView[];
-  table: { name: string; path: string | null; id: string | null }; limits: Limits }
+  table: { name: string; path: string | null; id: string | null }; limits: Limits;
+  capabilities?: Capability[] }
+type Capability = "cell_patches";
 { type: "goodbye"; reason: string }
 ```
 
@@ -114,6 +117,13 @@ Decisions: D4, D5, D8, D25, D33; M4-D1; M6-D5.
 - A wrong token (compared in constant time) or a first message that is not
   `hello`: `goodbye`, then close 4401.
 - A `protocol` other than 1: `goodbye`, then close 4400.
+- `capabilities` (M6-D35) lists optional behaviours the client supports.
+  The authority ignores names it does not know and echoes the ones it
+  accepts in `welcome.capabilities`, in `CAPABILITIES` order (`[]` when it
+  accepts none). A `hello` without `capabilities` gets a `welcome` without
+  them, exactly as before. The only capability is `cell_patches`: commit
+  events may carry cell-level patches (§8). `ProtocolClient` sends
+  `["cell_patches"]` unless constructed with `cellPatches: false`.
 - `session` identifies the authority process run: random, fixed for the life
   of the process, different after every restart.
 - `client.instance` is chosen by the client (for example a UUID per client
@@ -756,7 +766,7 @@ that revision counts as invisible. Per effect variant:
 
 ## 8. Subscriptions, commit events, ordering, reconnection
 
-Decisions: D10, D22, D23.
+Decisions: D10, D22, D23; M6-D35.
 
 **Scopes**, at a revision:
 
@@ -780,7 +790,9 @@ and `objects` and `covers` are empty.
 { type: "event"; event: "commit"; revision: number; group: GroupHeader; boards?: BoardView[]; deltas: SubscriptionDelta[] }
 { type: "event"; event: "save"; status: "saved" | "saved_not_durable" | "failed"; revision: number; message?: string }
 type SubscriptionDelta = { subscription: string; objects: ObjectView[]; removed: ObjectId[];
-  covers?: { upsert: Cover[]; removed: string[] }; groups_upserted?: GroupView[]; groups_removed?: number[] };
+  covers?: { upsert: Cover[]; removed: string[] }; groups_upserted?: GroupView[]; groups_removed?: number[];
+  patches?: ObjectPatch[] };   // cell_patches connections only (M6-D35)
+type ObjectPatch = { object: ObjectId; cells: Record<string, CellView | null> };
 ```
 
 - One `commit` event per commit goes to every ready connection. `boards` (all
@@ -790,6 +802,21 @@ type SubscriptionDelta = { subscription: string; objects: ObjectView[]; removed:
 - `objects` are the views whose content changed (whole views). `removed` are
   the ids that left scope, were removed, or became invisible. Covers are
   diffed by key.
+- Cell patches (M6-D35). On a connection whose `hello` listed
+  `cell_patches`, a changed object is sent in `patches` instead of `objects`
+  exactly when the subscription already holds its view (sent and not since
+  removed) and every field of the view other than `cells` (`is_template`,
+  `is_character`, `actions`, `action_states`, `face`,
+  `absent_cell_visibility`, and any later field) is unchanged, compared as
+  canonical JSON. The patch names only the cells whose `CellView` changed,
+  new or changed cells with their view and cells gone from the view as
+  `null`. A created object, one entering scope or becoming visible, and one
+  whose other fields changed are whole views in `objects`; `removed`,
+  covers and log deltas are unchanged. `patches` is present only when
+  non-empty. A client applies a patch by setting or deleting the named cells
+  of its held view and nothing else. Which objects are re-viewed and which
+  cells are evaluated is the same in both encodings. A connection without
+  the capability gets the events above byte for byte.
 - For `log`: `groups_upserted` are group views new to the window or changed
   (an undone group re-sent with `undone: true`; older groups whose filtered
   view changed after a reveal, hide or remove); `groups_removed` are indices
@@ -1172,8 +1199,12 @@ Decision: D32.
 
 Protocol v1 grows only additively: new optional fields, new methods, new ops,
 new event kinds. M6 added the undo target `{type:"human"}` this way (an
-older authority refuses it as `bad_request`), and the method and MCP tool
-`collect_assets` (M6-D32; an older authority answers `unknown_method`). M5 added `invoke` behaviour (its optional params `txn_id`,
+older authority refuses it as `bad_request`), the method and MCP tool
+`collect_assets` (M6-D32; an older authority answers `unknown_method`), and
+`hello.capabilities`, `welcome.capabilities` and `SubscriptionDelta.patches`
+(M6-D35; an older authority refuses a `hello` with `capabilities` (4401), so
+a client meant for one is constructed with `cellPatches: false`; a client
+that does not ask never receives patches). M5 added `invoke` behaviour (its optional params `txn_id`,
 `retry`, `actor`, `label`, `table` and `InvokeResult`), the MCP tool
 `invoke`, the op `set_face` and `ObjectInit.face`, the `field: "face"`
 effect and `ObjectSnapshotView.face` (`FaceLayoutView`),

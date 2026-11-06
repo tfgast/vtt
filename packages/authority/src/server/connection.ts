@@ -8,6 +8,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import {
   type BoardView,
+  CAPABILITIES,
+  type Capability,
   CLOSE_CODES,
   type Hello,
   LIMITS,
@@ -87,6 +89,8 @@ export class Connection {
   #actor: Actor | null = null;
   #kind: CommandKind | null = null;
   #instance: string | null = null;
+  /** The accepted `hello.capabilities`; null when the hello had none. */
+  #capabilities: Capability[] | null = null;
   readonly #queue: Queued[] = [];
   #busy = false;
   #tokens: number = LIMITS.max_requests_per_second;
@@ -121,6 +125,11 @@ export class Connection {
   /** `hello` `client.instance`, after the handshake. */
   get instance(): string | null {
     return this.#instance;
+  }
+
+  /** The accepted `hello.capabilities` (vtt-qf5.4), after the handshake; empty when none. */
+  get capabilities(): readonly Capability[] {
+    return this.#capabilities ?? [];
   }
 
   /** A frame arrived. `isBinary` frames are not protocol messages. */
@@ -238,6 +247,10 @@ export class Connection {
     this.#actor = actorFor(hello);
     this.#kind = hello.client.kind;
     this.#instance = hello.client.instance;
+    if (hello.capabilities !== undefined) {
+      const asked = new Set(hello.capabilities);
+      this.#capabilities = CAPABILITIES.filter((c) => asked.has(c));
+    }
     this.#state = "ready";
     // Registered with the hub before the welcome is written: nothing runs in
     // between, and from here on every commit event reaches this connection.
@@ -252,6 +265,7 @@ export class Connection {
       boards: state.boards as BoardView[],
       table: state.table,
       limits: { ...LIMITS },
+      ...(this.#capabilities === null ? {} : { capabilities: [...this.#capabilities] }),
     });
   }
 

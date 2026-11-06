@@ -1,7 +1,8 @@
 /**
  * A subscription's local mirror (PROTOCOL.md §8): the views of a subscribe
  * result, kept current by applying each commit event's delta. Whole views
- * are upserted (D10); for `log` scope, `groups` holds the window of group
+ * are upserted (D10) and cell patches (vtt-qf5.4) set or delete the named
+ * cells of a held view, replacing it with a new object; for `log` scope, `groups` holds the window of group
  * views by index. Browser-safe.
  */
 import type { ObjectId } from "@vtt/schema";
@@ -50,6 +51,16 @@ export class ViewMirror {
   /** Applies one subscription delta of the commit at `revision`. */
   apply(delta: SubscriptionDelta, revision: number): void {
     for (const view of delta.objects) this.objects.set(view.id, view);
+    for (const patch of delta.patches ?? []) {
+      const held = this.objects.get(patch.object);
+      if (held === undefined) continue;
+      const cells = new Map(Object.entries(held.cells));
+      for (const [name, cell] of Object.entries(patch.cells)) {
+        if (cell === null) cells.delete(name);
+        else cells.set(name, cell);
+      }
+      this.objects.set(patch.object, { ...held, cells: Object.fromEntries(cells) });
+    }
     for (const id of delta.removed) this.objects.delete(id);
     if (delta.covers) {
       for (const cover of delta.covers.upsert) this.covers.set(cover.key, cover);
