@@ -406,6 +406,8 @@ describe("in-place editor", () => {
     act(() => port.open({ stamp: stamp(), object: "goblin", cell: "temp" }));
     const editor = await openEditor("temp");
     expect(editor.value).toBe("20");
+    // A blur within the page: the window keeps focus (jsdom reports none once nothing is focused).
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
     act(() => editor.blur());
     await settle();
     expect(editorOf("temp")).toBeNull();
@@ -424,6 +426,7 @@ describe("in-place editor", () => {
     const user = userEvent.setup();
     await user.clear(editor);
     await user.type(editor, "7");
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
     act(() => editor.blur());
     await until(
       () => JSON.stringify(cellOf(session, "goblin", "temp")?.value) === JSON.stringify(num(7)),
@@ -504,7 +507,7 @@ describe("in-place editor", () => {
     expect(transacts()).toEqual([]);
   });
 
-  test("the window losing focus does not lose typed text: a changed value commits, an unparseable one stays (vtt-nb8.21)", async () => {
+  test("the window losing focus keeps the draft and writes nothing; Enter on return commits (vtt-nb8.21, vtt-qf5.59)", async () => {
     const { session, port, stamp, transacts } = await setup();
     const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
     act(() => port.open({ stamp: stamp(), object: "goblin", cell: "temp" }));
@@ -515,16 +518,53 @@ describe("in-place editor", () => {
     act(() => editor.blur());
     await settle();
     expect(editorOf("temp")?.value).toBe("=max_hp +");
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(transacts()).toHaveLength(0);
+    // A parseable half-typed value is kept too, not committed.
     editor = editorOf("temp") as HTMLInputElement;
     await user.clear(editor);
     await user.type(editor, "7");
     act(() => editor.blur());
+    await settle();
+    expect(editorOf("temp")?.value).toBe("7");
+    expect(transacts()).toHaveLength(0);
+    // The window comes back with focus restored to the field: the draft resumes.
+    hasFocus.mockReturnValue(true);
+    editor = editorOf("temp") as HTMLInputElement;
+    act(() => {
+      editor.focus();
+      window.dispatchEvent(new FocusEvent("focus"));
+    });
+    await settle();
+    expect(editorOf("temp")?.value).toBe("7");
+    expect(transacts()).toHaveLength(0);
+    await user.type(editor, "{Enter}");
     await until(
       () => JSON.stringify(cellOf(session, "goblin", "temp")?.value) === JSON.stringify(num(7)),
       "the override",
     );
     expect(transacts()).toHaveLength(1);
+    hasFocus.mockRestore();
+  });
+
+  test("the window coming back with focus elsewhere closes a kept draft without writing (vtt-qf5.59)", async () => {
+    const { port, stamp, transacts } = await setup();
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    act(() => port.open({ stamp: stamp(), object: "goblin", cell: "temp" }));
+    const editor = await openEditor("temp");
+    const user = userEvent.setup();
+    await user.clear(editor);
+    await user.type(editor, "7");
+    act(() => editor.blur());
+    await settle();
+    expect(editorOf("temp")?.value).toBe("7");
+    hasFocus.mockReturnValue(true);
+    act(() => {
+      window.dispatchEvent(new FocusEvent("focus"));
+    });
+    await settle();
+    expect(editorOf("temp")).toBeNull();
+    expect(transacts()).toHaveLength(0);
     hasFocus.mockRestore();
   });
 
