@@ -1012,3 +1012,159 @@ describe("undo", () => {
     committed(executeUndo(context(t), { target: { type: "latest" } }));
   });
 });
+
+describe("expect read set (vtt-qf5.5)", () => {
+  const setAc = (value: number): WireOp => ({
+    type: "set_value",
+    object: "goblin1",
+    cell: "ac",
+    value: num(value),
+  });
+
+  test("writing ac at base 5 while expecting hp is stale_write after an intervening hp write", () => {
+    const t = fixture();
+    run(t, [setHp("goblin1", 3)]);
+    const r = refused(
+      executeTransact(
+        agentContext(t),
+        params(5, [setAc(14)], { expect: [{ object: "goblin1", cell: "hp" }] }),
+      ),
+    );
+    expect(r).toEqual({
+      status: "rejected",
+      rejection: {
+        type: "stale_write",
+        base_revision: 5,
+        revision: 6,
+        floor: 5,
+        truncated: false,
+        conflicts: [
+          {
+            index: 0,
+            revision: 6,
+            actor: GM,
+            label: "set_value goblin1.hp",
+            keys: ["cell:goblin1/hp"],
+          },
+        ],
+      },
+    });
+    expect(t.store.getCell("goblin1", "ac")).toEqual(c(num(12)));
+    expect(groups(t)).toBe(1);
+  });
+
+  test("the same transact commits after an intervening write to an unrelated cell", () => {
+    const t = fixture();
+    run(t, [{ type: "set_value", object: "goblin1", cell: "notes", value: text("calm") }]);
+    const r = committed(
+      executeTransact(
+        agentContext(t),
+        params(5, [setAc(14)], { expect: [{ object: "goblin1", cell: "hp" }] }),
+      ),
+    );
+    expect(r.revision).toBe(7);
+    expect(t.store.getCell("goblin1", "ac")).toEqual(c(num(14)));
+  });
+
+  test("it commits at the current revision with nothing intervening", () => {
+    const t = fixture();
+    committed(
+      executeTransact(
+        agentContext(t),
+        params(5, [setAc(14)], { expect: [{ object: "goblin1", cell: "hp" }] }),
+      ),
+    );
+  });
+
+  test("an empty expect is the same as none", () => {
+    const t = fixture();
+    run(t, [setHp("goblin1", 3)]);
+    committed(executeTransact(agentContext(t), params(5, [setAc(14)], { expect: [] })));
+  });
+
+  test("expecting a key the same transaction writes behaves as before", () => {
+    const t = fixture();
+    run(t, [setHp("goblin1", 3)]);
+    const r = refused(
+      executeTransact(
+        agentContext(t),
+        params(5, [setHp("goblin1", 9)], { expect: [{ object: "goblin1", cell: "hp" }] }),
+      ),
+    );
+    expect(r.rejection).toMatchObject({
+      type: "stale_write",
+      conflicts: [{ index: 0, keys: ["cell:goblin1/hp"] }],
+    });
+    const t2 = fixture();
+    run(t2, [{ type: "set_value", object: "goblin1", cell: "notes", value: text("calm") }]);
+    committed(
+      executeTransact(
+        agentContext(t2),
+        params(5, [setHp("goblin1", 9)], { expect: [{ object: "goblin1", cell: "hp" }] }),
+      ),
+    );
+  });
+
+  test("an intervening undo group touching an expected key is stale_write", () => {
+    const t = fixture();
+    run(t, [setHp("goblin1", 3)]);
+    committed(executeUndo(context(t), { target: { type: "latest" } }));
+    const r = refused(
+      executeTransact(
+        agentContext(t),
+        params(6, [setAc(14)], { expect: [{ object: "goblin1", cell: "hp" }] }),
+      ),
+    );
+    expect(r.rejection).toMatchObject({
+      type: "stale_write",
+      conflicts: [{ index: 1, keys: ["cell:goblin1/hp"] }],
+    });
+  });
+
+  test("expecting a cell of an object removed since is stale_write naming the removal", () => {
+    const t = fixture();
+    run(t, [{ type: "remove", object: "gem" }]);
+    const r = refused(
+      executeTransact(
+        agentContext(t),
+        params(5, [setAc(14)], { expect: [{ object: "gem", cell: "value" }] }),
+      ),
+    );
+    expect(r.op_index).toBeUndefined();
+    expect(r.rejection).toMatchObject({
+      type: "stale_write",
+      conflicts: [{ index: 0, keys: ["obj:gem"] }],
+    });
+  });
+
+  test("expecting a cell of an object that does not exist is invalid with nothing applied", () => {
+    const t = fixture();
+    const r = refused(
+      executeTransact(
+        agentContext(t),
+        params(5, [setAc(14)], { expect: [{ object: "ghost", cell: "hp" }] }),
+      ),
+    );
+    expect(r.rejection.type).toBe("invalid");
+    expect(r.op_index).toBeUndefined();
+    expect(groups(t)).toBe(0);
+  });
+
+  test("expect takes part in the deduplication fingerprint", () => {
+    const t = fixture();
+    const ctx = agentContext(t);
+    committed(
+      executeTransact(
+        ctx,
+        params(5, [setAc(14)], { txn_id: "t1", expect: [{ object: "goblin1", cell: "hp" }] }),
+      ),
+    );
+    const r = refused(
+      executeTransact(
+        ctx,
+        params(5, [setAc(14)], { txn_id: "t1", expect: [{ object: "goblin1", cell: "ac" }] }),
+      ),
+    );
+    expect(r.rejection).toEqual({ type: "invalid", message: expect.any(String) });
+  });
+});

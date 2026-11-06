@@ -96,7 +96,7 @@ const DESCRIPTIONS = {
   explain_cell: `Explains a cell: its formula, its value, its dependency tree (\`depth\` up to 4) and the group that last wrote it. ${FORMULAS}`,
   explain_group: `Explains a log entry: its ops' effects and, for an action, the action's steps. ${VIEWER}`,
   explain_action: `Explains an action: whether its \`when\` guard allows it now, and its steps. ${FORMULAS}`,
-  transact: `Applies a batch of ops (up to 1000; create, move, remove objects; set values and formulas; define actions; change visibility; boards). ${REVISION} ${GROUP} ${IDS} ${FORMULAS} A rejected batch returns isError with the rejection and the failing op's index. A lost response is retried automatically; if the outcome cannot be known it returns isError \`uncertain\`: check with changes_since before writing again.`,
+  transact: `Applies a batch of ops (up to 1000; create, move, remove objects; set values and formulas; define actions; change visibility; boards). ${REVISION} ${GROUP} ${IDS} ${FORMULAS} \`expect\` lists the cells (\`{object, cell}\`) your ops were computed from but do not write: a group committed after \`base_revision\` that touched one rejects the batch \`stale_write\`, so a value derived from a cell that changed meanwhile is caught. A rejected batch returns isError with the rejection and the failing op's index. A lost response is retried automatically; if the outcome cannot be known it returns isError \`uncertain\`: check with changes_since before writing again.`,
   undo: `Undoes a group: the latest group (\`latest\`), this agent's latest (\`mine\`), or a group by log index (\`group\`); \`expect_index\` refuses it (\`undo_target_changed\`) if the target is not that group. An undo is itself one undoable group; it carries no base revision. ${GROUP}`,
   save: "Saves the table file now and reports whether it was saved.",
 } as const;
@@ -179,6 +179,7 @@ function handlerFor(
             transactWithRetry(client, input.ops as WireOp[], {
               base_revision: input.base_revision,
               ...(input.label === undefined ? {} : { label: input.label }),
+              ...(input.expect === undefined ? {} : { expect: input.expect }),
               txn_id: globalThis.crypto.randomUUID(),
               retry: { timeoutMs: TRANSACT_RETRY_MS },
             }),

@@ -87,6 +87,7 @@ const IDENTIFIERS: Record<string, Category> = {
   image: "appearance",
   as: "field",
   base_revision: "field",
+  expect: "field",
   stale_write: "rejection",
   'cells: "all"': "argument",
   mine: "exception",
@@ -187,6 +188,11 @@ describe("MCP_INSTRUCTIONS", () => {
   test("field `base_revision` is a key of the transact params", () => {
     expect(IDENTIFIERS.base_revision).toBe("field");
     expect(Object.keys(TransactParamsSchema.shape)).toContain("base_revision");
+  });
+
+  test("field `expect` is a key of the transact params", () => {
+    expect(IDENTIFIERS.expect).toBe("field");
+    expect(Object.keys(TransactParamsSchema.shape)).toContain("expect");
   });
 
   test.each(of("rejection"))("rejection %s is a ProtocolRejection type", (id) => {
