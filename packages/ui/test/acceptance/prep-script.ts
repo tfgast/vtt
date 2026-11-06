@@ -320,13 +320,14 @@ export function pressEscape(app: PrepApp) {
   });
 }
 
-/** One wheel event at the canvas center (positive `deltaY` zooms out). */
+/** One Ctrl+wheel event at the canvas center (positive `deltaY` zooms out; M6-D11). */
 export function wheel(app: PrepApp, deltaY: number) {
   act(() => {
     fireEvent.wheel(app.canvas, {
       clientX: VIEWPORT.width / 2,
       clientY: VIEWPORT.height / 2,
       deltaY,
+      ctrlKey: true,
     });
   });
 }

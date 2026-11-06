@@ -578,10 +578,10 @@ async function world(options: Options = {}) {
       fireEvent.doubleClick(canvas, { clientX: x, clientY: y });
     });
   };
-  const wheel = (board: Point, deltaY: number) => {
+  const wheel = (board: Point, deltaY: number, ctrlKey = false) => {
     const [x, y] = screenOf(board);
     act(() => {
-      fireEvent.wheel(canvas, { clientX: x, clientY: y, deltaY, deltaMode: 0 });
+      fireEvent.wheel(canvas, { clientX: x, clientY: y, deltaY, deltaMode: 0, ctrlKey });
     });
   };
 
@@ -921,8 +921,8 @@ describe("contents: the wheel and chevrons", () => {
     w.wheel(go, -100);
     expect(w.faceState.scrollOffset("bnd", -1)).toBeCloseTo(13 * 0.6 + 1.8 - 4.8 - 1, 9);
     expect(w.ui.getState().camera.zoom).toBe(zoom);
-    // Wheeling elsewhere zooms.
-    w.wheel([200, 200], 100);
+    // Ctrl+wheel elsewhere zooms (a plain wheel pans, M6-D11).
+    w.wheel([200, 200], 100, true);
     expect(w.ui.getState().camera.zoom).toBeLessThan(zoom);
   });
 

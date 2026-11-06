@@ -5,6 +5,11 @@
  * screen coordinates (CSS pixels from the canvas's top-left corner) and board
  * coordinates under the current camera. `overlay` is an absolutely positioned
  * DOM layer over the canvas (the in-place editor, vtt-3l6.13).
+ *
+ * Keys come from the container (focus inside the canvas or its overlay),
+ * except Space, which is heard on the window so Space-drag pans wherever
+ * focus is (M6-D11): a Space pressed in a text field is ignored (and never
+ * prevented, so it types), and a Space released anywhere ends a held Space.
  */
 import type { Point } from "@vtt/schema";
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
@@ -66,6 +71,10 @@ function inTextField(target: EventTarget | null): boolean {
   if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return true;
   if (target instanceof HTMLElement && target.isContentEditable) return true;
   return target.closest('[contenteditable]:not([contenteditable="false"])') !== null;
+}
+
+function isSpaceKey(e: KeyboardEvent): boolean {
+  return e.code === "Space" || e.key === " ";
 }
 
 function typesOf(dt: DataTransfer | null): string[] {
@@ -210,14 +219,19 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
         modifiers: modifiers(e),
       });
     };
-    const key = (type: "key_down" | "key_up") => (e: KeyboardEvent) =>
-      emit({
-        type,
-        key: e.key,
-        code: e.code,
-        modifiers: modifiers(e),
-        inTextField: inTextField(e.target),
-      });
+    const keyEvent = (type: "key_down" | "key_up", e: KeyboardEvent, textField: boolean) =>
+      emit({ type, key: e.key, code: e.code, modifiers: modifiers(e), inTextField: textField });
+    // Space is the window listener's.
+    const key = (type: "key_down" | "key_up") => (e: KeyboardEvent) => {
+      if (!isSpaceKey(e)) keyEvent(type, e, inTextField(e.target));
+    };
+    const onSpace = (type: "key_down" | "key_up") => (e: KeyboardEvent) => {
+      if (!isSpaceKey(e)) return;
+      if (type === "key_down" && inTextField(e.target)) return;
+      keyEvent(type, e, false);
+    };
+    const onWindowKeyDown = onSpace("key_down");
+    const onWindowKeyUp = onSpace("key_up");
     const onDragOver = (e: DragEvent) => {
       const types = typesOf(e.dataTransfer);
       if (types.includes("Files") || types.some((t) => t.startsWith(VTT_MIME_PREFIX))) {
@@ -261,6 +275,8 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
       typeof ResizeObserver === "function" ? new ResizeObserver(() => measure()) : null;
     observer?.observe(container);
     window.addEventListener("resize", measure);
+    window.addEventListener("keydown", onWindowKeyDown);
+    window.addEventListener("keyup", onWindowKeyUp);
     measure();
     schedule();
 
@@ -270,6 +286,8 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
       scheduleRef.current = () => {};
       observer?.disconnect();
       window.removeEventListener("resize", measure);
+      window.removeEventListener("keydown", onWindowKeyDown);
+      window.removeEventListener("keyup", onWindowKeyUp);
       for (const [name, fn, opts] of canvasListeners) canvas.removeEventListener(name, fn, opts);
       for (const [name, fn] of containerListeners) container.removeEventListener(name, fn);
       renderer.dispose();

@@ -30,10 +30,11 @@
  *   `requestInvoke` (so a template refuses); otherwise the wrapped tool's
  *   (M4's in-place editor) for a board object, and the in-place editor over
  *   a contained object's drawing for the GM;
- * - the wheel (`Tool.wheel`): the innermost overflowing list among the hit's
- *   `path` and its own `contents` target scrolls by `deltaY / 100` units,
- *   clamped, and the event is claimed; when none overflows, the wrapped
- *   tool's `wheel`, else null (the camera zooms);
+ * - the wheel (`Tool.wheel`): without Ctrl or Meta, the innermost
+ *   overflowing list among the hit's `path` and its own `contents` target
+ *   scrolls by `deltaY / 100` units, clamped, and the event is claimed;
+ *   when none overflows, or with Ctrl or Meta held (a pinch, M6-D11), the
+ *   wrapped tool's `wheel`, else null (the machine pans or zooms);
  * - anything else (entry rows and contained bodies no gesture claims, a
  *   press that moved beyond `FACE_CLICK_PX`'s release, keys) → the wrapped tool.
  *
@@ -486,7 +487,9 @@ export function withFaces<TPhase, K extends ToolId>(
         const next = out.state === null ? null : { gesture: gesture.gesture, state: out.state };
         return gestureStep(state, next, out.effects);
       }
-      if (scrollAt(event, input)) return { state, effects: [] };
+      // Ctrl or Meta (a trackpad pinch) is a zoom, never a list scroll (M6-D11).
+      const zoom = event.modifiers.ctrl || event.modifiers.meta;
+      if (!zoom && scrollAt(event, input)) return { state, effects: [] };
       const out = tool.wheel?.(innerOf(state), event, input) ?? null;
       if (out === null) return null;
       return present(withInner(state, out.state), out.effects, phaseOf(state).gestureOverlays);

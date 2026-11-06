@@ -211,6 +211,80 @@ describe("BoardCanvas", () => {
     ]);
   });
 
+  describe("Space is heard on the window (M6-D11)", () => {
+    const SPACE = { key: " ", code: "Space" };
+    const spaceEvent = (type: "key_down" | "key_up") => ({
+      type,
+      key: " ",
+      code: "Space",
+      modifiers: NO_MODS,
+      inTextField: false,
+    });
+
+    test("a Space pressed with focus outside the canvas reaches onEvent, once", () => {
+      const { canvas, events } = setup();
+      const outside = document.createElement("button");
+      document.body.appendChild(outside);
+      try {
+        fireEvent.keyDown(outside, SPACE);
+        fireEvent.keyUp(document.body, SPACE);
+        // Inside the canvas it is heard once, not by both the canvas and the window.
+        fireEvent.keyDown(canvas, SPACE);
+        fireEvent.keyUp(canvas, SPACE);
+        expect(events).toEqual([
+          spaceEvent("key_down"),
+          spaceEvent("key_up"),
+          spaceEvent("key_down"),
+          spaceEvent("key_up"),
+        ]);
+      } finally {
+        outside.remove();
+      }
+    });
+
+    test("a Space typed into an input, a textarea or contenteditable is ignored and not prevented", () => {
+      const { events } = setup({ overlay: <input aria-label="editor" /> });
+      const panel = document.createElement("div");
+      panel.innerHTML =
+        '<input aria-label="cell"><textarea aria-label="notes"></textarea><div contenteditable="true"><span>rich</span></div>';
+      document.body.appendChild(panel);
+      try {
+        const targets = [
+          screen.getByLabelText("editor"),
+          screen.getByLabelText("cell"),
+          screen.getByLabelText("notes"),
+          screen.getByText("rich"),
+        ];
+        for (const target of targets) {
+          expect(fireEvent.keyDown(target, SPACE)).toBe(true);
+        }
+        expect(events).toEqual([]);
+      } finally {
+        panel.remove();
+      }
+    });
+
+    test("a Space released in a text field still ends a held Space", () => {
+      const { events } = setup();
+      const input = document.createElement("input");
+      document.body.appendChild(input);
+      try {
+        fireEvent.keyDown(document.body, SPACE);
+        expect(fireEvent.keyUp(input, SPACE)).toBe(true);
+        expect(events).toEqual([spaceEvent("key_down"), spaceEvent("key_up")]);
+      } finally {
+        input.remove();
+      }
+    });
+
+    test("the window listener goes on unmount", () => {
+      const { events, unmount } = setup();
+      unmount();
+      fireEvent.keyDown(document.body, SPACE);
+      expect(events).toEqual([]);
+    });
+  });
+
   test("overlay children render above the canvas", () => {
     const { canvas } = setup({ overlay: <div data-testid="editor">edit</div> });
     const editor = screen.getByTestId("editor");

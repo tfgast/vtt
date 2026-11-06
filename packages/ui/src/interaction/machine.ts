@@ -4,9 +4,11 @@
  * `(state, event, input)` to `{state, effects}` in front of the tools.
  *
  * - Wheel → first the active tool's `wheel`, when it has one (with a fresh
- *   interaction id); when that returns null or the tool has none, a `camera`
- *   effect from `zoomAt` about the cursor, factor `1.1^(-deltaY/100)`
- *   (vtt-1xv.16).
+ *   interaction id; a list that scrolls claims a plain wheel, vtt-1xv.16); when that
+ *   returns null or the tool has none, a `camera` effect (M6-D11): with
+ *   Ctrl or Meta held (how browsers deliver a trackpad pinch) from `zoomAt`
+ *   about the cursor, factor `1.1^(-deltaY/100)`; otherwise from `panBy`,
+ *   moving the view by `(deltaX, deltaY)` screen pixels.
  * - Middle-button drag, or a primary drag started while Space is held →
  *   `camera` effects from `panBy` (the grabbed board point follows the
  *   pointer) until that pointer is up; none of its events reach the tool.
@@ -39,6 +41,7 @@ import {
   type ToolOptions,
   type ToolResult,
   type ToolState,
+  type WheelInteractionEvent,
 } from "./tool";
 
 /** DOM `PointerEvent.button` values. */
@@ -242,6 +245,19 @@ function panTo(pan: PanGesture, screen: Point, input: ReducerInput): Effect[] {
   return [{ type: "camera", camera: panBy(input.camera, [dx, dy]) }];
 }
 
+/**
+ * The camera effect of a wheel no tool claimed (M6-D11): Ctrl or Meta zooms
+ * about the cursor; a plain wheel pans by its deltas (none for a zero wheel).
+ */
+function wheelCamera(event: WheelInteractionEvent, input: ReducerInput): Effect[] {
+  if (event.modifiers.ctrl || event.modifiers.meta) {
+    const factor = wheelZoomFactor(event.deltaY);
+    return [{ type: "camera", camera: zoomAt(input.camera, event.screen, factor, input.viewport) }];
+  }
+  if (event.deltaX === 0 && event.deltaY === 0) return [];
+  return [{ type: "camera", camera: panBy(input.camera, [-event.deltaX, -event.deltaY]) }];
+}
+
 function route(
   state: MachineState,
   event: InteractionEvent,
@@ -266,20 +282,7 @@ function route(
           );
         }
       }
-      return {
-        state,
-        effects: [
-          {
-            type: "camera",
-            camera: zoomAt(
-              input.camera,
-              event.screen,
-              wheelZoomFactor(event.deltaY),
-              input.viewport,
-            ),
-          },
-        ],
-      };
+      return { state, effects: wheelCamera(event, input) };
     }
     case "key_down":
     case "key_up":

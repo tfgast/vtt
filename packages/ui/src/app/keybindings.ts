@@ -3,13 +3,17 @@
  * undoes the GM's own latest group and Ctrl/Cmd+S saves (its default
  * prevented), both through vtt-3l6.21's `undo` and `save`; the tool keys
  * activate tools (M5, vtt-1xv.23: D ink, W text, L layout); `?` (Shift+/)
- * toggles the keyboard and gesture help (vtt-nb8.8). `KEY_BINDINGS` is the
+ * toggles the keyboard and gesture help (vtt-nb8.8); `+` (or `=`) and `-`
+ * zoom in and out about the viewport centre (M6-D11), so zoom stays on the
+ * keyboard now that a plain wheel pans. `KEY_BINDINGS` is the
  * one table: `keyCommand` dispatches from it and the help lists it, so the
  * two cannot drift. Nothing fires while focus is in a text field, where the
  * keys keep their text-editing meaning. The select tool's own keys (Delete,
  * arrows, F, `[`, `]`, Escape) reach it through `BoardCanvas`, not here.
  */
+import type { Viewport } from "../interaction/contracts";
 import type { ToolId } from "../interaction/tool";
+import { type Camera, zoomAt } from "../scene/camera";
 import type { TableSession } from "../session/table-session";
 import { save, undo } from "../session/writes";
 import type { UiStore } from "../state/ui-state";
@@ -19,7 +23,27 @@ export type KeyCommand =
   | { type: "undo" }
   | { type: "save" }
   | { type: "help" }
+  | { type: "zoom"; direction: ZoomDirection }
   | { type: "tool"; tool: ToolId };
+
+export type ZoomDirection = "in" | "out";
+
+/** The zoom factor of one zoom key press. */
+export const KEY_ZOOM_FACTOR = 1.25;
+
+/** The camera after one zoom key press: `KEY_ZOOM_FACTOR` about the viewport centre, clamped. */
+export function zoomStep(camera: Camera, viewport: Viewport, direction: ZoomDirection): Camera {
+  const factor = direction === "in" ? KEY_ZOOM_FACTOR : 1 / KEY_ZOOM_FACTOR;
+  return zoomAt(camera, [viewport.width / 2, viewport.height / 2], factor, viewport);
+}
+
+const zoomBinding = (key: string, direction: ZoomDirection, label: string): KeyBinding => ({
+  keys: key,
+  label,
+  key,
+  mod: false,
+  command: { type: "zoom", direction },
+});
 
 /** One keybinding: what the help shows (`keys`, `label`) and what dispatch matches. */
 export interface KeyBinding {
@@ -57,6 +81,9 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   toolBinding("l", "layout", "Layout tool"),
   { keys: "Ctrl/Cmd+Z", label: "Undo", key: "z", mod: true, command: { type: "undo" } },
   { keys: "Ctrl/Cmd+S", label: "Save", key: "s", mod: true, command: { type: "save" } },
+  zoomBinding("+", "in", "Zoom in"),
+  zoomBinding("=", "in", "Zoom in (the + key without Shift)"),
+  zoomBinding("-", "out", "Zoom out"),
   {
     keys: "?",
     label: "Show or hide this help",
@@ -94,6 +121,8 @@ export interface KeyActions {
   save(): void;
   help(): void;
   tool(id: ToolId): void;
+  /** Zooms the camera; a binder without it leaves the zoom keys alone. */
+  zoom?(direction: ZoomDirection): void;
 }
 
 /** `<input>` types that take typed text. */
@@ -152,6 +181,10 @@ export function bindKeybindings(
     } else if (command.type === "help") {
       e.preventDefault();
       actions.help();
+    } else if (command.type === "zoom") {
+      if (actions.zoom === undefined) return;
+      e.preventDefault();
+      actions.zoom(command.direction);
     } else {
       actions.tool(command.tool);
     }
@@ -160,7 +193,10 @@ export function bindKeybindings(
   return () => target.removeEventListener("keydown", onKeyDown);
 }
 
-/** The app's actions: `undo(session)`, `save(session)`, `toggleHelp()` and `activateTool(ui, id)`. */
+/**
+ * The app's actions: `undo(session)`, `save(session)`, `toggleHelp()`,
+ * `activateTool(ui, id)` and `zoomStep` on the store's camera.
+ */
 export function appKeyActions(
   session: TableSession,
   ui: UiStore,
@@ -171,5 +207,9 @@ export function appKeyActions(
     save: () => void save(session),
     help: toggleHelp,
     tool: (id) => activateTool(ui, id),
+    zoom: (direction) => {
+      const { camera, viewport } = ui.getState();
+      ui.setCamera(zoomStep(camera, viewport, direction));
+    },
   };
 }

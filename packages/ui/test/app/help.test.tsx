@@ -89,7 +89,11 @@ describe("the tables", () => {
   test("HELP_GESTURES is the bead's list, verbatim and in order", () => {
     expect(HELP_GESTURES).toEqual([
       { gesture: "Space-drag or middle-drag", effect: "pan" },
-      { gesture: "Wheel", effect: "zoom (over a list that scrolls: scroll it)" },
+      {
+        gesture: "Wheel or two-finger scroll",
+        effect: "pan (over a list that scrolls: scroll it)",
+      },
+      { gesture: "Ctrl/Cmd+wheel or pinch", effect: "zoom about the pointer" },
       { gesture: "Click", effect: "select" },
       { gesture: "Alt+click", effect: "cycle through the objects under the pointer" },
       { gesture: "Drag one template", effect: "drop a copy" },
@@ -119,6 +123,9 @@ describe("the tables", () => {
       ...Object.keys(TOOL_KEYS).map((k) => k.toUpperCase()),
       "Ctrl/Cmd+Z",
       "Ctrl/Cmd+S",
+      "+",
+      "=",
+      "-",
       "?",
     ]);
     const blank = { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, target: null };
