@@ -155,6 +155,10 @@ const faceCellElement = <T extends "value" | "editor">(type: T) =>
       size: z.enum(["small", "normal", "large", "huge"]).optional(),
       align: z.enum(["left", "center", "right"]).optional(),
       caption: z.boolean().optional(),
+      format: looseObject({
+        sign: z.enum(["always", "auto"]).optional(),
+        decimals: z.number().optional(),
+      }).optional(),
     }).optional(),
   });
 

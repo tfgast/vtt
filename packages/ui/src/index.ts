@@ -18,6 +18,7 @@ export * from "./face/face-model";
 export * from "./face/face-scene";
 export * from "./face/face-state";
 export * from "./face/face-transform";
+export * from "./face/number-format";
 export * from "./face-editor/cell-drop";
 export * from "./face-editor/FaceSection";
 export * from "./face-editor/face-ops";

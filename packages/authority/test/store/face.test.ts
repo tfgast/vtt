@@ -386,7 +386,12 @@ describe("persistence, replay and rewind", () => {
       collapsed: [{ rect: [0, 0, 6, 0.6], cell: "name", type: "value" }],
       elements: [
         {
-          style: { caption: true, align: "center", size: "small" },
+          style: {
+            format: { decimals: 2, sign: "always" },
+            caption: true,
+            align: "center",
+            size: "small",
+          },
           min_size: 3,
           show_when: "hp > 0",
           rect: [0, 0, 1, 1],
@@ -423,7 +428,9 @@ describe("persistence, replay and rewind", () => {
         "min_size",
         "style",
       ]);
-      expect(Object.keys(must(editor).style as object)).toEqual(["size", "align", "caption"]);
+      const style = must(editor).style as Record<string, unknown>;
+      expect(Object.keys(style)).toEqual(["size", "align", "caption", "format"]);
+      expect(Object.keys(style.format as object)).toEqual(["sign", "decimals"]);
       expect(Object.keys(must(btn))).toEqual([
         "type",
         "action",

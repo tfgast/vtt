@@ -547,7 +547,9 @@ object's layout is its field `face?: FaceLayout`:
   height of the shape's local bounding box, measured from its origin, in
   the same write; the collapsed list and `min_size` are unchanged.
 - `style = {size?: "small" | "normal" | "large" | "huge"; align?: "left" |
-  "center" | "right"; caption?: boolean}`.
+  "center" | "right"; caption?: boolean; format?: {sign?: "always" |
+  "auto"; decimals?: number}}`. `format` writes a number value's face text
+  (FORMULAS.md §11); `decimals` is an integer 0–10.
 - At most 200 elements per list and one `contents` element per list;
   `show_when` non-blank, at most 10,000 characters.
 - `when_selected` (contents elements only, M6-D12) is a boolean; absent

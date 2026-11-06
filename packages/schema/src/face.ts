@@ -14,10 +14,26 @@ import type { Shape } from "./shape";
  */
 export type Rect = [x: number, y: number, w: number, h: number];
 
+/**
+ * How a number is written on the face (FORMULAS.md §11): `sign: "always"`
+ * prefixes `+` to a positive number (zero and negatives as usual; `"auto"`,
+ * the default, writes only the minus), `decimals` fixes the decimal places
+ * (an integer 0–`MAX_FORMAT_DECIMALS`, half away from zero). Other values
+ * are shown unchanged.
+ */
+export interface FaceNumberFormat {
+  sign?: "always" | "auto";
+  decimals?: number;
+}
+
+/** The most decimal places a face number format may fix. */
+export const MAX_FORMAT_DECIMALS = 10;
+
 export interface FaceStyle {
   size?: "small" | "normal" | "large" | "huge";
   align?: "left" | "center" | "right";
   caption?: boolean;
+  format?: FaceNumberFormat;
 }
 
 /** A cell shown as its value, or as an in-place editor. */
@@ -86,6 +102,12 @@ export const FaceStyleSchema: z.ZodType<FaceStyle> = z.strictObject({
   size: z.enum(["small", "normal", "large", "huge"]).optional(),
   align: z.enum(["left", "center", "right"]).optional(),
   caption: z.boolean().optional(),
+  format: z
+    .strictObject({
+      sign: z.enum(["always", "auto"]).optional(),
+      decimals: z.number().optional(),
+    })
+    .optional(),
 });
 
 const common = {
@@ -174,12 +196,20 @@ function elementProblem(e: FaceElement, where: string): string | undefined {
     case "editor":
       if (e.cell === "" || e.cell === "__proto__")
         return `${where}: "${e.cell}" is not a cell name`;
-      return undefined;
+      return formatProblem(e.style?.format, where);
     case "button":
       return actionNameProblem(e.action, where);
     case "contents":
       return undefined;
   }
+}
+
+function formatProblem(format: FaceNumberFormat | undefined, where: string): string | undefined {
+  const d = format?.decimals;
+  if (d !== undefined && !(Number.isInteger(d) && d >= 0 && d <= MAX_FORMAT_DECIMALS)) {
+    return `${where}: style.format.decimals must be an integer 0–${MAX_FORMAT_DECIMALS}`;
+  }
+  return undefined;
 }
 
 function listProblem(list: readonly FaceElement[], name: string): string | undefined {
@@ -202,7 +232,8 @@ function listProblem(list: readonly FaceElement[], name: string): string | undef
  * §5), or undefined when it is valid: rects finite with `w`, `h` > 0; cell
  * names non-empty and not `__proto__`; action names (buttons and
  * `default_action`) 1–100 characters; `show_when` non-blank and at most
- * 10,000 characters; `min_size` finite and ≥ 0; at most
+ * 10,000 characters; `min_size` finite and ≥ 0; `style.format.decimals` an
+ * integer 0–`MAX_FORMAT_DECIMALS`; at most
  * `MAX_FACE_ELEMENTS` elements and one `contents` element per list. Whether
  * a named cell or action exists is not checked: that is presentation.
  */

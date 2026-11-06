@@ -137,6 +137,12 @@ const FaceStyleSchema = z.strictObject({
   size: z.enum(["small", "normal", "large", "huge"]).optional(),
   align: z.enum(["left", "center", "right"]).optional(),
   caption: z.boolean().optional(),
+  format: z
+    .strictObject({
+      sign: z.enum(["always", "auto"]).optional(),
+      decimals: z.number().int().min(0).max(10).optional(),
+    })
+    .optional(),
 });
 
 const faceCommon = {
