@@ -7,7 +7,7 @@
  */
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { WireOp } from "@vtt/protocol";
+import type { WebSocketConstructor, WebSocketLike, WireOp } from "@vtt/protocol";
 import type { FaceElement, FaceLayout } from "@vtt/schema";
 import {
   createUiStore,
@@ -19,7 +19,16 @@ import {
   undo,
 } from "@vtt/ui";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanupAuthorities, startAuthority, until, whenReady } from "../support/authority";
+import {
+  cleanupAuthorities,
+  NodeWebSocket,
+  nodeWebSocket,
+  type SessionOptions,
+  startAuthority,
+  type TestAuthority,
+  until,
+  whenReady,
+} from "../support/authority";
 
 afterEach(async () => {
   cleanup();
@@ -73,9 +82,9 @@ const SEED: WireOp[] = [
   },
 ];
 
-async function setup(selected = "tok") {
+async function setup(selected = "tok", options: SessionOptions = {}) {
   const authority = await authorityWithSeed();
-  const session = authority.session();
+  const session = authority.session(options);
   await whenReady(session);
   await session.whenRevision(1);
   await until(() => session.objectView(selected) !== null, "the object view");
@@ -85,6 +94,7 @@ async function setup(selected = "tok") {
   const other = await authority.client("other");
   const request = vi.spyOn(session.client, "request");
   return {
+    authority,
     session,
     ui,
     other,
@@ -415,5 +425,365 @@ describe("view-as", () => {
     // The character's view has no show_when source.
     expect(within(section()).queryByRole("textbox", { name: "Show when" })).toBeNull();
     expect(transacts()).toHaveLength(0);
+  });
+});
+
+/**
+ * A WebSocket whose incoming frames can be held and then released in order:
+ * a write is applied by the authority while its result is not yet back.
+ */
+function gatedSocket() {
+  let holding = false;
+  const held: (() => void)[] = [];
+  class Gated implements WebSocketLike {
+    readonly #inner: WebSocketLike;
+    constructor(url: string) {
+      this.#inner = new NodeWebSocket(url);
+    }
+    send(data: string): void {
+      this.#inner.send(data);
+    }
+    close(code?: number, reason?: string): void {
+      this.#inner.close(code, reason);
+    }
+    // biome-ignore lint/suspicious/noExplicitAny: matches WebSocketLike
+    addEventListener(type: string, listener: (event: any) => void): void {
+      if (type !== "message") {
+        this.#inner.addEventListener(type, listener);
+        return;
+      }
+      this.#inner.addEventListener(type, (event) => {
+        if (holding) held.push(() => listener(event));
+        else listener(event);
+      });
+    }
+  }
+  return {
+    WebSocket: Gated as WebSocketConstructor,
+    hold() {
+      holding = true;
+    },
+    release() {
+      holding = false;
+      for (const deliver of held.splice(0)) deliver();
+    },
+  };
+}
+
+/** The text box `name` of element row `n`. */
+const box = (n: number, name: string) =>
+  within(element(n)).getByRole("textbox", { name }) as HTMLInputElement;
+
+type User = ReturnType<typeof userEvent.setup>;
+
+/** Replaces the text of the focused `input` without focusing it again (its draft keeps its revision). */
+async function retype(user: User, input: HTMLInputElement, value: string) {
+  expect(document.activeElement).toBe(input);
+  await user.clear(input);
+  await user.keyboard(value);
+}
+
+const staleShown = (session: TableSession) =>
+  sessionNotices(session)
+    .list()
+    .some((n) => n.kind === "stale");
+
+const DISCARDED = "Face edit discarded: the element changed";
+
+/** Waits until the authority itself is at `revision` (the result may still be held). */
+const applied = (authority: TestAuthority, revision: number) =>
+  until(() => authority.host.revision === revision, `revision ${revision} at the authority`);
+
+describe("queued edits (vtt-nb8.22)", () => {
+  const FIVE: [string, string][] = [
+    ["x", "0.5"],
+    ["y", "-1"],
+    ["w", "1.5"],
+    ["h", "0.5"],
+    ["Show when", "hp < 5"],
+  ];
+  const EDITED: FaceElement = {
+    ...(FACE.elements[1] as FaceElement),
+    rect: [0.5, -1, 1.5, 0.5],
+    show_when: "hp < 5",
+  };
+
+  test("Tab from field to field writes x, y, w, h and Show when, none stale", async () => {
+    const user = userEvent.setup();
+    const { session, transacts } = await setup();
+    await user.click(box(2, "x"));
+    for (const [name, value] of FIVE) {
+      await retype(user, box(2, name), value);
+      await user.tab();
+    }
+    await until(() => faceOf(session)?.elements[1]?.show_when === "hp < 5", "the last edit");
+    expect(faceOf(session)?.elements).toEqual([FACE.elements[0], EDITED, FACE.elements[2]]);
+    expect(transacts()).toHaveLength(5);
+    expect(staleShown(session)).toBe(false);
+  });
+
+  test("clicking from field to field writes x, y, w, h and Show when, none stale", async () => {
+    const user = userEvent.setup();
+    const { session, transacts } = await setup();
+    for (const [name, value] of FIVE) {
+      await user.click(box(2, name));
+      await retype(user, box(2, name), value);
+    }
+    await user.click(document.body);
+    await until(() => faceOf(session)?.elements[1]?.show_when === "hp < 5", "the last edit");
+    expect(faceOf(session)?.elements).toEqual([FACE.elements[0], EDITED, FACE.elements[2]]);
+    expect(transacts()).toHaveLength(5);
+    expect(staleShown(session)).toBe(false);
+  });
+
+  test("two rapid edits on different element rows both apply", async () => {
+    const user = userEvent.setup();
+    const { session, transacts } = await setup();
+    await user.click(box(1, "w"));
+    await retype(user, box(1, "w"), "3");
+    await user.click(box(2, "w"));
+    await retype(user, box(2, "w"), "1");
+    await user.click(document.body);
+    await until(
+      () =>
+        faceOf(session)?.elements[0]?.rect[2] === 3 && faceOf(session)?.elements[1]?.rect[2] === 1,
+      "both widths",
+    );
+    expect(transacts()).toHaveLength(2);
+    expect(staleShown(session)).toBe(false);
+  });
+
+  test("an external set_face between two queued edits: the second is stale and the queue drops", async () => {
+    const user = userEvent.setup();
+    const gate = gatedSocket();
+    const { authority, session, other, transacts } = await setup("tok", {
+      WebSocket: gate.WebSocket,
+    });
+    const r = session.getSnapshot().revision;
+    gate.hold();
+    await user.click(box(2, "x"));
+    await retype(user, box(2, "x"), "0.5");
+    await user.tab();
+    await applied(authority, r + 1);
+    // Queued behind the first write (its result is held): y, then w.
+    await retype(user, box(2, "y"), "-1");
+    await user.tab();
+    await retype(user, box(2, "w"), "1.5");
+    await user.click(document.body);
+    expect(transacts()).toHaveLength(1);
+    // Another client changes the face after the first write.
+    const theirs: FaceLayout = {
+      ...FACE,
+      elements: [
+        FACE.elements[0] as FaceElement,
+        { ...(FACE.elements[1] as FaceElement), rect: [5, 5, 2, 0.6] },
+        FACE.elements[2] as FaceElement,
+      ],
+    };
+    await other.transact([{ type: "set_face", object: "tok", face: theirs }], {
+      label: "Scribe sets the face",
+      base_revision: r + 1,
+    });
+    gate.release();
+    await until(() => staleShown(session), "the stale notice");
+    expect(
+      sessionNotices(session)
+        .list()
+        .find((n) => n.kind === "stale")?.text,
+    ).toContain("Scribe sets the face");
+    await until(() => faceOf(session)?.elements[1]?.rect[0] === 5, "their face");
+    // The second write carried the first write's revision; the third was never sent.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(transacts()).toHaveLength(2);
+    expect(transacts()[1]?.base_revision).toBe(r + 1);
+    expect(faceOf(session)).toEqual(theirs);
+    expect(box(2, "x").value).toBe("5");
+    expect(box(2, "y").value).toBe("5");
+    expect(box(2, "w").value).toBe("2");
+  });
+
+  test("after a rejected write, a new edit applies from the acknowledged layout", async () => {
+    const user = userEvent.setup();
+    const { session, other, transacts } = await setup();
+    const r = session.getSnapshot().revision;
+    await user.click(box(2, "x"));
+    const theirs: FaceLayout = {
+      ...FACE,
+      elements: [
+        FACE.elements[0] as FaceElement,
+        { ...(FACE.elements[1] as FaceElement), rect: [-2, -0.9, 3, 0.6] },
+        FACE.elements[2] as FaceElement,
+      ],
+    };
+    await other.transact([{ type: "set_face", object: "tok", face: theirs }], {
+      label: "Scribe sets the face",
+    });
+    await session.whenRevision(r + 1);
+    await retype(user, box(2, "x"), "1");
+    await user.keyboard("{Enter}");
+    await until(() => staleShown(session), "the stale notice");
+    expect(faceOf(session)).toEqual(theirs);
+    await user.click(box(1, "w"));
+    await retype(user, box(1, "w"), "3");
+    await user.tab();
+    await until(() => faceOf(session)?.elements[0]?.rect[2] === 3, "the new edit");
+    expect(transacts()).toHaveLength(2);
+    expect(faceOf(session)?.elements).toEqual([
+      { ...(FACE.elements[0] as FaceElement), rect: [-2, -1.5, 3, 0.6] },
+      theirs.elements[1],
+      FACE.elements[2],
+    ]);
+  });
+
+  test("two elements on one cell: the first deleted while an edit on the second waits discards that edit", async () => {
+    const user = userEvent.setup();
+    const gate = gatedSocket();
+    const { authority, session, other, transacts } = await setup("tok", {
+      WebSocket: gate.WebSocket,
+    });
+    const hp = (y: number): FaceElement => ({ type: "value", cell: "hp", rect: [-2, y, 2, 0.6] });
+    const three: FaceLayout = { elements: [hp(-1), hp(0), hp(1)] };
+    await other.transact([{ type: "set_face", object: "tok", face: three }], { label: "Three" });
+    await until(
+      () => faceOf(session)?.elements.length === 3 && cellAt(session, 2) === "hp",
+      "three",
+    );
+    await until(() => box(3, "y").value === "1", "three rows");
+    const r = session.getSnapshot().revision;
+    gate.hold();
+    await user.click(within(element(1)).getByRole("button", { name: "Delete element" }));
+    await applied(authority, r + 1);
+    // The rows still show three elements: edit the second one's x.
+    await user.click(box(2, "x"));
+    await retype(user, box(2, "x"), "0.5");
+    await user.tab();
+    gate.release();
+    await until(
+      () =>
+        sessionNotices(session)
+          .list()
+          .some((n) => n.text.includes(DISCARDED)),
+      "the discard notice",
+    );
+    await until(() => faceOf(session)?.elements.length === 2, "the delete");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(transacts()).toHaveLength(1);
+    expect(faceOf(session)).toEqual({ elements: [hp(0), hp(1)] });
+    expect(staleShown(session)).toBe(false);
+  });
+
+  test("a queued edit on an element deleted meanwhile is discarded with its notice", async () => {
+    const user = userEvent.setup();
+    const gate = gatedSocket();
+    const { authority, session, transacts } = await setup("tok", { WebSocket: gate.WebSocket });
+    const r = session.getSnapshot().revision;
+    gate.hold();
+    await user.click(within(element(2)).getByRole("button", { name: "Delete element" }));
+    await applied(authority, r + 1);
+    await user.click(box(2, "w"));
+    await retype(user, box(2, "w"), "1");
+    await user.tab();
+    gate.release();
+    await until(
+      () =>
+        sessionNotices(session)
+          .list()
+          .some((n) => n.text.includes(DISCARDED)),
+      "the discard notice",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(transacts()).toHaveLength(1);
+    expect(faceOf(session)?.elements).toEqual([FACE.elements[0], FACE.elements[2]]);
+  });
+
+  test("an uncertain outcome drops the queue with the uncertain notice", async () => {
+    const user = userEvent.setup();
+    let swallow = false;
+    let sent = 0;
+    const { authority, session } = await setup("tok", {
+      WebSocket: nodeWebSocket((data) => {
+        const frame = JSON.parse(data) as { method?: string };
+        if (frame.method !== "transact") return true;
+        sent++;
+        if (!swallow) return true;
+        swallow = false;
+        return false;
+      }),
+    });
+    swallow = true;
+    await user.click(box(2, "x"));
+    await retype(user, box(2, "x"), "0.5");
+    await user.tab();
+    expect(sent).toBe(1);
+    await retype(user, box(2, "y"), "-1");
+    await user.tab();
+    // The server drops and comes back as a new session: the first write is uncertain.
+    await authority.restart();
+    await until(
+      () =>
+        sessionNotices(session)
+          .list()
+          .some((n) => n.kind === "uncertain"),
+      "the uncertain notice",
+    );
+    expect(
+      sessionNotices(session)
+        .list()
+        .find((n) => n.kind === "uncertain")?.text,
+    ).toContain("Edit face of Goblin");
+    await whenReady(session, 20_000);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sent).toBe(1);
+    expect(faceOf(session)).toEqual(FACE);
+  });
+
+  test("selecting away and back while a write is unacknowledged: the next edit waits for it", async () => {
+    const user = userEvent.setup();
+    const gate = gatedSocket();
+    const { authority, session, ui, transacts } = await setup("tok", {
+      WebSocket: gate.WebSocket,
+    });
+    const r = session.getSnapshot().revision;
+    gate.hold();
+    await user.click(box(2, "x"));
+    await retype(user, box(2, "x"), "0.5");
+    await user.tab();
+    await applied(authority, r + 1);
+    act(() => ui.select(["bare"]));
+    act(() => ui.select(["tok"]));
+    // The remounted rows still show the old layout; edit w before the ack.
+    await user.click(box(2, "w"));
+    await retype(user, box(2, "w"), "1.5");
+    await user.tab();
+    expect(transacts()).toHaveLength(1);
+    gate.release();
+    await until(() => faceOf(session)?.elements[1]?.rect[2] === 1.5, "the second edit");
+    expect(faceOf(session)?.elements[1]?.rect).toEqual([0.5, -0.9, 1.5, 0.6]);
+    expect(transacts()).toHaveLength(2);
+    expect(transacts()[1]?.base_revision).toBe(r + 1);
+    expect(staleShown(session)).toBe(false);
+  });
+
+  test("a selection change drops pending edits; the sent one applies", async () => {
+    const user = userEvent.setup();
+    const gate = gatedSocket();
+    const { authority, session, ui, transacts } = await setup("tok", {
+      WebSocket: gate.WebSocket,
+    });
+    const r = session.getSnapshot().revision;
+    gate.hold();
+    await user.click(box(2, "x"));
+    await retype(user, box(2, "x"), "0.5");
+    await user.tab();
+    await applied(authority, r + 1);
+    await retype(user, box(2, "y"), "-1");
+    await user.tab();
+    act(() => ui.select(["bare"]));
+    gate.release();
+    await until(() => faceOf(session)?.elements[1]?.rect[0] === 0.5, "the sent edit");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(transacts()).toHaveLength(1);
+    expect(faceOf(session)?.elements[1]?.rect).toEqual([0.5, -0.9, 2, 0.6]);
+    expect(authority.host.revision).toBe(r + 1);
   });
 });
