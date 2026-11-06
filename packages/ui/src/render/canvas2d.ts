@@ -5,7 +5,11 @@
  * items back to front, culled against the view; the
  * object-related overlays (the scene's outlines, then the object kinds of the
  * tool overlays); covers; then chrome overlays only. Nothing object-related is
- * drawn after the first cover. No per-object bitmap cache (vtt-qf5.10).
+ * drawn after the first cover. With `renderCache` (off by default), a
+ * cacheable item's body (shape, glyph and `drawItem` hook) is drawn once
+ * into an offscreen bitmap at the frame's scale and blitted on later frames
+ * until its content or the zoom changes, its label and hidden badge live
+ * over it (`render-cache.ts`, M6-D37, vtt-qf5.10); overlays are always live.
  */
 import { type Bounds, boundsIntersect, type Point, type Shape } from "@vtt/schema";
 import {
@@ -23,6 +27,7 @@ import {
   type Scene,
 } from "../scene/scene";
 import type { ImageCache } from "./image-cache";
+import { defaultCreateSurface, RenderCache, type RenderCacheOptions } from "./render-cache";
 import type { Ctx2D, Renderer } from "./renderer";
 
 // Colors.
@@ -108,6 +113,44 @@ export interface Canvas2DRendererOptions<S extends Scene = Scene> {
    * camera)`, as `faceCullBounds` does (vtt-qf5.41).
    */
   cullBounds?: (item: DrawItem, scene: S, camera: Camera) => Bounds;
+  /**
+   * What an item's cached bitmap depends on besides the zoom bucket and the
+   * images it drew (M6-D37): JSON-like parts compared by reference, else
+   * structurally (`sameContent`); null draws the item live. Without it, items are
+   * keyed by `defaultCacheKey` when there is no `drawItem` hook and drawn
+   * live when there is one (a hook reads the scene; `faceCacheKey` keys
+   * `drawFaceItem`).
+   */
+  cacheKey?: (item: DrawItem, scene: S) => readonly unknown[] | null;
+  /**
+   * What a cached item draws outside its cull box, in its own frame (origin
+   * at the anchor, rotated), at `camera`; null for nothing. The surface holds
+   * the cull box and this (`faceCacheBounds`: a face's unclipped ink).
+   */
+  cacheBounds?: (item: DrawItem, scene: S, camera: Camera) => Bounds | null;
+  /**
+   * The per-item bitmap cache (M6-D37). Absent or `false`: every item is
+   * drawn live (the default until a browser measurement shows the gain).
+   */
+  renderCache?: false | RenderCacheOptions;
+}
+
+/** A Canvas2D renderer, with its bitmap cache's size. */
+export interface Canvas2DRenderer<S extends Scene = Scene> extends Renderer<S> {
+  cacheStats(): { entries: number; bytes: number };
+}
+
+/**
+ * The default cache key (M6-D37): the item itself when it draws text, an
+ * image or a hatch, else null (a plain shape costs less to draw than to
+ * blit).
+ */
+export function defaultCacheKey(item: DrawItem): readonly unknown[] | null {
+  if (item.faceDown) return null;
+  if (item.text === undefined && item.image === undefined && item.pattern === undefined) {
+    return null;
+  }
+  return [item];
 }
 
 const radians = (deg: number) => (deg * Math.PI) / 180;
@@ -355,16 +398,34 @@ function paintBadge(ctx: Ctx2D, item: DrawItem, s: number): void {
  * the context as it found it, with no clip. `render` uses it for every item.
  */
 export function paintItem(ctx: Ctx2D, item: DrawItem, helpers: PaintHelpers): void {
+  paintItemParts(ctx, item, helpers, true, true);
+}
+
+/**
+ * `paintItem`'s body (shape or marker, glyph) and decorations (label, hidden
+ * badge), either or both, in `paintItem`'s order. The bitmap cache holds the
+ * body; the decorations are drawn live over it.
+ */
+function paintItemParts(
+  ctx: Ctx2D,
+  item: DrawItem,
+  helpers: PaintHelpers,
+  body: boolean,
+  decorations: boolean,
+): void {
   const s = cameraScale(helpers.camera);
+  const label = decorations && item.label !== undefined && labelVisible(item, helpers.camera);
+  const badge = decorations && item.hiddenBadge;
+  if (!body && !label && !badge) return;
   ctx.save();
   ctx.globalAlpha = ctx.globalAlpha * item.alpha;
-  if (item.shape === null) paintMarker(ctx, item, s);
-  else paintShape(ctx, item, item.shape, s, helpers.images);
-  if (item.label !== undefined && labelVisible(item, helpers.camera)) {
-    paintLabel(ctx, item, item.label, s);
+  if (body) {
+    if (item.shape === null) paintMarker(ctx, item, s);
+    else paintShape(ctx, item, item.shape, s, helpers.images);
   }
-  if (item.faceDownGlyph) paintGlyph(ctx, s);
-  if (item.hiddenBadge) paintBadge(ctx, item, s);
+  if (label && item.label !== undefined) paintLabel(ctx, item, item.label, s);
+  if (body && item.faceDownGlyph) paintGlyph(ctx, s);
+  if (badge) paintBadge(ctx, item, s);
   ctx.restore();
 }
 
@@ -631,8 +692,19 @@ function paintChrome(
 export function createCanvas2DRenderer<S extends Scene = Scene>(
   ctx: Ctx2D,
   options: Canvas2DRendererOptions<S>,
-): Renderer<S> {
+): Canvas2DRenderer<S> {
   let disposed = false;
+  const cacheOptions = options.renderCache;
+  const createSurface =
+    cacheOptions === undefined || cacheOptions === false
+      ? null
+      : (cacheOptions.createSurface ?? defaultCreateSurface(ctx));
+  const cache =
+    createSurface === null || cacheOptions === undefined || cacheOptions === false
+      ? null
+      : new RenderCache(createSurface, cacheOptions);
+  const cacheKey =
+    options.cacheKey ?? (options.drawItem === undefined ? defaultCacheKey : () => null);
   return {
     render(scene, toolOverlays, camera, viewport) {
       if (disposed) return;
@@ -667,8 +739,34 @@ export function createCanvas2DRenderer<S extends Scene = Scene>(
         ctx.save();
         ctx.translate(item.anchor[0], item.anchor[1]);
         ctx.rotate(radians(item.rotation));
-        paintItem(ctx, item, { camera, images });
-        drawItem?.(ctx, item, { camera, images, scene });
+        const parts = cache === null ? null : cacheKey(item, scene);
+        const blitted =
+          cache !== null &&
+          parts !== null &&
+          cache.draw(
+            ctx,
+            item.id,
+            parts,
+            {
+              cull: bounds,
+              anchor: item.anchor,
+              rotation: item.rotation,
+              extra: options.cacheBounds?.(item, scene, camera) ?? null,
+            },
+            dpr * s,
+            dpr,
+            images,
+            (sctx, recorder) => {
+              paintItemParts(sctx, item, { camera, images: recorder }, true, false);
+              drawItem?.(sctx, item, { camera, images: recorder, scene });
+            },
+          );
+        if (blitted) {
+          paintItemParts(ctx, item, { camera, images }, false, true);
+        } else {
+          paintItem(ctx, item, { camera, images });
+          drawItem?.(ctx, item, { camera, images, scene });
+        }
         ctx.restore();
       }
 
@@ -685,6 +783,10 @@ export function createCanvas2DRenderer<S extends Scene = Scene>(
     },
     dispose() {
       disposed = true;
+      cache?.clear();
+    },
+    cacheStats() {
+      return cache?.stats() ?? { entries: 0, bytes: 0 };
     },
   };
 }

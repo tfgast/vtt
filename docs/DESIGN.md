@@ -1509,13 +1509,43 @@ protocol, so the protocol is designed first, not deferred.
 
 In the tab, the scene is drawn on a canvas and the chrome (inspector, formula
 bar, log) is DOM; binders are canvas objects (4.7). In-place editing is a DOM overlay positioned over
-the cell. Canvas2D with viewport culling and an image cache; per-object
-render caching is deferred until profiling asks (vtt-qf5.10). The renderer
+the cell. Canvas2D with viewport culling, an image cache and optional
+per-object render caching (M6-D37): an item that draws text, an image, a
+hatch or a face is drawn once into an offscreen bitmap at the frame's own
+camera and device scale and blitted 1:1 on later frames, until its drawn
+content (the draw item, its face drawing and frame transform), the zoom,
+or an image it drew changes. Keying on the exact zoom keeps `min_size`
+visibility and fixed screen sizes identical to live drawing and to hit
+testing: a pan reuses bitmaps, a zoom redraws them. The surface holds the
+item's cull box and its face's unclipped ink strokes. Selection, hover,
+handles, the focus ring, labels and the hidden badge stay live. Bitmaps
+are evicted least recently used past 256 MB. The cache is off by default
+and is turned on once a browser measurement shows the gain; until then
+the app enables it with `?render_cache=1` in its URL (the renderer's
+`renderCache` option). The renderer
 sits behind a small renderer interface; PixiJS is the known upgrade if
 profiling demands it. Objects are never DOM nodes. Canvas text is weak at
 small sizes, which face elements' `min_size` zoom thresholds already
 accommodate. Very large
 map images are a tiling problem and stay in Later.
+
+**Benchmark (render cache, vtt-qf5.10).** `pnpm bench:render` draws a
+stocked GM board of 3,001 objects (3,000 spawned tokens with name, hp and
+face) at 1600 × 1000 CSS px, device pixel ratio 2, through the app's
+renderer over a `RecordingContext`, 30 frames after 5 of warm-up, panning a
+little each frame. Medians on an Apple M1 Pro, Node 26, 2026-11-06:
+
+| Camera | Cache off | Cache on, same scene | Cache on, scene rebuilt each frame |
+| --- | --- | --- | --- |
+| Whole board (zoom 0.27) | 12.3 ms | 6.6 ms | 13.5 ms |
+| Zoom 1 (about a tenth in view) | 4.6 ms | 3.0 ms | 3.8 ms |
+
+The numbers are JavaScript only (issuing and recording calls, keys, cull
+bounds, blits; no pixels are rasterized), so a browser's differ: there text
+and paths cost more to rasterize and a blit costs a texture copy. A pan
+reuses the scene and gains; a rebuilt scene (a hover or a drag preview)
+compares every face structurally and roughly breaks even; a zoom redraws
+every bitmap. Hence off by default until a browser measurement.
 
 **Protocol.** The wire protocol is specified in docs/PROTOCOL.md: JSON
 messages over one WebSocket, a token handshake, one batched write command
@@ -1899,3 +1929,4 @@ a separate player window, shipped game-system content.
 | 2026-11-06 | M6-D32. Asset collection is explicit, never automatic: the protocol method `collect_assets` [write] (`{delete?: boolean}` → `{unreferenced, deleted}`, the MCP tool of the same name, `TableHost.collectAssets`) unlists every listed asset whose path no string in a live object (cells, overrides, formula and action source, face) or in a retained group's effects (before and after, undo groups included) contains; with `delete` it also deletes those files that lie directly in `<table basename>.assets/` and that no kept path names. The request-surface MCP server has 16 tools and `vtt-mcp` 20. Amends M4-D2's "never garbage-collected in v1". DESIGN §7; PROTOCOL §4, §11. | Imported images accumulate (vtt-3l6.16); a substring scan over every string in objects and effects keeps anything an undo could restore, so a false match only keeps a file, while automatic collection on save could delete an image the GM is about to reuse. |
 | 2026-11-06 | M6-D33. Save-time compaction policy: `TableHost.open` takes `compaction: {keepLast: n}` or `"never"` (default `"never"`, so v1 behaviour is unchanged unless asked); with `keepLast`, every save (explicit, autosave, retry, close) first runs `compactLog(store, n)`, keeping the last n groups with their absolute indices and raising the barrier to at least `first_index`, then writes the file. `vtt-serve --keep-last <n>` sets it (forwarded by `pnpm start`). Undo below the kept range is `nothing_to_undo`; `changes_since` from below the floor reports `truncated`. Amends M3-D24's "no automatic compaction in v1". DESIGN §7; PROTOCOL §6. | A count of groups is predictable and needs no clock; compacting at save keeps the file and the in-memory log identical. Age-based retention and checkpoints stay Later. |
 | 2026-11-06 | M6-D34. Layout mode edits expanded contained entries in place: with the container selected, a press on an element drawn inside an expanded entry (list, grid or fan; the innermost entry, every entry on the way expanded, with an element under the point) selects it on the entry's object; outlines, handles and pointer deltas go through the composed frame board object → each entry (`entryTransform`: element corner, scroll, fan turn, fit scale), and each move or resize is one `set_face` on that object in its own face coordinates. A collapsed entry's face is not edited on the canvas; a press there reaches the container's elements as before. DESIGN §4.6; `face-editor/layout-tool.ts`. | vtt-qf5.30 (M5 plan section 5): vtt-1xv.18's layout tool reached board objects only, so a card in a binder or hand had to be taken out to be laid out on the canvas. |
+| 2026-11-06 | M6-D37. The Canvas2D renderer can cache a per-item offscreen bitmap (`render/render-cache.ts`): with `renderCache` set, an item whose `cacheKey` is non-null (default: one with text, an image or a hatch; the app's `faceCacheKey`: one with a face) has its body (shape, glyph, `drawItem` hook) drawn, with the frame's camera, into a surface from an injectable `createSurface` (default `OffscreenCanvas`, else a detached canvas, only over a native context) at the exact device scale, held by the cull box plus `cacheBounds` (`faceCacheBounds`: top-level ink with its width and round caps) and 2 device px, and blitted 1:1; it is redrawn when a key part (by reference, else `sameContent`), the device scale, the dpr or an image it drew changes. Labels, hidden badges and every overlay are drawn live over it. LRU eviction past `maxBytes` (default 256 MB); a surface over 4096 px a side is drawn live. Off by default; the app turns it on with `?render_cache=1`; on by default once a browser measurement shows the gain. Amends M4-D15. DESIGN §7 (Benchmark). | vtt-qf5.10: on a 3,000-object board the JS-only benchmark halves the frame time of a pan with the whole board in view (12.3 → 6.6 ms) but breaks even when the scene is rebuilt, and rasterization is unmeasured. Keying on the exact zoom, not a rounded-up bucket, keeps `min_size` visibility and fixed screen sizes equal to live drawing and hit testing. |

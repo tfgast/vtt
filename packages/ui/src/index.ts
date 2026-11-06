@@ -75,6 +75,7 @@ export * from "./render/canvas2d";
 export * from "./render/face-draw";
 export * from "./render/image-cache";
 export * from "./render/recording";
+export * from "./render/render-cache";
 export * from "./render/renderer";
 export * from "./scene/appearance";
 export * from "./scene/camera";

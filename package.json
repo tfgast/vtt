@@ -16,7 +16,8 @@
     "serve": "node --import tsx packages/authority/src/bin/serve.ts",
     "start": "node --import tsx packages/authority/src/bin/start.ts",
     "mcp": "node --import tsx packages/authority/src/bin/mcp.ts",
-    "fixtures:prepped": "VTT_WRITE_PREPPED_TABLE=1 vitest run packages/ui/test/walkthrough/prepped-table.test.tsx"
+    "fixtures:prepped": "VTT_WRITE_PREPPED_TABLE=1 vitest run packages/ui/test/walkthrough/prepped-table.test.tsx",
+    "bench:render": "VTT_BENCH_RENDER=1 vitest run packages/ui/test/render/render-cache.bench.test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.5",

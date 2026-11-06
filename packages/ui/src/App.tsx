@@ -108,7 +108,7 @@ import { rememberActiveBoard } from "./nav/board-memory";
 import { boardTabResolver, showBoardHandler } from "./nav/board-tab-drop";
 import { useFirstVisitFit } from "./nav/first-visit-fit";
 import { createCanvas2DRenderer } from "./render/canvas2d";
-import { drawFaceItem } from "./render/face-draw";
+import { drawFaceItem, faceCacheBounds, faceCacheKey } from "./render/face-draw";
 import { ImageCache } from "./render/image-cache";
 import type { Ctx2D, Renderer } from "./render/renderer";
 import { readBootstrap } from "./session/bootstrap";
@@ -165,18 +165,32 @@ export interface AppRendererOptions {
   requestRedraw: () => void;
   /** An image path's URL; default `assetUrl`. */
   resolve?: (path: string) => string;
+  /** The per-item bitmap cache (M6-D37); default off. The app turns it on with `?render_cache=1`. */
+  renderCache?: boolean;
+}
+
+/**
+ * Whether the page asks for the bitmap cache (M6-D37): `?render_cache=1` in
+ * its URL. Off by default until a browser measurement shows the gain.
+ */
+export function renderCacheRequested(search: string): boolean {
+  return new URLSearchParams(search).get("render_cache") === "1";
 }
 
 /**
  * The app's renderer over `ctx`: Canvas2D drawing faces with `drawFaceItem`
  * and culling by `faceCullBounds` (presentation bounds), images from
- * `resolve`.
+ * `resolve`; with `renderCache`, faces are cached as bitmaps by
+ * `faceCacheKey` and `faceCacheBounds` (M6-D37).
  */
 export function createAppRenderer(ctx: Ctx2D, options: AppRendererOptions): Renderer<FaceScene> {
   return createCanvas2DRenderer<FaceScene>(ctx, {
     images: new ImageCache({ resolve: options.resolve ?? assetUrl, onLoad: options.requestRedraw }),
     drawItem: drawFaceItem,
     cullBounds: faceCullBounds,
+    cacheKey: faceCacheKey,
+    cacheBounds: faceCacheBounds,
+    renderCache: options.renderCache === true ? {} : false,
   });
 }
 
@@ -184,7 +198,8 @@ export function createAppRenderer(ctx: Ctx2D, options: AppRendererOptions): Rend
 export const appCreateRenderer: CreateRenderer<FaceScene> = (canvas, { requestRedraw }) => {
   const ctx = canvas.getContext("2d");
   if (ctx === null) throw new Error("the board canvas has no 2D context");
-  return createAppRenderer(ctx, { requestRedraw });
+  const search = typeof location === "undefined" ? "" : location.search;
+  return createAppRenderer(ctx, { requestRedraw, renderCache: renderCacheRequested(search) });
 };
 
 export interface AppRegistryOptions {
