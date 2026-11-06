@@ -150,6 +150,18 @@ export interface Tool<TPhase = unknown, K extends ToolId = ToolId> {
     event: WheelInteractionEvent,
     input: ToolInput,
   ): ToolResult<TPhase, K> | null;
+  /**
+   * The object a `double_click` at `event` acts on in place of the top hit,
+   * or null for the top hit (vtt-qf5.50; DESIGN.md §4.6, M6-D21): the select
+   * tool's open Alt+click cycle near the point. A wrapping tool forwards it,
+   * and `withFaces` leaves a double-click on another object's face to it. A
+   * tool without it has none.
+   */
+  doubleClickTarget?(
+    state: ToolState<TPhase, K>,
+    event: Extract<InteractionEvent, { type: "double_click" }>,
+    input: ToolInput,
+  ): ObjectId | null;
 }
 
 /**

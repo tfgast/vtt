@@ -277,6 +277,113 @@ describe("selection", () => {
   });
 });
 
+describe("double-click after Alt+click cycling (vtt-qf5.50, M6-D21)", () => {
+  const dbl = (board: Point, modifiers: Modifiers = NO_MODS): InteractionEvent => ({
+    type: "double_click",
+    screen: screenOf(board),
+    board,
+    modifiers,
+  });
+  /** A browser double-click: two clicks, then the `double_click`. */
+  function doubleClick(d: ReturnType<typeof driver>, board: Point, modifiers = NO_MODS) {
+    d.click(board, modifiers);
+    d.click(board, modifiers);
+    return d.send(dbl(board, modifiers));
+  }
+  /** Alt+clicks at (1, 1) until the room (under the map image) is cycled to. */
+  function cycleToRoom() {
+    const d = driver();
+    for (let i = 0; i < 3; i++) d.click([1, 1], ALT);
+    expect(d.selection).toEqual(["room"]);
+    return d;
+  }
+  const editors = (effects: Effect[]) => of(effects, "open_editor").map((e) => e.object);
+
+  test("a double-click at the cycle's point edits the cycled zone and selects it again", () => {
+    const d = cycleToRoom();
+    const effects = doubleClick(d, [1, 1]);
+    expect(editors(effects)).toEqual(["room"]);
+    expect(of(effects, "open_editor")[0]?.stamp).toEqual(
+      expect.objectContaining({ board: BOARD, viewer: GM, baseRevision: 7 }),
+    );
+    expect(d.selection).toEqual(["room"]);
+    expect(of(effects, "hover")).toEqual([{ type: "hover", id: "room", zone: "room" }]);
+  });
+
+  test("within the radius counts; the cycle continues after it", () => {
+    const d = cycleToRoom();
+    expect(editors(doubleClick(d, offset([1, 1], 3)))).toEqual(["room"]);
+    d.click([1, 1], ALT);
+    expect(d.selection).toEqual(["tok"]);
+  });
+
+  test("the double-click alone, with the cycle still open, edits the cycled zone", () => {
+    const d = cycleToRoom();
+    expect(editors(d.send(dbl([1, 1])))).toEqual(["room"]);
+  });
+
+  test("Alt held through the double-click acts on the target its clicks cycled to", () => {
+    const d = driver();
+    d.click([1, 1], ALT);
+    // Its two Alt+clicks cycle on to the map, then the room.
+    const effects = doubleClick(d, [1, 1], ALT);
+    expect(d.selection).toEqual(["room"]);
+    expect(editors(effects)).toEqual(["room"]);
+  });
+
+  test("a double-click beyond the radius acts on the top hit as before", () => {
+    const d = cycleToRoom();
+    const effects = doubleClick(d, offset([1, 1], 20));
+    expect(effects.at(-1)).toEqual(expect.objectContaining({ type: "open_editor", object: "tok" }));
+    expect(editors(effects)).toEqual(["tok"]);
+    expect(d.selection).toEqual(["tok"]);
+  });
+
+  test("without a cycle a double-click acts on the top hit", () => {
+    const d = driver();
+    const effects = doubleClick(d, [1, 1]);
+    expect(of(effects, "open_editor")).toHaveLength(1);
+    expect(editors(effects)).toEqual(["tok"]);
+  });
+
+  test("a cycle at the top hit changes nothing", () => {
+    const d = driver();
+    d.click([1, 1], ALT);
+    expect(doubleClick(d, [1, 1]).slice(-1)).toEqual([
+      expect.objectContaining({ type: "open_editor", object: "tok" }),
+    ]);
+  });
+
+  test("a plain click at the point, then a double-click, acts on the top hit", () => {
+    const d = cycleToRoom();
+    d.click([1, 1]);
+    expect(editors(doubleClick(d, [1, 1]))).toEqual(["tok"]);
+  });
+
+  test("a plain click elsewhere ends it", () => {
+    const d = cycleToRoom();
+    d.click([2, -2]);
+    expect(editors(doubleClick(d, [1, 1]))).toEqual(["tok"]);
+  });
+
+  test("a drag ends it", () => {
+    const d = cycleToRoom();
+    d.drag([2, -2], [3, -3]);
+    expect(editors(doubleClick(d, [1, 1]))).toEqual(["tok"]);
+  });
+
+  test("doubleClickTarget reports the cycled target near the point, else null", () => {
+    const d = cycleToRoom();
+    const target = (board: Point) =>
+      d.tool.doubleClickTarget?.(d.state as never, dbl(board) as never, makeInput());
+    expect(target([1, 1])).toBe("room");
+    expect(target(offset([1, 1], 20))).toBeNull();
+    expect(
+      driver().tool.doubleClickTarget?.(driver().state as never, dbl([1, 1]) as never, makeInput()),
+    ).toBeNull();
+  });
+});
+
 describe("Alt+click cycling", () => {
   test("cycles token, map image, zone and wraps at one point", () => {
     const d = driver();

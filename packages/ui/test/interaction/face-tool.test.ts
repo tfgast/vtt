@@ -45,6 +45,7 @@ import {
   type ToolState,
   toScreen,
   withFaces,
+  withHandles,
 } from "@vtt/ui";
 import { describe, expect, test } from "vitest";
 
@@ -1081,6 +1082,102 @@ describe("over the real select tool", () => {
     const up = run(ptr("pointer_up", ROLL));
     expect(up.some((e) => e.type === "select")).toBe(false);
     expect(up.some((e) => e.type === "extension")).toBe(true);
+  });
+});
+
+describe("double-click after Alt+click cycling (vtt-qf5.50, M6-D21)", () => {
+  /** The d20's `total`, over its centre: a double-click there invokes Roll. */
+  const TOTAL = centreOn([30, 0], [-0.4, -0.4, 0.8, 0.5]);
+  /** A room zone under the d20 (the d20 is picked first, M6-D10). */
+  const VAULT = mk("vault", { shape: rect(4, 4), at: [30, 0], cells: { is_zone: bool(true) } });
+  const views = [...VIEWS, VAULT];
+  const byId = new Map(views.map((v) => [v.id, v]));
+  const over: Partial<ToolInput> = {
+    scene: buildScene({ views, covers: [], board: BOARD, viewer: GM }),
+    views: (id) => byId.get(id) ?? null,
+  };
+  const ALT: Modifiers = { ...NO_MODS, alt: true };
+  const withMods = (e: InteractionEvent, modifiers: Modifiers) =>
+    ({ ...e, modifiers }) as InteractionEvent;
+
+  /** The app's composition: faces over handles over the select tool. */
+  function real() {
+    const faces = withFaces(withHandles(createSelectTool()), {
+      faceState: createFaceStateStore(),
+      policy: defaultFacePolicy,
+    });
+    let state = faces.init({});
+    let n = 0;
+    const run = (e: InteractionEvent) => {
+      n++;
+      const out = faces.reduce(
+        state,
+        e,
+        input({ ...over, revision: 5 + n, interactionId: `i${n}` }),
+      );
+      state = out.state;
+      return out.effects;
+    };
+    const click = (at: Point, mods = NO_MODS) => [
+      ...run(withMods(ptr("pointer_down", at), mods)),
+      ...run(withMods(ptr("pointer_up", at), mods)),
+    ];
+    const doubleClick = (at: Point) => [...click(at), ...click(at), ...run(dbl(at))];
+    return { faces, click, doubleClick, state: () => state };
+  }
+
+  test("the cycled zone under a d20 is edited, not the d20's default action run", () => {
+    const r = real();
+    r.click(TOTAL, ALT);
+    expect(r.click(TOTAL, ALT)).toContainEqual({ type: "select", ids: ["vault"] });
+    const effects = r.doubleClick(TOTAL);
+    expect(invokesIn(effects)).toEqual([]);
+    expect(editorsIn(effects)).toEqual([
+      expect.objectContaining({ type: "open_editor", object: "vault" }),
+    ]);
+    expect(effects.filter((e) => e.type === "select").at(-1)).toEqual({
+      type: "select",
+      ids: ["vault"],
+    });
+  });
+
+  test("without a cycle, or with the d20 itself cycled to, the double-click runs Roll", () => {
+    const plain = real();
+    expect(invokesIn(plain.doubleClick(TOTAL))).toHaveLength(1);
+    const own = real();
+    own.click(TOTAL, ALT);
+    expect(invokesIn(own.doubleClick(TOTAL))).toHaveLength(1);
+  });
+
+  test("beyond the radius of the cycle's point, the double-click runs Roll", () => {
+    const r = real();
+    r.click(TOTAL, ALT);
+    r.click(TOTAL, ALT);
+    // 0.2 board units is 12.8 px at zoom 1 (64 px per unit), still on `total`.
+    const away: Point = [TOTAL[0] + 0.2, TOTAL[1]];
+    expect(invokesIn(r.doubleClick(away))).toHaveLength(1);
+  });
+
+  test("the decorator forwards doubleClickTarget", () => {
+    const r = real();
+    r.click(TOTAL, ALT);
+    r.click(TOTAL, ALT);
+    expect(r.faces.doubleClickTarget?.(r.state(), dbl(TOTAL) as never, input(over))).toBe("vault");
+  });
+
+  test("an inner tool's target other than the face's object takes the double-click", () => {
+    const inner = recordingTool();
+    let target: string | null = "vault";
+    const faces = withFaces(
+      { ...inner.tool, doubleClickTarget: () => target },
+      { faceState: createFaceStateStore(), policy: defaultFacePolicy },
+    );
+    const state = faces.init({});
+    const out = faces.reduce(state, dbl(TOTAL), input());
+    expect(invokesIn(out.effects)).toEqual([]);
+    expect(inner.events).toEqual(["double_click"]);
+    target = "d20";
+    expect(invokesIn(faces.reduce(state, dbl(TOTAL), input()).effects)).toHaveLength(1);
   });
 });
 
