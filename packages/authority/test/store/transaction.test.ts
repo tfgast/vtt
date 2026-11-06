@@ -108,6 +108,28 @@ describe("Transaction", () => {
     expect(store.getCell("goblin", "hp")).toEqual(lit(5));
   });
 
+  test("hasCreated and hasChanged agree with changes() without building it", () => {
+    const store = DocumentStore.fromSnapshot(table());
+    const tx = store.begin(gm, edit);
+    expect(tx.hasChanged("goblin", "hp")).toBe(false);
+    expect(tx.hasCreated("orc")).toBe(false);
+    tx.record(write("goblin", "hp", 7, 7));
+    for (const e of [...spawnOrc, ...goblinIntoBag]) tx.record(e);
+    const summary = tx.changes();
+    const ids = ["goblin", "orc", "bag", "coin", "map"];
+    for (const id of ids) {
+      expect(tx.hasCreated(id)).toBe(summary.created.includes(id));
+      for (const cell of ["hp", "name", "position", "z", "contents", "missing"]) {
+        expect(tx.hasChanged(id, cell)).toBe(summary.changedCells.includes(cellKey(id, cell)));
+      }
+    }
+    expect(tx.hasChanged("goblin", "hp")).toBe(true);
+    expect(tx.hasChanged("bag", "contents")).toBe(true);
+    expect(tx.hasChanged("coin", "name")).toBe(false);
+    expect(tx.hasCreated("orc")).toBe(true);
+    expect(tx.hasCreated("goblin")).toBe(false);
+  });
+
   test("abort discards everything", () => {
     const store = DocumentStore.fromSnapshot(table());
     const tx = store.begin(gm, edit);

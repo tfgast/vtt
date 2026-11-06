@@ -10,6 +10,7 @@
  * committed document is never touched before the commit point, so an abort
  * is simply dropping the copy, and the old document serves as `before`.
  */
+import { cellKey } from "@vtt/formula";
 import {
   type Actor,
   type Effect,
@@ -218,6 +219,16 @@ export class Transaction {
   /** The change summary of the effects recorded so far. */
   changes(): ChangeSummary {
     return this.#summary.build();
+  }
+
+  /** Whether `changes().created` would include `id`, without building the summary. */
+  hasCreated(id: ObjectId): boolean {
+    return this.#summary.hasCreated(id);
+  }
+
+  /** Whether `changes().changedCells` would include the cell, without building the summary. */
+  hasChanged(id: ObjectId, cell: string): boolean {
+    return this.#summary.hasChanged(cellKey(id, cell));
   }
 
   #requireOpen(what: string): void {

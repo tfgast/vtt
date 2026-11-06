@@ -64,6 +64,7 @@ export class SummaryBuilder {
     faceChanged: [],
   };
   readonly #changed = new Set<CellKey>();
+  readonly #created = new Set<ObjectId>();
 
   /** Records `effect`; `stateBefore` is the document just before it applies. */
   add(effect: Effect, stateBefore: DocState): void {
@@ -96,7 +97,10 @@ export class SummaryBuilder {
         });
         return;
       case "create":
-        s.created.push(...effect.objects.map((o) => o.id));
+        for (const o of effect.objects) {
+          s.created.push(o.id);
+          this.#created.add(o.id);
+        }
         return;
       case "remove":
         s.removed.push(...effect.objects.map((o) => o.id));
@@ -118,6 +122,16 @@ export class SummaryBuilder {
       case "retire":
         return;
     }
+  }
+
+  /** Whether `key` is in the summary's `changedCells` so far; no copy. */
+  hasChanged(key: CellKey): boolean {
+    return this.#changed.has(key);
+  }
+
+  /** Whether `id` is in the summary's `created` so far; no copy. */
+  hasCreated(id: ObjectId): boolean {
+    return this.#created.has(id);
   }
 
   /** A copy of the summary so far. */
