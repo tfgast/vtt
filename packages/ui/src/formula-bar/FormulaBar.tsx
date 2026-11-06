@@ -16,8 +16,12 @@
  * The input is a textarea that keeps the text exactly (multiline formula
  * sources and text). The revision is captured when it gains focus; Enter
  * commits with it unless the input is unchanged (Shift+Enter inserts a
- * newline); Escape reverts; leaving the input discards
- * the draft. Input that does not parse shows the parser's message (checked
+ * newline); Escape reverts; leaving the input for another element of the
+ * page (a click elsewhere, Tab) discards the draft. The window losing focus
+ * (alt-tab, switching to another app; `document.hasFocus()` false at blur)
+ * keeps the draft and its revision, and focus coming back to the input
+ * resumes it; if the window comes back with focus elsewhere, the kept draft
+ * is discarded (vtt-nb8.21). Input that does not parse shows the parser's message (checked
  * as you type, debounced) and cannot be committed. Hovering or focusing the
  * bar sets `UiStore.hoveredCell` to the focused cell (tracing is
  * vtt-3l6.24's); leaving, blurring, clearing the focused cell and unmounting
@@ -149,6 +153,8 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
   const [draftState, setDraft] = useState<Draft | null>(null);
   const [focusTick, setFocusTick] = useState(0);
   const presence = useRef({ hovered: false, focused: false });
+  /** Whether the draft was kept over the window losing focus (vtt-nb8.21). */
+  const keptOverWindowBlur = useRef(false);
   /** The `hoveredCell` this bar set, so it clears only its own. */
   const ownHover = useRef<CellAddress | null>(null);
 
@@ -204,7 +210,33 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-run when the focused cell changes
   useEffect(() => {
     if (inputRef.current !== null && document.activeElement === inputRef.current) beginDraft();
+    else {
+      // A draft kept over a window blur belongs to the cell it was typed in.
+      keptOverWindowBlur.current = false;
+      setDraft(null);
+    }
   }, [key]);
+
+  // The window came back: a kept draft whose input did not get focus back is discarded.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onWindowFocus = () => {
+      clearTimeout(timer);
+      // After this task, so the input's own focus (restored by the browser) has fired.
+      timer = setTimeout(() => {
+        if (!keptOverWindowBlur.current) return;
+        keptOverWindowBlur.current = false;
+        if (inputRef.current === null || document.activeElement !== inputRef.current) {
+          setDraft(null);
+        }
+      }, 0);
+    };
+    window.addEventListener("focus", onWindowFocus);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", onWindowFocus);
+    };
+  }, []);
 
   // -- focus requests
 
@@ -324,13 +356,16 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
           spellCheck={false}
           onFocus={() => {
             presence.current.focused = true;
+            keptOverWindowBlur.current = false;
             syncHover();
             if (draft === null) beginDraft();
           }}
           onBlur={() => {
             presence.current.focused = false;
             syncHover();
-            setDraft(null);
+            // The window losing focus blurs the input too: keep the draft for when it returns.
+            if (!document.hasFocus()) keptOverWindowBlur.current = true;
+            else setDraft(null);
           }}
           onChange={(e) => {
             const base = draft ?? beginDraft();
