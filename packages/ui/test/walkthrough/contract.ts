@@ -175,6 +175,12 @@ export interface Gestures {
   covers(): number;
   logGroups(): LogGroupShown[];
   logLoadOlder(): Promise<void>;
+  /**
+   * Opens the Log tab when closed and chooses `option` (its text: "All",
+   * "GM", "Any agent", an agent's or character's name) in its Actor filter;
+   * resolves once the filter's search of older groups has settled.
+   */
+  logFilterActor(option: string): Promise<void>;
 }
 
 /** gestures.ts's factory (vtt-nb8.18). */

@@ -23,8 +23,10 @@
  * - each save row is expanded in the card's list with `expandEntry` before
  *   its Roll save is pressed;
  * - G4 is selected with `click` before Delete;
- * - the Log tab is paged with `logLoadOlder` until the agent's
- *   "Fireball for Aldric" group is listed;
+ * - the Log tab's Actor filter is set to "Any agent" with
+ *   `logFilterActor` (vtt-qf5.58), which lists the agent's groups back to
+ *   the start of the log, "Fireball for Aldric" among them, and then to
+ *   "All", which lists every group loaded;
  * - the state compared across the restart is read through the GM client:
  *   the `document` snapshot's boards and objects, and every log group
  *   (paged `log`).
@@ -146,7 +148,9 @@ export interface PlayBObserved {
   g4SelectedBeforeDelete: boolean;
   g4AfterDelete: boolean;
   g4DieAfterDelete: boolean;
-  /** The Log tab after the undos: every group shown, newest first, once Fireball's is listed. */
+  /** The Log tab after the undos, its Actor filter "Any agent": every group shown, newest first. */
+  agentShown: LogGroupShown[];
+  /** The Log tab after that, its Actor filter "All" again: every group shown, newest first. */
   logShown: LogGroupShown[];
   // Step 15
   saveStatus: string;
@@ -467,12 +471,14 @@ export async function runPlayB(
     () => "G4 restored",
   );
 
-  let shown = await logShown(g);
-  while (!shown.some((gr) => gr.label === FIREBALL_LABEL)) {
-    await g.logLoadOlder();
-    shown = g.logGroups();
+  await logShown(g);
+  await g.logFilterActor("Any agent");
+  const agentShown = [...g.logGroups()].sort((a, b) => b.index - a.index);
+  if (!agentShown.some((gr) => gr.label === FIREBALL_LABEL)) {
+    throw new Error("play B: the Actor filter's Any agent did not list Fireball's group");
   }
-  const logGroupsShown = [...shown].sort((a, b) => b.index - a.index);
+  await g.logFilterActor("All");
+  const logGroupsShown = [...g.logGroups()].sort((a, b) => b.index - a.index);
 
   // -- 15. Save, close and reopen; then one more Ctrl+Z.
   const before = await capture(ctx);
@@ -514,6 +520,7 @@ export async function runPlayB(
       g4SelectedBeforeDelete,
       g4AfterDelete,
       g4DieAfterDelete,
+      agentShown,
       logShown: logGroupsShown,
       saveStatus,
       savedText,

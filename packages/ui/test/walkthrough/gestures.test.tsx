@@ -533,6 +533,15 @@ describe("createGestures (vtt-nb8.18)", () => {
     expect(after[0]).toMatchObject({ index: top, actor: "Filler", label: `Fill ${count - 1}` });
     expect(after.length).toBeGreaterThan(LIMITS.max_log_window);
     expect(after.find((x) => x.index === scoutGroup)).toMatchObject({ actor: "GM", undone: false });
+    // The Actor filter: the GM's groups only, back to the start, in one gesture; then All again.
+    await g.logFilterActor("GM");
+    const gmOnly = g.logGroups();
+    expect(gmOnly.every((x) => x.actor === "GM")).toBe(true);
+    expect(gmOnly.find((x) => x.index === scoutGroup)).toBeDefined();
+    await g.logFilterActor("Filler");
+    expect(g.logGroups()).toHaveLength(count);
+    await g.logFilterActor("All");
+    expect(g.logGroups().length).toBeGreaterThan(count);
   }, 90_000);
 
   test("dragObject moves exactly (also far, panning mid-drag) and spawns from a board template; gear selects a template; click selects; editInPlace renames a faceless zone", async () => {
