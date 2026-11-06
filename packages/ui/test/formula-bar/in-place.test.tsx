@@ -433,6 +433,77 @@ describe("in-place editor", () => {
     expect(cellOf(session, "goblin", "temp")?.overridden).toBe(true);
   });
 
+  test("vtt-qf5.47: committing the evaluated value over a formula cell writes one override", async () => {
+    const { session, other, port, stamp, transacts } = await setup();
+    // The editor never opens on a formula cell without an override (it focuses
+    // the formula bar), so the cell stops being overridden while it is open: a
+    // second client sets max_hp to 19 and clears the override, so temp follows
+    // `max_hp + 1` = 20, the text already shown. The stamp names the revision
+    // of that change, so the commit tests the override rule, not the stale check.
+    const base = session.getSnapshot().revision;
+    act(() =>
+      port.open({ stamp: { ...stamp(), baseRevision: base + 1 }, object: "goblin", cell: "temp" }),
+    );
+    const editor = await openEditor("temp");
+    expect(editor.value).toBe("20");
+    await other.transact(
+      [
+        { type: "set_value", object: "goblin", cell: "max_hp", value: num(19) },
+        { type: "clear_override", object: "goblin", cell: "temp" },
+      ],
+      { label: "Scribe clears the override" },
+    );
+    await until(
+      () => cellOf(session, "goblin", "temp")?.overridden !== true,
+      "the cleared override",
+    );
+    expect(cellOf(session, "goblin", "temp")?.value).toEqual(num(20));
+    const user = userEvent.setup();
+    await user.type(editor, "{Enter}");
+    await until(() => cellOf(session, "goblin", "temp")?.overridden === true, "the override");
+    expect(transacts()).toHaveLength(1);
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_value", object: "goblin", cell: "temp", value: num(20) },
+    ]);
+    expect(transacts()[0]?.base_revision).toBe(base + 1);
+    expect(cellOf(session, "goblin", "temp")).toMatchObject({
+      kind: "formula",
+      source: "max_hp + 1",
+      overridden: true,
+      value: num(20),
+    });
+  });
+
+  test("vtt-qf5.47: the same literal over a literal cell writes nothing", async () => {
+    const { session, port, stamp, transacts } = await setup();
+    act(() => port.open({ stamp: stamp(), object: "goblin", cell: "max_hp" }));
+    const editor = await openEditor("max_hp");
+    expect(editor.value).toBe("12");
+    const user = userEvent.setup();
+    await user.type(editor, "{Enter}");
+    expect(editorOf("max_hp")).toBeNull();
+    act(() => port.open({ stamp: stamp(), object: "goblin", cell: "max_hp" }));
+    const again = await openEditor("max_hp");
+    await user.clear(again);
+    await user.type(again, " 12 {Enter}");
+    expect(editorOf("max_hp")).toBeNull();
+    await settle();
+    expect(transacts()).toEqual([]);
+    expect(cellOf(session, "goblin", "max_hp")?.value).toEqual(num(12));
+  });
+
+  test("vtt-qf5.47: the same text over an overridden formula cell writes nothing", async () => {
+    const { port, stamp, transacts } = await setup();
+    act(() => port.open({ stamp: stamp(), object: "goblin", cell: "temp" }));
+    const editor = await openEditor("temp");
+    expect(editor.value).toBe("20");
+    const user = userEvent.setup();
+    await user.type(editor, "{Enter}");
+    expect(editorOf("temp")).toBeNull();
+    await settle();
+    expect(transacts()).toEqual([]);
+  });
+
   test("the window losing focus does not lose typed text: a changed value commits, an unparseable one stays (vtt-nb8.21)", async () => {
     const { session, port, stamp, transacts } = await setup();
     const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
