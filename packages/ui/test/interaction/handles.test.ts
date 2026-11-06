@@ -159,7 +159,7 @@ function pointer(
   };
 }
 
-function driver(initial: { selection?: ObjectId[]; viewer?: Viewer } = {}) {
+function driver(initial: { selection?: ObjectId[]; viewer?: Viewer; snap?: boolean } = {}) {
   const tool = withHandles(selectTool);
   let state: ToolState = tool.init({});
   let selection: ObjectId[] = initial.selection ?? [];
@@ -184,7 +184,13 @@ function driver(initial: { selection?: ObjectId[]; viewer?: Viewer } = {}) {
       const out = tool.reduce(
         state as never,
         event,
-        makeInput({ selection: [...selection], revision, viewer, ...over }),
+        makeInput({
+          selection: [...selection],
+          revision,
+          viewer,
+          ...(initial.snap === undefined ? {} : { snap: initial.snap }),
+          ...over,
+        }),
       );
       state = out.state as ToolState;
       return apply(out.effects);
@@ -698,5 +704,97 @@ describe("withHandles(selectTool)", () => {
     expect(d.tool.cursor(d.state as never)).toBe("grab");
     d.send(pointer("pointer_down", handleOf("u", "rotate").at));
     expect(d.tool.cursor(d.state as never)).toBe("grabbing");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Snap (M6-D13, vtt-nb8.34)
+
+describe("handle drags with Snap", () => {
+  const onHalf = (n: number) => Math.abs(n * 2 - Math.round(n * 2)) < 1e-9;
+
+  test("an unrotated rect's corner lands on half units; with Snap off it does not", () => {
+    const on = onlyWrite(driver({ selection: ["u"], snap: true }).drag([7, -3], [7.8, -2.1]));
+    // The nw corner (5, -5) stays; the se corner snaps to (8, -2).
+    expect(shapeOp(on.ops)).toEqual(rect(3, 3));
+    expect(positionOp(on.ops)).toEqual([6.5, -3.5]);
+    const off = onlyWrite(driver({ selection: ["u"], snap: false }).drag([7, -3], [7.8, -2.1]));
+    const shape = shapeOp(off.ops);
+    if (shape.type !== "rect") throw new Error("not a rect");
+    expect(shape.width).toBeCloseTo(2.8, 9);
+    expect(onHalf(shape.width)).toBe(false);
+  });
+
+  test("an unrotated rect's edge lands on a half unit and changes one dimension", () => {
+    const write = onlyWrite(driver({ selection: ["u"], snap: true }).drag([7, -4], [8.2, -3.7]));
+    expect(shapeOp(write.ops)).toEqual(rect(3, 2));
+    expect(positionOp(write.ops)).toEqual([6.5, -4]);
+  });
+
+  test("a snap below the minimum is clamped to the minimum from the fixed edge", () => {
+    // The e edge snaps onto the w edge (x = 5): width 0, clamped to 0.25.
+    const write = onlyWrite(driver({ selection: ["u"], snap: true }).drag([7, -4], [5.1, -4]));
+    expect(shapeOp(write.ops)).toEqual(rect(0.25, 2));
+    expect(positionOp(write.ops)).toEqual([5.125, -4]);
+  });
+
+  test("a rotated rect's corner lands on the snapped board point; the rect stays rotated", () => {
+    const se = handleOf("r", "se");
+    const to: Point = [se.at[0] + 1.1, se.at[1] + 0.4];
+    const snapped: Point = [Math.round(to[0] * 2) / 2, Math.round(to[1] * 2) / 2];
+    const write = onlyWrite(driver({ selection: ["r"], snap: true }).drag(se.at, to));
+    expect(write.ops.map((o) => o.type)).toEqual(["set_shape", "set_value"]);
+    const shape = shapeOp(write.ops);
+    const position = positionOp(write.ops);
+    if (shape.type !== "rect") throw new Error("not a rect");
+    closePoint(world([shape.width / 2, shape.height / 2], position, 30), snapped, 9);
+    // The opposite corner keeps its world position (not snapped).
+    closePoint(
+      world([-shape.width / 2, -shape.height / 2], position, 30),
+      world([-2, -1], [2, 1], 30),
+    );
+    // Without Snap the corner follows the pointer instead.
+    const off = onlyWrite(driver({ selection: ["r"] }).drag(se.at, to));
+    const offShape = shapeOp(off.ops);
+    if (offShape.type !== "rect") throw new Error("not a rect");
+    closePoint(world([offShape.width / 2, offShape.height / 2], positionOp(off.ops), 30), to);
+  });
+
+  test("the circle's radius snaps to a half unit, at least the minimum", () => {
+    const on = onlyWrite(driver({ selection: ["c"], snap: true }).drag([-3, 0], [-1.4, 0.3]));
+    expect(on.ops).toEqual([{ type: "set_shape", object: "c", shape: circle(2.5) }]);
+    const off = onlyWrite(driver({ selection: ["c"] }).drag([-3, 0], [-1.4, 0.3]));
+    const shape = shapeOp(off.ops);
+    expect(shape.type === "circle" && onHalf(shape.radius)).toBe(false);
+    const tiny = onlyWrite(driver({ selection: ["c"], snap: true }).drag([-3, 0], [-3.9, 0]));
+    expect(tiny.ops).toEqual([{ type: "set_shape", object: "c", shape: circle(0.25) }]);
+  });
+
+  test("a polygon vertex lands on a half unit", () => {
+    const write = onlyWrite(driver({ selection: ["p"], snap: true }).drag([1, 4], [2.2, 2.9]));
+    expect(write.ops).toEqual([
+      {
+        type: "set_shape",
+        object: "p",
+        shape: {
+          type: "polygon",
+          points: [
+            [-1, -1],
+            [2, -2],
+            [1, 1],
+            [-1, 1],
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("the rotate handle ignores Snap", () => {
+    const at38 = world([0, -2], [6, -4], 38);
+    const rotateOf = (snap: boolean) => {
+      const d = driver({ selection: ["u"], snap });
+      return valueOp(onlyWrite(d.drag(handleOf("u", "rotate").at, at38)).ops, "rotation");
+    };
+    expect(rotateOf(true)).toEqual(rotateOf(false));
   });
 });

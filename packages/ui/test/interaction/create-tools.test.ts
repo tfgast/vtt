@@ -975,3 +975,169 @@ describe("image", () => {
     expect(b.effects[0]).toMatchObject({ type: "notice", level: "error" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Snap (M6-D13, vtt-nb8.34)
+
+const SNAP = () => ({ snap: true });
+
+function shapeAs<T extends Shape["type"]>(op: CreateOp, type: T): Extract<Shape, { type: T }> {
+  const shape = op.init?.shape;
+  if (shape?.type !== type) throw new Error(`not a ${type}`);
+  return shape as Extract<Shape, { type: T }>;
+}
+const onHalf = (n: number) => Number.isInteger(n * 2);
+
+describe("creation with Snap", () => {
+  test("zone-rect: both dragged corners snap to half units, preview included", () => {
+    const events = [down([1.1, 0.8]), move([3.3, 2.7]), up([3.3, 2.7])];
+    const on = drive(createZoneRectTool(), events, { input: SNAP });
+    expect(overlaysOf(on.perEvent[1] ?? [])).toEqual([
+      {
+        kind: "creation_preview",
+        anchor: [2.25, 1.75],
+        shape: { type: "rect", width: 2.5, height: 1.5 },
+        zone: true,
+      },
+    ]);
+    const op = createOp(on.effects);
+    expect(op.init?.shape).toEqual({ type: "rect", width: 2.5, height: 1.5 });
+    expect(positionOf(op)).toEqual([2.25, 1.75]);
+    // Corners: (1, 1) and (3.5, 2.5).
+
+    const off = createOp(drive(createZoneRectTool(), events).effects);
+    const shape = off.init?.shape as Extract<Shape, { type: "rect" }>;
+    expect(shape.width).toBeCloseTo(2.2, 9);
+    expect(shape.height).toBeCloseTo(1.9, 9);
+    expect(onHalf(positionOf(off)[0] - shape.width / 2)).toBe(false);
+  });
+
+  test("zone-rect: snap off without a snap input (absent counts as off)", () => {
+    const op = createOp(
+      drive(createZoneRectTool(), [down([1.1, 0.8]), move([3.3, 2.7]), up([3.3, 2.7])], {
+        input: () => ({ snap: false }),
+      }).effects,
+    );
+    expect(shapeAs(op, "rect").width).toBeCloseTo(2.2, 9);
+  });
+
+  test("zone-rect: corners that snap together are clamped to the minimum from the first", () => {
+    // Both corners snap to (1, 1): the 0.25 minimum is kept from the first corner.
+    const { effects } = drive(
+      createZoneRectTool(),
+      [down([1.1, 1.1]), move([1.2, 0.9]), up([1.2, 0.9])],
+      {
+        input: SNAP,
+      },
+    );
+    const op = createOp(effects);
+    expect(op.init?.shape).toEqual({ type: "rect", width: 0.25, height: 0.25 });
+    expect(positionOf(op)).toEqual([1.125, 1.125]);
+  });
+
+  test("zone-rect: a click centres its 2 × 2 zone on a half unit", () => {
+    const op = createOp(drive(createZoneRectTool(), click([2.1, 3.3]), { input: SNAP }).effects);
+    expect(positionOf(op)).toEqual([2, 3.5]);
+    expect(op.init?.shape).toEqual({ type: "rect", width: 2, height: 2 });
+  });
+
+  test("zone-circle: the centre and the radius snap", () => {
+    const events = [down([1.1, 0.9]), move([3.3, 1]), up([3.3, 1])];
+    const on = createOp(drive(createZoneCircleTool(), events, { input: SNAP }).effects);
+    expect(positionOf(on)).toEqual([1, 1]);
+    expect(on.init?.shape).toEqual({ type: "circle", radius: 2.5 });
+    const off = createOp(drive(createZoneCircleTool(), events).effects);
+    expect(positionOf(off)).toEqual([1.1, 0.9]);
+    expect(shapeAs(off, "circle").radius).not.toBe(2.5);
+  });
+
+  test("zone-circle: a radius snapping to 0 keeps the 0.25 minimum", () => {
+    const op = createOp(
+      drive(createZoneCircleTool(), [down([1, 1]), move([1.2, 1]), up([1.2, 1])], { input: SNAP })
+        .effects,
+    );
+    expect(positionOf(op)).toEqual([1, 1]);
+    expect(op.init?.shape).toEqual({ type: "circle", radius: 0.25 });
+  });
+
+  test("zone-polygon: every vertex and the drawn cursor snap", () => {
+    const events = [
+      ...click([0.1, -0.1]),
+      move([3.9, 0.2]),
+      ...click([3.9, 0.2]),
+      ...click([2.1, 2.9]),
+      keyDown("Enter"),
+    ];
+    const on = drive(createZonePolygonTool(), events, { input: SNAP });
+    expect(overlaysOf(on.perEvent[2] ?? [])).toEqual([
+      { kind: "polygon_draft", points: [[0, 0]], cursor: [4, 0], closing: false },
+    ]);
+    const op = createOp(on.effects);
+    const anchor = positionOf(op);
+    const points = shapeAs(op, "polygon").points;
+    closePoints(
+      points.map((p): Point => [p[0] + anchor[0], p[1] + anchor[1]]),
+      [
+        [0, 0],
+        [4, 0],
+        [2, 3],
+      ],
+    );
+    const off = createOp(drive(createZonePolygonTool(), events).effects);
+    const offAnchor = positionOf(off);
+    const offPoints = shapeAs(off, "polygon").points;
+    expect(offPoints.map((p) => p[0] + offAnchor[0])).not.toEqual([0, 4, 2]);
+  });
+
+  test("zone-polygon: a click that snaps onto the last vertex adds nothing", () => {
+    const { state } = drive(
+      createZonePolygonTool(),
+      [...click([0, 0]), ...click([4, 0]), ...click([4.1, 0.1])],
+      { input: SNAP },
+    );
+    expect(state.phase.draft?.points).toEqual([
+      [0, 0],
+      [4, 0],
+    ]);
+  });
+
+  const uploaded = (width: number, height: number) =>
+    settled("i1", { type: "uploaded", path: "t.json.assets/x.png", width, height });
+
+  test("image (click): the anchor snaps, the size stays the import's 250 × 130 px", () => {
+    const tool = createImageTool();
+    const a = drive(tool, click([5.1, 6.3]), { input: SNAP });
+    const b = drive(tool, [settled("i1", { type: "file_picked", file: png("odd.png") })], {
+      state: a.state,
+      first: 3,
+      input: SNAP,
+    });
+    const c = drive(tool, [uploaded(250, 130)], { state: b.state, first: 4, input: SNAP });
+    const op = createOp(c.effects);
+    expect(positionOf(op)).toEqual([5, 6.5]);
+    expect(op.init?.shape).toEqual({ type: "rect", width: 2.5, height: 1.3 });
+
+    const off = drive(tool, click([5.1, 6.3]));
+    const offB = drive(tool, [settled("i1", { type: "file_picked", file: png("odd.png") })], {
+      state: off.state,
+      first: 3,
+    });
+    const offC = drive(tool, [uploaded(250, 130)], { state: offB.state, first: 4 });
+    expect(positionOf(createOp(offC.effects))).toEqual([5.1, 6.3]);
+  });
+
+  test("image (drop): the dropped anchor snaps", () => {
+    const tool = createImageTool();
+    const drop: InteractionEvent = {
+      type: "file_drop",
+      screen: toScreen(CAMERA, [2.2, 2.8], VIEWPORT),
+      board: [2.2, 2.8],
+      files: [png("drop.png")],
+    };
+    const a = drive(tool, [drop], { input: SNAP });
+    const c = drive(tool, [uploaded(250, 130)], { state: a.state, first: 2, input: SNAP });
+    const op = createOp(c.effects);
+    expect(positionOf(op)).toEqual([2, 3]);
+    expect(op.init?.shape).toEqual({ type: "rect", width: 2.5, height: 1.3 });
+  });
+});
