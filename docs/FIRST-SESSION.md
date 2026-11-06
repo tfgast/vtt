@@ -180,7 +180,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
    `packages/fixtures/assets/crypt-map.png`. The map appears, 24 × 16 units,
    centred where you clicked.
 3. Press R (the rectangle zone tool). Make sure Fog is checked in the
-   toolbar.
+   toolbar. If you forget, select the zone and check Fog in the inspector's
+   Object section.
 4. Draw a zone exactly over each room, dragging from its top-left corner to
    its bottom-right corner. Drawing a zone selects it and switches back to
    the select tool, so press R again before each room (or hold Shift as you

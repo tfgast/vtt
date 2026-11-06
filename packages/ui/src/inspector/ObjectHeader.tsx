@@ -2,13 +2,23 @@
  * The inspector's object header (vtt-3l6.12; DESIGN.md §4.1 flags and tags;
  * PROTOCOL.md §5 `set_template_flag`, `set_character_flag`, `set_tag`, §6):
  * the name and id (with a copy button); the `is_template` and
- * `is_character` toggles; `is_zone`, read-only; the tags as chips with add
- * and remove; and the shape control. Each command carries the revision
- * captured at the click. Read-only (view-as) shows the same without edits.
+ * `is_character` toggles; `is_zone`, read-only; on a zone the Fog checkbox;
+ * the tags as chips with add and remove; and the shape control. Each command
+ * carries the revision captured at the click. Read-only (view-as) shows the
+ * same without edits.
+ *
+ * Fog (vtt-nb8.27; DESIGN.md §4.4, §4.6 The inspector, §8.4 step 3) shows the
+ * evaluated state (`viewFog`). Checking writes the zone tools' `FOG_CELLS`
+ * (`opaque` true, `visible_to` gm), unchecking `opaque` false and
+ * `visible_to` all, each as one group of plain `set_value`s: on a formula
+ * cell that is an override and the formula stays underneath. Its visible
+ * text is "Fog"; its accessible name is "Zone fog", distinct from the zone
+ * tools' toolbar Fog option.
  */
-import type { ObjectView } from "@vtt/protocol";
+import type { ObjectView, WireOp } from "@vtt/protocol";
 import type { ObjectId } from "@vtt/schema";
-import { type CSSProperties, type FormEvent, useState } from "react";
+import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from "react";
+import { FOG_CELLS } from "../interaction/create-tools";
 import type { TableSession } from "../session/table-session";
 import { inspectorRefLabel, useInspectorWrites } from "./CellRow";
 import { ShapeControl } from "./ShapeControl";
@@ -41,6 +51,40 @@ export function viewTags(view: ObjectView): string[] {
 export function viewIsZone(view: ObjectView): boolean {
   const v = view.cells.is_zone?.value;
   return v?.type === "boolean" && v.value;
+}
+
+/** A zone's fog state, as the Fog checkbox shows it. */
+export type FogState = "on" | "off" | "mixed";
+
+/**
+ * The view's evaluated fog state: "on" when `opaque` is true and
+ * `visible_to` is exactly `gm`; "off" when `opaque` is false or empty
+ * (absent reads as its default, false); "mixed" otherwise.
+ */
+export function viewFog(view: ObjectView): FogState {
+  const opaque = view.cells.opaque?.value ?? { type: "empty" };
+  if (opaque.type === "empty" || (opaque.type === "boolean" && !opaque.value)) return "off";
+  const v = view.cells.visible_to?.value;
+  const gmOnly = v?.type === "viewers" && v.viewers.length === 1 && v.viewers[0] === "gm";
+  return opaque.type === "boolean" && gmOnly ? "on" : "mixed";
+}
+
+/** The writes that turn fog on (the zone tools' `FOG_CELLS`) or off on `object`. */
+function fogOps(object: ObjectId, on: boolean): WireOp[] {
+  if (!on) {
+    return [
+      { type: "set_value", object, cell: "opaque", value: { type: "boolean", value: false } },
+      {
+        type: "set_value",
+        object,
+        cell: "visible_to",
+        value: { type: "viewers", viewers: ["all"] },
+      },
+    ];
+  }
+  return Object.entries(FOG_CELLS).flatMap(([cell, value]): WireOp[] =>
+    value.type === "formula" ? [] : [{ type: "set_value", object, cell, value }],
+  );
 }
 
 const ROW_STYLE: CSSProperties = {
@@ -84,6 +128,19 @@ export function ObjectHeader({ object, view, session, readOnly = false }: Object
       ],
       { baseRevision, label: `${value ? "Make" : "Unmake"} ${label()} a ${what}` },
     );
+  };
+
+  const fog = viewIsZone(view) ? viewFog(view) : null;
+  const fogBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (fogBox.current !== null) fogBox.current.indeterminate = fog === "mixed";
+  });
+  const setFog = (on: boolean) => {
+    const baseRevision = session.getSnapshot().revision;
+    void port.write(fogOps(object, on), {
+      baseRevision,
+      label: `Fog ${on ? "on" : "off"} ${label()}`,
+    });
   };
 
   const writeTags = (next: string[], text: string, baseRevision: number) => {
@@ -143,6 +200,19 @@ export function ObjectHeader({ object, view, session, readOnly = false }: Object
         <label>
           <input type="checkbox" checked={viewIsZone(view)} disabled readOnly /> Zone
         </label>
+        {fog !== null && (
+          <label>
+            <input
+              ref={fogBox}
+              type="checkbox"
+              aria-label="Zone fog"
+              checked={fog === "on"}
+              disabled={readOnly}
+              onChange={(e) => setFog(e.target.checked)}
+            />{" "}
+            Fog
+          </label>
+        )}
       </div>
       <div style={ROW_STYLE}>
         <ul aria-label="Tags" style={{ ...ROW_STYLE, margin: 0, padding: 0 }}>
