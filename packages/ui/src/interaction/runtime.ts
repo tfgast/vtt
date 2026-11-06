@@ -33,6 +33,12 @@
  * as the handler stamped them; nothing settles back to a tool, but they are
  * cancelled like the active tool's own)
  * and the event goes no further.
+ *
+ * File drops: every `file_drop` is offered to `fileDropHandlers` the same
+ * way. A handler may also start asynchronous work (an upload) and later run
+ * effects through its context's `execute`, as `InteractionRuntime.execute`
+ * runs them (vtt-qf5.33); `begin` makes such pending work cancellable like
+ * a started upload of the active tool.
  */
 import type { Viewer } from "@vtt/protocol";
 import type { Bounds, ObjectId } from "@vtt/schema";
@@ -76,6 +82,35 @@ export type DataDropEvent = Extract<InteractionEvent, { type: "data_drop" }>;
  */
 export type DataDropHandler = (event: DataDropEvent, input: ReducerInput) => Effect[] | null;
 
+/** A `file_drop` event. */
+export type FileDropEvent = Extract<InteractionEvent, { type: "file_drop" }>;
+
+/** The ports a file-drop handler may use, now or after its own asynchronous work. */
+export interface FileDropContext {
+  toolContext: ToolContext;
+  /** Runs effects as `InteractionRuntime.execute` does; nothing after `dispose`. */
+  execute(effects: readonly Effect[]): void;
+  /**
+   * Starts a handler interaction `interactionId` now, owned (for
+   * cancellation) by the tool active at the call, and returns its end. While
+   * started, a cancel of that tool (Escape, a tool, board or viewer switch)
+   * marks it cancelled, so a write later executed with a stamp of that id
+   * still applies but runs no continuations. Execute the interaction's last
+   * effects before calling the returned end; calling it again does nothing.
+   */
+  begin(interactionId: string): () => void;
+}
+
+/**
+ * Offered every `file_drop` before the active tool: effects to execute now
+ * and stop the event, or null to pass it on.
+ */
+export type FileDropHandler = (
+  event: FileDropEvent,
+  input: ReducerInput,
+  ctx: FileDropContext,
+) => Effect[] | null;
+
 /** An `extension` effect. */
 export type ExtensionEffect = Extract<Effect, { type: "extension" }>;
 
@@ -115,6 +150,7 @@ export interface InteractionRuntimeOptions {
   whenRevision: (revision: number) => Promise<void>;
   extensions?: RuntimeExtensions;
   dataDropHandlers?: readonly DataDropHandler[];
+  fileDropHandlers?: readonly FileDropHandler[];
 }
 
 /** What the runtime shows: the tool overlays and the previews for `buildScene`. */
@@ -200,6 +236,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
   const { registry, inputs, toolContext, ui, editor, whenRevision } = options;
   const extensions = options.extensions ?? {};
   const dataDropHandlers = options.dataDropHandlers ?? [];
+  const fileDropHandlers = options.fileDropHandlers ?? [];
 
   const initialTool = ui.getState().tool;
   let state: MachineState = initMachine(registry, {
@@ -321,6 +358,15 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
     if (event.type === "data_drop") {
       for (const handler of dataDropHandlers) {
         const effects = handler(event, input);
+        if (effects !== null) {
+          run(effects, "handler");
+          return;
+        }
+      }
+    }
+    if (event.type === "file_drop") {
+      for (const handler of fileDropHandlers) {
+        const effects = handler(event, input, fileDropContext);
         if (effects !== null) {
           run(effects, "handler");
           return;
@@ -551,6 +597,29 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
       }
     }
   }
+
+  const fileDropContext: FileDropContext = {
+    toolContext,
+    execute(effects) {
+      if (!disposed) run(effects, "handler");
+    },
+    begin(interactionId) {
+      const key = keyOf(interactionId, "handler");
+      let s = started.get(key);
+      if (s === undefined) {
+        s = { key, tool: state.tool, routed: false, outstanding: 0 };
+        started.set(key, s);
+      }
+      s.outstanding++;
+      const held = s;
+      let ended = false;
+      return () => {
+        if (ended) return;
+        ended = true;
+        finish(held);
+      };
+    },
+  };
 
   // -------------------------------------------------------------------------
   // Wiring
