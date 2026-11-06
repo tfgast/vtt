@@ -658,6 +658,31 @@ describe("expanded rows: a press that moves on the drawn object drags its entry 
     expect(writes(out)).toEqual([moveOut("pcs", [70, 10])]);
   });
 
+  test("empty space in an expanded row's nested list that moves drags that row's object, not the outer binder", () => {
+    const faceState = expanded("pc");
+    const empty = find(
+      faceState,
+      BN,
+      (h) => h.object === "pc" && h.target.type === "contents" && h.target.container === "pc",
+    );
+    const r = rig(faceState);
+    const out = r.drag(empty, [[70, 10]]);
+    expect(writes(out)).toEqual([moveOut("pc", [70, 10])]);
+  });
+
+  test("a click on that empty space without moving is still the select tool's click", () => {
+    const faceState = expanded("pc");
+    const empty = find(
+      faceState,
+      BN,
+      (h) => h.object === "pc" && h.target.type === "contents" && h.target.container === "pc",
+    );
+    const r = rig(faceState);
+    const out = r.drag(empty, []);
+    expect(writes(out)).toEqual([]);
+    expect(selects(out)).toEqual([{ type: "select", ids: ["bn"] }]);
+  });
+
   test("a value element of the nested object's row, expanded too, drags the nested object", () => {
     const faceState = expanded("pc", "pcs");
     const name = find(faceState, BN, isValue("pcs", "name"));

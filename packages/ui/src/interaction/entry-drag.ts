@@ -12,7 +12,7 @@
  *
  * A press anywhere else in a row that is not a control of its own (its
  * drawn object's value elements, editor elements the viewer may not type
- * into, its chevron or gear) stays `withFaces`'s until it moves beyond
+ * into, the empty space of its nested lists, its chevron or gear) stays `withFaces`'s until it moves beyond
  * `FACE_CLICK_PX`; `withFaces` then offers it to `start` with that
  * `pointer_move` (vtt-nb8.30), and the gesture claims it as that row's
  * object, already dragging, the intent captured at that move. So a click
@@ -121,8 +121,9 @@ function rotationOf(view: ObjectView | null): number {
  * The dragged object and its container for a hit the gesture claims, else
  * null. At pointer down: an `entry` hit, or a `body` hit with a path. On a
  * press handed off after it moved (`moved`, vtt-nb8.30): also the row's own
- * `value`, `editor`, `chevron` and `gear` hits with a path, each the row's
- * object (`hit.object`) in the path's last container.
+ * `value`, `editor`, `chevron` and `gear` hits with a path, and the empty
+ * space of its own nested list (a `contents` hit with a path), each the
+ * row's object (`hit.object`) in the path's last container.
  */
 function claimed(hit: FaceHit, moved: boolean): { dragged: ObjectId; from: ObjectId } | null {
   const t = hit.target;
@@ -137,6 +138,7 @@ function claimed(hit: FaceHit, moved: boolean): { dragged: ObjectId; from: Objec
     case "editor":
     case "chevron":
     case "gear":
+    case "contents":
       return moved ? row : null;
     default:
       return null;
