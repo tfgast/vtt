@@ -8,6 +8,7 @@ import type { Cover, ObjectView, Viewer, WireResult, WireValue } from "@vtt/prot
 import {
   type BoardId,
   type Bounds,
+  type FaceLayout,
   type ObjectId,
   type Point,
   type Shape,
@@ -29,6 +30,8 @@ export interface ScenePreview {
   position?: Point;
   rotation?: number;
   shape?: Shape;
+  /** A handle resize's scaled face layout (M6-D14), drawn in place of the view's (`attachFaces`). */
+  face?: FaceLayout;
 }
 export type ScenePreviews = ReadonlyMap<ObjectId, ScenePreview>;
 

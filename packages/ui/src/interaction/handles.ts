@@ -28,6 +28,8 @@
  * by the box's new/old width and height, measured from the box's origin
  * (`scaleFace`); the collapsed list and `min_size` are kept. The layout is the
  * GM view's (`layoutOfView`) at the pointer down, or a pending write's.
+ * The scaled layout rides in the drag's previews (`ScenePreview.face`) and
+ * the pending write's delta, so the face is drawn at its new size throughout.
  *
  * Handles live in object-local coordinates (the object's rotation applies).
  * The stamp is captured at the pointer down on a handle; the drag emits
@@ -580,6 +582,14 @@ function opsFor(object: ObjectId, preview: ScenePreview, face?: FaceLayout): Wir
   return ops;
 }
 
+/** `drag`'s face scaled to `preview`'s shape (`scaleFace`), or undefined when nothing changes. */
+function scaledFace(drag: HandleDrag, preview: ScenePreview): FaceLayout | undefined {
+  const from = drag.target.shape;
+  const to = preview.shape;
+  if (drag.face === null || from === null || to === undefined) return undefined;
+  return scaleFace(drag.face, from, to) ?? undefined;
+}
+
 /** The face layout a handle drag starts from: a pending write's, else the view's, or null. */
 function faceAtDown(
   pending: readonly PendingEdit[],
@@ -773,6 +783,9 @@ export function withHandles<TPhase, K extends ToolId>(
           event.modifiers.shift,
           input.snap === true,
         );
+        // M6-D14: the scaled face is previewed with the shape.
+        const face = scaledFace(drag, preview);
+        const shown = face === undefined ? preview : { ...preview, face };
         const next = withPhase(state, { drag: { ...drag, preview } });
         const { pending } = plain(state).phase;
         return present(
@@ -780,7 +793,7 @@ export function withHandles<TPhase, K extends ToolId>(
           [
             {
               type: "previews",
-              previews: pendingPreviews(pending, { object: drag.target.id, delta: preview }),
+              previews: pendingPreviews(pending, { object: drag.target.id, delta: shown }),
             },
           ],
           input,
@@ -817,15 +830,11 @@ export function withHandles<TPhase, K extends ToolId>(
           );
         }
         // M6-D14: the face keeps its proportions to the new bounding box.
-        const from = drag.target.shape;
-        const face =
-          drag.face !== null && from !== null && shape !== undefined
-            ? (scaleFace(drag.face, from, shape) ?? undefined)
-            : undefined;
+        const face = scaledFace(drag, preview);
         const edit: PendingEdit = {
           stamp: drag.stamp,
           object: drag.target.id,
-          delta: preview,
+          delta: face === undefined ? preview : { ...preview, face },
           ...(face === undefined ? {} : { face }),
           revision: null,
         };
