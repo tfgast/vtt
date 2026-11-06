@@ -604,7 +604,11 @@ while Snap is on, as an entry dragged out of a list on the board).
 formula of whichever cell is focused, whether focused on the face or in the
 inspector. It is where the focused cell's current formula source is shown
 and edited. Formulas may also be typed anywhere a value is typed, with a
-leading `=` (**Typing into a cell** below).
+leading `=` (**Typing into a cell** below). While a formula is typed there,
+the bar suggests names for the identifier at the caret: the object's cell
+names, function names, and after a reference cell and a dot (`target.`) the
+referenced object's cells as the viewer's view shows them; accepting one
+replaces the partial name.
 
 **Dependency tracing.** Hovering a formula highlights the objects and zones it
 references on the canvas, filtered by what the viewer may see. Hovering a zone
