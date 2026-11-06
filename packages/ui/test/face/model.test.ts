@@ -771,7 +771,7 @@ describe("the stocked GM binder", () => {
     });
     const c = contentsOf(d);
     expect(c.element).toBe(1);
-    expect(c.entries).toHaveLength(14);
+    expect(c.entries).toHaveLength(15);
     for (const e of c.entries) {
       const child = views(e.id as string);
       const name = child?.cells.name?.value;
@@ -786,8 +786,8 @@ describe("the stocked GM binder", () => {
       expect(t.kind).toBe("text");
       expect(t.text).toBe(name?.type === "text" ? name.value : "?");
     }
-    // 14 rows of 0.66 in an 8.8-unit list.
-    expect(c.maxOffset).toBeCloseTo(14 * 0.66 - 8.8);
+    // 15 rows of 0.66 in an 8.8-unit list.
+    expect(c.maxOffset).toBeCloseTo(15 * 0.66 - 8.8);
   });
 });
 

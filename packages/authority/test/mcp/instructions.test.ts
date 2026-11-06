@@ -65,6 +65,7 @@ const IDENTIFIERS: Record<string, Category> = {
   tpl_area_save: "template",
   tpl_save_row: "template",
   tpl_token: "template",
+  tpl_marker: "template",
   tpl_zone: "template",
   tpl_card: "template",
   tpl_note: "template",

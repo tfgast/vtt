@@ -68,7 +68,7 @@ describe(`prep: ${WALKTHROUGH_STEPS.slice(0, 6)
     const c = await startWalkthrough({ dice: PREP_DICE });
     ctx = c;
 
-    // Step 1 as stated: the GM board holds exactly the GM binder and its fourteen templates.
+    // Step 1 as stated: the GM board holds exactly the GM binder and its fifteen templates.
     const first = await c.gm.request("list_objects", { filter: { board: "gm_board" } });
     expect(first.objects.map((o) => o.id)).toEqual(["gm_binder"]);
     expect(refs(await view(c, "gm_binder"), "contents")).toEqual([
@@ -78,6 +78,7 @@ describe(`prep: ${WALKTHROUGH_STEPS.slice(0, 6)
       "tpl_area_save",
       "tpl_save_row",
       "tpl_token",
+      "tpl_marker",
       "tpl_zone",
       "tpl_card",
       "tpl_note",

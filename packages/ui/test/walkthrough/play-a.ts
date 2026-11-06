@@ -27,6 +27,9 @@
  *   Corin, Dara;
  * - the tray and the strip are drawn with Fog unchecked and named in the
  *   inspector right after they are drawn (still selected);
+ * - each marker is dragged out of the GM binder onto its slot, then its
+ *   character's token is dropped on the marker's `of` editor, before the
+ *   next marker (M6-D26);
  * - covers are counted under a camera showing the whole map
  *   (`MAP_CAMERA`), since a frame draws only the covers on screen.
  */
@@ -95,7 +98,7 @@ export const TRAY_DROPS: readonly Point[] = [
   [4, 18.5],
 ];
 
-/** The initiative strip and its slots, in strip order (§8.4 step 9), relative to M. */
+/** The initiative strip and its marker slots, in strip order (§8.4 step 9), relative to M. */
 export const STRIP_RECT: [Point, Point] = [
   [8, 17],
   [20, 18],
@@ -392,7 +395,7 @@ export async function runPlayA(ctx: DriverContext, prep: PrepResult): Promise<Pl
   const back = await coverState(ctx, g, m, prep.rooms[2].rect);
   await g.viewAs("GM");
 
-  // -- 9. Initiative: a dice tray, four loose d20s rolled in it, the tokens lined up in a strip.
+  // -- 9. Initiative: a dice tray, four loose d20s rolled in it, markers lined up in a strip.
   const tray = await g.drawZone(at(TRAY_RECT[0]), at(TRAY_RECT[1]), { fog: false });
   await g.inspectorSet(tray, "name", "Tray");
   await g.inspectorAddCell(tray, "text", TRAY_FORMULA);
@@ -419,8 +422,12 @@ export async function runPlayA(ctx: DriverContext, prep: PrepResult): Promise<Pl
 
   const strip = await g.drawZone(at(STRIP_RECT[0]), at(STRIP_RECT[1]), { fog: false });
   await g.inspectorSet(strip, "name", "Initiative");
+  // One marker per character, highest first; the tokens stay on the map (M6-D26).
+  const markers: ObjectId[] = [];
   for (const [i, entry] of initiative.entries()) {
-    await g.dragObject(pc[entry.name as CharacterName].token, at(STRIP_SLOTS[i] as Point));
+    const marker = await spawnEntry(ctx, g, GM_BINDER, "tpl_marker", at(STRIP_SLOTS[i] as Point));
+    await g.dropOnEditor(pc[entry.name as CharacterName].token, marker, "of");
+    markers.push(marker);
   }
 
   // -- 10. Aldric attacks with a working copy of his Attack card.
@@ -491,6 +498,7 @@ export async function runPlayA(ctx: DriverContext, prep: PrepResult): Promise<Pl
     initiative,
     tray,
     strip,
+    markers,
     trayDice,
     aldricBinder,
     attackCopy,

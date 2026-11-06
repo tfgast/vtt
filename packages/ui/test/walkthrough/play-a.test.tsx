@@ -118,7 +118,7 @@ describe(`play A: ${WALKTHROUGH_STEPS.slice(6, 11)
     expect(value(room2, "visible_to")).toEqual({ type: "viewers", viewers: ["gm"] });
     expect(inZone(prep.rooms[2].id)).toEqual([]);
 
-    // Step 9: the tray sums the four raw dice; the strip lines the tokens up by initiative.
+    // Step 9: the tray sums the four raw dice; the strip lines markers up by initiative.
     const tray = await view(c, play.tray);
     expect(zones.zones.map((z) => z.id)).toContain(play.tray);
     expect(value(tray, "name")).toEqual({ type: "text", value: "Tray" });
@@ -160,14 +160,24 @@ describe(`play A: ${WALKTHROUGH_STEPS.slice(6, 11)
       shape: { type: "rect", width: 12, height: 1 },
     });
     expect(position(strip)).toEqual(at([14, 17.5]));
-    // Zones are read now, after step 11: the goblin's die lies on Aldric in the strip.
-    expect([...inZone(play.strip)].sort()).toEqual(
-      [pc.Aldric.token, pc.Brenna.token, pc.Corin.token, pc.Dara.token, play.goblinDie].sort(),
-    );
+    // Zones are read now, after step 11: the strip holds the markers, the tokens stay in room 1.
+    expect([...inZone(play.strip)].sort()).toEqual([...play.markers].sort());
+    expect(play.markers).toHaveLength(4);
     for (const [i, e] of play.initiative.entries()) {
-      const token = await view(c, pc[e.name as CharacterName].token);
+      const name = e.name as CharacterName;
+      const marker = await view(c, play.markers[i] as ObjectId);
+      expect(value(marker, "template")).toEqual(ref("tpl_marker"));
+      expect(value(marker, "board")).toEqual(ref(prep.crypt));
+      const [mx, my] = position(marker);
+      const [sx, sy] = at(STRIP_SLOTS[i] as [number, number]) as [number, number];
+      expect(mx).toBeCloseTo(sx, 6);
+      expect(my).toBeCloseTo(sy, 6);
+      expect(value(marker, "of")).toEqual(ref(pc[name].token));
+      expect(value(marker, "who")).toEqual({ type: "text", value: name });
+      const token = await view(c, pc[name].token);
       expect(value(token, "board")).toEqual(ref(prep.crypt));
-      expect(position(token)).toEqual(at(STRIP_SLOTS[i] as [number, number]));
+      expect(position(token)).toEqual(at(name === "Aldric" ? ALDRIC_BACK : ROOM1_SPOTS[name]));
+      expect(inRect(position(token), prep.rooms[1].rect)).toBe(true);
     }
 
     // Step 10: Aldric's binder on Crypt; the working copy; Roll, Roll damage, Apply.

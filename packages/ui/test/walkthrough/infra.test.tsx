@@ -90,7 +90,7 @@ describe("WALKTHROUGH_STEPS (DESIGN.md §8.4 as amended by vtt-nb8.2)", () => {
       { id: "s6", title: "Scribble a note in ink and save" },
       { id: "s7", title: "View the Crypt as Aldric and reveal room 1" },
       { id: "s8", title: "Move the party, reveal room 3, watch room 2" },
-      { id: "s9", title: "Roll initiative in a dice tray and line up the tokens" },
+      { id: "s9", title: "Roll initiative in a dice tray and line up markers" },
       { id: "s10", title: "Aldric attacks with the Attack card" },
       { id: "s11", title: "A goblin attacks back with its own die" },
       { id: "s12", title: "Aldric casts Fireball" },

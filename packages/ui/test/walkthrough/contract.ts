@@ -225,6 +225,8 @@ export interface PlayAResult {
   initiative: { name: string; roll: number; total: number }[];
   tray: ObjectId;
   strip: ObjectId;
+  /** The `tpl_marker` copies in the strip, in strip order, each `of` its character. */
+  markers: ObjectId[];
   trayDice: ObjectId[];
   /** Aldric's binder, on Crypt. */
   aldricBinder: ObjectId;

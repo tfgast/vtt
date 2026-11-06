@@ -114,8 +114,9 @@ vtt-nb8, or hand them to the orchestrator.
 2. Wait for the browser tab to open.
 
 You should see: the board tab "GM", holding only the GM binder. Its list
-holds fourteen template entries, in this order: Character, Attack, Damage,
-Area save, Save, Token, Zone, Card, Note, Sheet, Hand, Binder, Stack, d20.
+holds fifteen template entries, in this order: Character, Attack, Damage,
+Area save, Save, Token, Marker, Zone, Card, Note, Sheet, Hand, Binder,
+Stack, d20.
 
 Result: ok / friction / broken — game went differently: yes / no — notes:
 
@@ -393,12 +394,13 @@ once no PC is inside it.
 
 Result: ok / friction / broken — game went differently: yes / no — notes:
 
-### Step 9 — Roll initiative in a dice tray and line up the tokens
+### Step 9 — Roll initiative in a dice tray and line up markers
 
 > Combat in room 3. Draw a dice tray zone beside the map. Roll initiative with
 > loose d20s from the GM binder, double-clicking each to roll, adding bonuses
-> by eye from the sheets. Line the tokens up in a strip zone by initiative. No
-> initiative tracker feature exists; none is needed.
+> by eye from the sheets. Line up markers from the GM binder in a strip zone
+> by initiative, dropping each PC token on a marker's `of`, so the tokens
+> stay on the map. No initiative tracker feature exists; none is needed.
 
 The tray:
 
@@ -423,14 +425,18 @@ The strip:
    `M + [20, 18]`. Set its `name` to `Initiative`.
 8. Work out each character's initiative: the die's value plus that
    character's sheet `dex_save` (Aldric 1, Brenna 0, Corin 4, Dara 2).
-9. Drag the four tokens into the strip, highest initiative first, to
-   `M + [9, 17.5]`, `M + [11, 17.5]`, `M + [13, 17.5]` and
-   `M + [15, 17.5]`.
+9. Highest initiative first, drag the Marker entry out of the GM binder
+   into the strip, to `M + [9, 17.5]`, `M + [11, 17.5]`, `M + [13, 17.5]`
+   and `M + [15, 17.5]`. After each one, drop that character's token on
+   the new marker's `of` field (the small box captioned `of`). The token
+   does not move; the marker takes its name and image.
 
 You should see: the tray shows the sum of the four dice as rolled, without
-the bonuses. The strip holds the four tokens in initiative order. The
-walkthrough rolled 14, 9, 17 and 6: the tray reads 46, and the order is
-Corin 21, Aldric 15, Brenna 9, Dara 8. Your rolls will differ.
+the bonuses. The strip holds four markers in initiative order, each showing
+its character's name (and image, if the token has one); the tokens are
+still in room 1. The walkthrough rolled 14, 9, 17 and 6: the tray reads 46,
+and the order is Corin 21, Aldric 15, Brenna 9, Dara 8. Your rolls will
+differ.
 
 Result: ok / friction / broken — game went differently: yes / no — notes:
 
@@ -486,7 +492,7 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 1. View as GM.
 2. Click G2 to show its contents list (its count badge reads 1), then
    drag the die's row out of the list onto the centre of Aldric's token
-   (in the strip).
+   (in room 1).
 3. Double-click the die to roll it.
 
 You should see: the die leaves G2's list (G2's badge disappears) and sits
@@ -510,7 +516,7 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 Brenna, the fighter, steps into room 3 first, so the nudge has someone to
 miss.
 
-1. In GM view, drag Brenna out of the strip into room 3, to
+1. In GM view, drag Brenna's token from room 1 into room 3, to
    `M + [17, 11]`.
 2. You can stay in GM view; the buttons are pressed as Aldric because the
    card is his. View as Aldric to check that `ac` is hidden.

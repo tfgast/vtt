@@ -238,6 +238,7 @@ const EXPECTED: Record<string, Expected> = {
       "tpl_area_save",
       "tpl_save_row",
       "tpl_token",
+      "tpl_marker",
       "tpl_zone",
       "tpl_card",
       "tpl_note",
@@ -271,6 +272,15 @@ const EXPECTED: Record<string, Expected> = {
       value hp [0.2, -0.6, 0.5, 0.3] m=8
       value hit [-0.7, -0.6, 0.5, 0.3] sw="hit"
       contents [-0.8, 0.9, 1.6, 0.8] m=24 collapsed when_selected`,
+  },
+  tpl_marker: {
+    shape: circle(0.35),
+    tag: ["marker"],
+    cells: `name: "Marker"; of: empty; who = of.name; image = of.image`,
+    face: `
+      value image [-0.35, -0.35, 0.7, 0.7]
+      editor of [-0.35, -0.15, 0.7, 0.3] C sw="of = empty"
+      value who [-0.6, 0.4, 1.2, 0.25] m=8`,
   },
   tpl_zone: { shape: rect(4, 4), is_zone: true, cells: `name: "Zone"` },
   tpl_card: {
@@ -459,6 +469,7 @@ describe("the example records (DESIGN.md §4.7, verbatim)", () => {
       "tpl_area_save_zone",
       "tpl_save_row",
       "tpl_token",
+      "tpl_marker",
       "tpl_zone",
       "tpl_card",
       "tpl_note",
