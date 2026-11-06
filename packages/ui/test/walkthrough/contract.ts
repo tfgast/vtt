@@ -158,6 +158,18 @@ export interface Gestures {
    * anchor + `grab` and the release at `to` + `grab`. Board objects only.
    */
   dragObject(id: ObjectId, to: Point, options?: { alt?: boolean; grab?: Point }): Promise<void>;
+  /**
+   * Drags `id` as `dragObject` (a board object) or `dragEntry` (an entry,
+   * by its row) presses and moves it, through the board point `via` on the
+   * canvas (default for a board object: one unit right of its anchor;
+   * required for an entry), and releases it over the tab of board `name`
+   * (DESIGN.md §4.6 On the canvas, M6-D27). Over another board's tab it
+   * moves there (a board object at its position, an entry at that board's
+   * view centre) or, for one template without Alt, is copied to that view
+   * centre; that board opens. Waits for the commit and the board. Over the
+   * active board's own tab it checks that nothing is written.
+   */
+  dragToBoardTab(id: ObjectId, name: string, via?: Point): Promise<void>;
   marquee(from: Point, to: Point): Promise<void>;
   click(id: ObjectId): Promise<void>;
   doubleClick(id: ObjectId): Promise<void>;

@@ -6,7 +6,8 @@
  * docs/FIRST-SESSION.md: one `### Step N — <title>` heading per entry of
  * `WALKTHROUGH_STEPS`, in order; each step quotes its DESIGN.md §8.4 text,
  * carries one blank `Result:` line, and names the positions and typed values
- * the scripted walkthrough uses (prep.ts, play-a.ts, play-b.ts); steps 10 and
+ * the scripted walkthrough uses (prep.ts, play-a.ts, play-b.ts); steps 3 and 6
+ * move to another board by a drop on its tab (vtt-qf5.35); steps 10 and
  * 14 give the Discard recovery for a miss; the file ends with `Felt good:`.
  *
  * README.md: the quick-start and agent commands, and a keys and gestures
@@ -180,6 +181,18 @@ describe("docs/FIRST-SESSION.md", () => {
       .find((s) => s.n === 15)
       ?.lines.join("\n");
     expect(body).toContain("--no-open");
+  });
+
+  test("steps 3 and 6 change boards by a drop on a board tab, as prep.ts's dragToBoardTab does", () => {
+    const body = (n: number) =>
+      squash(
+        guideSteps()
+          .find((s) => s.n === n)
+          ?.lines.join("\n") ?? "",
+      );
+    expect(body(3)).toContain("Drag the GM binder up onto the Crypt tab");
+    expect(body(6)).toContain("Drag the note up onto the GM tab");
+    for (const n of [3, 6]) expect(body(n), `step ${n}`).not.toContain("Move selection to board");
   });
 
   test("ends with the Felt good line", () => {

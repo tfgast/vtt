@@ -9,6 +9,7 @@ import type {
 } from "@vtt/protocol";
 import type { BoardId, Bounds, ObjectId, Point, Shape } from "@vtt/schema";
 import {
+  type BoardTabDrop,
   type Camera,
   type CameraPort,
   type CancelReason,
@@ -182,7 +183,10 @@ describe("events", () => {
       button: number;
       buttons: number;
       modifiers: Modifiers;
+      /** Set on a release over a board tab only (vtt-qf5.35). */
+      boardTab?: BoardTabDrop;
     }>();
+    expectTypeOf<BoardTabDrop>().toEqualTypeOf<{ board: BoardId; name: string; centre: Point }>();
     expectTypeOf<Omit<Variant<InteractionEvent, "pointer_move">, "type">>().toEqualTypeOf<
       Omit<Variant<InteractionEvent, "pointer_down">, "type">
     >();

@@ -25,7 +25,8 @@
  *   `createImageBitmap` then posting with vtt-3l6.16's `uploadAsset`), the
  *   session's `whenRevision`, vtt-3l6.13's in-place editor port, the
  *   extensions `invoke` (effect), `expand_created` and `edit_created`
- *   (continuations) and the cell drop handler (vtt-1xv.27) as its data-drop
+ *   (continuations), `show_board` (a board tab drop's activation, vtt-qf5.35)
+ *   and the cell drop handler (vtt-1xv.27) as its data-drop
  *   handler, so a cell dropped on the canvas works whatever tool is active,
  *   and the image file-drop handler (vtt-qf5.33) as its file-drop handler,
  *   so an image file dropped on an object sets its `image` and one dropped
@@ -34,7 +35,8 @@
  *   the `UiStore`, the runtime's previews and the face state, with the
  *   runtime's overlays; the renderer draws faces with `drawFaceItem`
  *   (vtt-1xv.15) and culls by `faceCullBounds`; its resizes set the store's
- *   viewport; the in-place editor in its overlay; images through an
+ *   viewport; the board tab under a release (`boardTabResolver` over the
+ *   camera store, vtt-qf5.35); the in-place editor in its overlay; images through an
  *   `ImageCache` resolving `assetUrl`;
  * - the inspector's actions (vtt-1xv.19) get the same policy and the
  *   runtime (Run);
@@ -98,10 +100,12 @@ import {
   type InteractionRuntime,
 } from "./interaction/runtime";
 import { createSelectTool } from "./interaction/select-tool";
+import { SHOW_BOARD_EXTENSION } from "./interaction/tab-drop";
 import { createTextTool, EDIT_CREATED, editCreatedHandler } from "./interaction/text-tool";
 import { useInteraction } from "./interaction/use-interaction";
 import { BoardTabs } from "./nav/BoardTabs";
 import { rememberActiveBoard } from "./nav/board-memory";
+import { boardTabResolver, showBoardHandler } from "./nav/board-tab-drop";
 import { useFirstVisitFit } from "./nav/first-visit-fit";
 import { createCanvas2DRenderer } from "./render/canvas2d";
 import { drawFaceItem } from "./render/face-draw";
@@ -369,6 +373,7 @@ function Shell(props: AppProps & { ui: UiStore }) {
         continuations: {
           [EXPAND_CREATED_EXTENSION]: expandCreatedHandler(faceState, ui, inputs),
           [EDIT_CREATED]: editCreatedHandler({ editor, inputs }),
+          [SHOW_BOARD_EXTENSION]: showBoardHandler(ui),
         },
       },
       dataDropHandlers: [createCellDropHandler({ faceState }), createObjectDropHandler()],
@@ -410,6 +415,7 @@ function Shell(props: AppProps & { ui: UiStore }) {
                   runtime={composition.runtime}
                   registry={composition.registry}
                   faceState={faceState}
+                  cameraStore={cameraStore}
                   createRenderer={props.createRenderer ?? appCreateRenderer}
                 />
               )}
@@ -442,12 +448,23 @@ interface CanvasPaneProps {
   runtime: InteractionRuntime;
   registry: ToolRegistry;
   faceState: FaceStateStore;
+  cameraStore: CameraStore;
   createRenderer: CreateRenderer<FaceScene>;
 }
 
-function CanvasPane({ runtime, registry, faceState, createRenderer }: CanvasPaneProps) {
+function CanvasPane({
+  runtime,
+  registry,
+  faceState,
+  cameraStore,
+  createRenderer,
+}: CanvasPaneProps) {
   const session = useTableSession();
   const ui = useUiStore();
+  const boardTabAt = useMemo(
+    () => boardTabResolver({ session, cameraStore }),
+    [session, cameraStore],
+  );
   const { overlays, previews, handlers } = useInteraction({ runtime });
   const viewVersion = useSession((s) => s.viewVersion);
   const viewer = useSession((s) => s.viewer);
@@ -507,6 +524,7 @@ function CanvasPane({ runtime, registry, faceState, createRenderer }: CanvasPane
         onEvent={handlers.onEvent}
         createRenderer={createRenderer}
         setViewport={setViewport}
+        boardTabAt={boardTabAt}
         overlay={<InPlaceEditor session={session} ui={ui} camera={camera} scene={scene} />}
       />
     </div>

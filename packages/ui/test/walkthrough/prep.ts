@@ -559,8 +559,7 @@ export async function runPrep(ctx: DriverContext): Promise<PrepRun> {
     if (REHIDING_ROOMS.includes(room.n)) await g.inspectorSet(id, "visible_to", REHIDE_FORMULA);
   }
   await g.showBoard("GM");
-  await g.click(GM_BINDER);
-  await g.moveSelectionToBoard("Crypt");
+  await g.dragToBoardTab(GM_BINDER, "Crypt");
   await g.dragObject(GM_BINDER, at([27, 5]));
 
   // -- 4. The goblin template, its badge checked with a rolled die, eight copies.
@@ -639,7 +638,7 @@ export async function runPrep(ctx: DriverContext): Promise<PrepRun> {
   // -- 6. A sticky note made on Crypt, moved to the GM board, scribbled on in ink; save.
   await g.showBoard("Crypt");
   const note = await spawnEntry(ctx, g, GM_BINDER, "tpl_note", at([-4, 12]));
-  await g.moveSelectionToBoard("GM");
+  await g.dragToBoardTab(note, "GM");
   const [nx, ny] = numbersOf(ctx, note, "position");
   if (nx === undefined || ny === undefined) throw new Error("prep: the note has no position");
   await inkStrokes(ctx, g, [

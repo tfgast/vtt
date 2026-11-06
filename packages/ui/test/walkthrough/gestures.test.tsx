@@ -405,6 +405,68 @@ describe("createGestures (vtt-nb8.18)", () => {
     expect((await view(c, BINDER)).cells.board?.value).toEqual({ type: "ref", object: "gm_board" });
   }, 60_000);
 
+  test("dragToBoardTab moves the binder to Crypt in one group, position kept, and opens Crypt", async () => {
+    const { c, g } = await start();
+    await g.addBoard("Crypt");
+    const crypt = c.session.getSnapshot().boards.find((x) => x.name === "Crypt")?.id;
+    await g.showBoard("GM");
+    const before = (await view(c, BINDER)).cells.position?.value;
+
+    const group = await newest(c);
+    await g.dragToBoardTab(BINDER, "Crypt");
+    expect((await newest(c)) - group).toBe(1);
+    expect(c.session.getSnapshot().activeBoard).toBe(crypt);
+    const v = await view(c, BINDER);
+    expect(v.cells.board?.value).toEqual({ type: "ref", object: crypt });
+    expect(v.cells.position?.value).toEqual(before);
+
+    // On the active board's own tab: nothing is written, nothing moves.
+    const own = await newest(c);
+    await g.dragToBoardTab(BINDER, "Crypt");
+    expect((await newest(c)) - own).toBe(0);
+    expect((await view(c, BINDER)).cells.position?.value).toEqual(before);
+  }, 60_000);
+
+  test("dragToBoardTab of a binder's template entry copies it to that board's view centre and opens it; on the own tab, nothing", async () => {
+    const { c, g } = await start();
+    await g.addBoard("Crypt");
+    const crypt = c.session.getSnapshot().boards.find((x) => x.name === "Crypt")?.id;
+    // Crypt's camera as it is left: the view whose centre the copy lands at.
+    const { x, y } = c.ui.getState().camera;
+    await g.showBoard("GM");
+
+    const known = ids(c);
+    const group = await newest(c);
+    await g.dragToBoardTab("tpl_token", "Crypt", [8, 0]);
+    expect((await newest(c)) - group).toBe(1);
+    expect(c.session.getSnapshot().activeBoard).toBe(crypt);
+    const made = [...ids(c)].filter((id) => !known.has(id));
+    const copy = made.find(
+      (id) =>
+        (c.session.directory().get(id)?.cells.board?.value as { type?: string })?.type === "ref",
+    );
+    expect(copy).toBeDefined();
+    const v = await view(c, copy as ObjectId);
+    expect(v.cells.board?.value).toEqual({ type: "ref", object: crypt });
+    expect(v.cells.position?.value).toEqual({
+      type: "list",
+      items: [
+        { type: "number", value: x },
+        { type: "number", value: y },
+      ],
+    });
+    expect(c.ui.getState().selection).toEqual([copy]);
+
+    // The template entry dropped on the active board's own tab: no copy, no group.
+    await g.showBoard("GM");
+    const count = ids(c).size;
+    const own = await newest(c);
+    await g.dragToBoardTab("tpl_token", "GM", [8, 0]);
+    expect((await newest(c)) - own).toBe(0);
+    expect(ids(c).size).toBe(count);
+    expect(c.session.getSnapshot().activeBoard).toBe("gm_board");
+  }, 60_000);
+
   test("drawZone with fog makes an opaque GM-only zone; viewing as a spawned character draws one cover", async () => {
     const { c, g } = await start();
     await spawnFromBinder(c, g, "tpl_character", [10, 0]);

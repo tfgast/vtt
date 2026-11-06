@@ -31,6 +31,10 @@
  *   on `stamp.board`, the dropped anchor snapped to the nearest half-unit
  *   point with `input.snap` at the release (`snapPoint`, M6-D13; Alt
  *   changes nothing). Drops onto lists and editor elements are not snapped.
+ * - Released over a board tab (`boardTab`, vtt-qf5.35, M6-D27): over another
+ *   board's, a copy is spawned (selected), or the entry moved out of its
+ *   container, onto that board at the tab's view centre, and that board is
+ *   activated (`tabDropWrite`); over the active board's own, nothing.
  * - Alt-hover (DESIGN.md §4.6 Only when selected, M6-D12), as the select
  *   tool keeps it: each drag move recomputes `altHoverAt` (an Alt key
  *   release clears it), emitted as `alt_hover` when it changes; the drop
@@ -49,9 +53,10 @@ import { altHoverAt, type FaceSceneState } from "../face/face-scene";
 import type { InteractionStamp } from "./contracts";
 import { faceSceneFor, objectName, resolveFaceDrop } from "./drop-targets";
 import { type Effect, snapPoint } from "./effects";
-import type { InteractionEvent, PointerInteractionEvent } from "./events";
+import type { BoardTabDrop, InteractionEvent, PointerInteractionEvent } from "./events";
 import type { ToolOverlay } from "./overlays";
 import type { DropIntent } from "./select-tool";
+import { tabDropWrite } from "./tab-drop";
 import type { ToolInput } from "./tool";
 
 /** The gesture's id. */
@@ -183,6 +188,23 @@ function drop(
   return [effect];
 }
 
+/**
+ * A release over a board tab (vtt-qf5.35; `tabDropWrite`): a copy is spawned,
+ * or the entry moved out of its container, onto that board at the tab's
+ * view centre; nothing over the active board's own tab.
+ */
+function tabDrop(state: EntryDragState, tab: BoardTabDrop, input: ToolInput): Effect[] {
+  const name = objectName(input.views(state.dragged), state.dragged);
+  const write = tabDropWrite(
+    tab,
+    state.stamp.board,
+    state.intent.copy
+      ? { kind: "copy", template: state.dragged, name }
+      : { kind: "move", items: [{ id: state.dragged, position: tab.centre }], name },
+  );
+  return write === null ? [] : [{ type: "write", stamp: state.stamp, ...write }];
+}
+
 /** The entry drag gesture (see the module comment). */
 export function entryDragGesture(options: EntryDragOptions = {}): FaceGesture<unknown> {
   const { faceState } = options;
@@ -203,6 +225,12 @@ export function entryDragGesture(options: EntryDragOptions = {}): FaceGesture<un
       case "pointer_up": {
         if (!state.dragging && !beyond) {
           return { state: null, effects: [{ type: "select", ids: [state.dragged] }] } as Step;
+        }
+        if (event.boardTab !== undefined) {
+          return {
+            state: null,
+            effects: [...tabDrop(state, event.boardTab, input), ...clearAltHover(state)],
+          } as Step;
         }
         const altHover = nextAltHover(state, event.board, event.modifiers.alt, input);
         const effects = drop(state, event.board, input, altHover, faceState);

@@ -119,6 +119,7 @@ viewing as a character; it never reverses the agent's work.
 | Tab or Shift+Tab, one object selected | ring its next or previous face button, field or chevron; Enter or Space presses it |
 | Drag a cell row from the inspector onto an object (layout mode) | show the cell on the face |
 | Delete | remove the selection |
+| Drop on a board tab | move the dragged objects to that board (one template: a copy at its view's centre) |
 | Move selection to board… | move objects between boards |
 
 ## Docs

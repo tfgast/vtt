@@ -6,6 +6,9 @@
  * keyboard events on the app's canvas in client pixels (`ctx.toScreen`);
  * chrome gestures (board tabs, View as, "Move selection to board…", the
  * inspector, the Log tab) are Testing Library and user-event on `ctx.root`.
+ * `dragToBoardTab` is a canvas drag released over a board tab: the canvas
+ * holds the pointer capture, so the release is the canvas's pointer up,
+ * with `document.elementFromPoint` answering the tab for it.
  *
  * Targets on faces are located on the face scene the app draws (its board
  * view, viewer and `ctx.faceState`) and every press is checked first with
@@ -627,6 +630,17 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
     shift?: boolean;
   }
 
+  /**
+   * The board tab the next pointer up is released over (`dragToBoardTab`),
+   * else null. jsdom has no hit testing, so for that release
+   * `document.elementFromPoint` answers the tab, as a browser's would with
+   * the pointer over the tab strip; the canvas holds the pointer capture, so
+   * the release itself still goes to the canvas.
+   */
+  let releaseTab: HTMLElement | null = null;
+  /** Set while `dragToBoardTab` drops on the active board's own tab: `committed` expects none. */
+  let noCommit = false;
+
   const pointer = (type: "down" | "move" | "up", p: Point, mods: Mods = {}): void => {
     const [clientX, clientY] = ctx.toScreen(p);
     const init = {
@@ -639,11 +653,22 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
       shiftKey: mods.shift === true,
     };
     const c = canvas();
-    act(() => {
-      if (type === "down") fireEvent.pointerDown(c, init);
-      else if (type === "move") fireEvent.pointerMove(c, init);
-      else fireEvent.pointerUp(c, init);
-    });
+    const tab = type === "up" ? releaseTab : null;
+    if (tab !== null) {
+      Object.defineProperty(c.ownerDocument, "elementFromPoint", {
+        configurable: true,
+        value: () => tab,
+      });
+    }
+    try {
+      act(() => {
+        if (type === "down") fireEvent.pointerDown(c, init);
+        else if (type === "move") fireEvent.pointerMove(c, init);
+        else fireEvent.pointerUp(c, init);
+      });
+    } finally {
+      if (tab !== null) Reflect.deleteProperty(c.ownerDocument, "elementFromPoint");
+    }
   };
 
   const tap = (p: Point, mods: Mods = {}): void => {
@@ -703,6 +728,13 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
 
   /** Waits for a commit after `before` (the GM client's revision), then for the app and the log. */
   const committed = async (before: number, what: string): Promise<void> => {
+    if (noCommit) {
+      // A drop on the active board's own tab (`dragToBoardTab`) writes nothing.
+      await settle(100);
+      await caughtUp();
+      if (ctx.gm.revision > before) throw new Error(`${what}: the drop on the tab wrote`);
+      return;
+    }
     try {
       await until(() => ctx.gm.revision > before, what, COMMIT_MS);
     } catch {
@@ -1545,6 +1577,43 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
         rest.alt === true,
         true,
       );
+    },
+
+    async dragToBoardTab(id, name, via) {
+      const board = ctx.session.getSnapshot().boards.find((b) => (b.name || b.id) === name);
+      if (board === undefined) throw new Error(`dragToBoardTab: no board named "${name}"`);
+      const own = ctx.session.getSnapshot().activeBoard === board.id;
+      const container = containerOf(id);
+      let path: Point;
+      if (via !== undefined) {
+        path = via;
+      } else if (container === null) {
+        const item = faces().items.find((i) => i.id === id);
+        if (item === undefined) throw new Error(`dragToBoardTab: ${id} is not on the active board`);
+        path = [item.anchor[0] + 1, item.anchor[1]];
+      } else {
+        throw new Error(`dragToBoardTab: ${id} is an entry of ${container}; give \`via\``);
+      }
+      const tabs = within(ctx.root).getByRole("tablist", { name: "Boards" });
+      releaseTab = within(tabs).getByRole("tab", { name });
+      noCommit = own;
+      try {
+        // The drag's path on the canvas; its release goes to the tab instead.
+        if (container === null) await gestures.dragObject(id, path);
+        else await gestures.dragEntry(container, id, path);
+      } finally {
+        releaseTab = null;
+        noCommit = false;
+      }
+      await until(
+        () =>
+          ctx.session.getSnapshot().activeBoard === board.id &&
+          ctx.session.boardView()?.board === board.id,
+        `the board ${name} after the drop on its tab`,
+        CHROME_MS,
+      );
+      await settle(60);
+      await ctx.frame();
     },
 
     async marquee(from, to) {

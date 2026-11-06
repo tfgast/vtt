@@ -43,6 +43,14 @@
  *   which still select the first hit but keep it as `recentCycle`. A press
  *   a wrapping tool took (a face button, a handle drag; `consumedPress`,
  *   vtt-qf5.69) counts as such a plain click: elsewhere, it forgets the cycle.
+ * - Board tab drop (vtt-qf5.35; DESIGN.md §4.6 On the canvas, M6-D27): a
+ *   drag released over another board's tab (`boardTab` on the `pointer_up`)
+ *   is one write with the drag's stamp (`tabDropWrite`, tab-drop.ts): a
+ *   spawn makes the copy on that board at the tab's view centre (not
+ *   snapped), selecting it; a move puts each dragged object on that board at
+ *   its position when the drag began. Either then activates that board.
+ *   Released over the active board's own tab, the drag ends as a cancel,
+ *   with no write.
  * - Keys: `selectKeyEffects` (keys.ts), when no gesture is in progress.
  * - Cancel (Escape, board or viewer change, tool switch, `pointer_cancel`)
  *   ends a gesture with no write; Escape with no gesture clears the selection.
@@ -54,10 +62,11 @@ import { hitsAt, marqueeHit } from "../scene/hit-test";
 import type { DrawItem, Scene, ScenePreview } from "../scene/scene";
 import type { InteractionStamp, Previews } from "./contracts";
 import { type Continuation, type Effect, snapPoint } from "./effects";
-import type { InteractionEvent, Modifiers, PointerInteractionEvent } from "./events";
+import type { BoardTabDrop, InteractionEvent, Modifiers, PointerInteractionEvent } from "./events";
 import { selectKeyEffects } from "./keys";
 import { PRIMARY_BUTTON } from "./machine";
 import type { ToolOverlay } from "./overlays";
+import { tabDropWrite } from "./tab-drop";
 import {
   type CancelReason,
   captureStamp,
@@ -588,6 +597,7 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
     }
     const { plan } = g;
     const raw: Point = [event.board[0] - g.grab[0], event.board[1] - g.grab[1]];
+    if (event.boardTab !== undefined) return boardTabDrop(ended, g, raw, event.boardTab, input);
     const delta = dropDelta(plan, raw, input.snap === true);
     const altHover = nextAltHover(g, event, input);
     const { ops, label, continuations } = dropWrite(plan, delta, event, input, altHover);
@@ -598,6 +608,51 @@ export function createSelectTool(options: SelectToolOptions = {}): Tool<SelectPh
         { type: "previews", previews: dragPreviews(plan, delta), hold: { stamp: plan.stamp } },
         { type: "overlays", overlays: [] },
         ...(g.altHover === null ? [] : [{ type: "alt_hover", id: null } as const]),
+        ...ended.effects,
+      ],
+    };
+  }
+
+  /** A drag released over a board tab (see the module comment). */
+  function boardTabDrop(
+    ended: Result,
+    g: Extract<SelectGesture, { kind: "drag" }>,
+    raw: Point,
+    tab: BoardTabDrop,
+    input: ToolInput,
+  ): Result {
+    const { plan } = g;
+    const clear: Effect[] = [
+      { type: "overlays", overlays: [] },
+      ...(g.altHover === null ? [] : [{ type: "alt_hover", id: null } as const]),
+    ];
+    const item = plan.items[0] as DraggedItem;
+    const write = tabDropWrite(
+      tab,
+      plan.stamp.board,
+      plan.spawn
+        ? { kind: "copy", template: item.id, name: nameOf(input.views(item.id), item.id) }
+        : {
+            kind: "move",
+            items: plan.items.map((i) => ({ id: i.id, position: i.anchor })),
+            name: countLabel(
+              plan.items.map((i) => i.id),
+              input,
+            ),
+          },
+    );
+    if (write === null) {
+      return {
+        state: ended.state,
+        effects: [{ type: "previews", previews: EMPTY_PREVIEWS }, ...clear, ...ended.effects],
+      };
+    }
+    return {
+      state: ended.state,
+      effects: [
+        { type: "write", stamp: plan.stamp, ...write },
+        { type: "previews", previews: dragPreviews(plan, raw), hold: { stamp: plan.stamp } },
+        ...clear,
         ...ended.effects,
       ],
     };
