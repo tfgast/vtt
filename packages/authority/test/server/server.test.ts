@@ -254,13 +254,17 @@ describe("heartbeat", () => {
   test("a connection that misses two pongs is terminated", async () => {
     const { server } = await serve({ heartbeatMs: 40 });
     const ws = new WebSocketClient(server.url, { autoPong: false });
-    await new Promise<void>((resolve) => ws.on("open", () => resolve()));
-    ws.send(JSON.stringify(helloFor(server)));
+    // Listeners go on before the first await (vtt-qf5.65): a ping can arrive in
+    // the same read as the upgrade response, and ws emits it on a nextTick that
+    // runs before the continuation after `open` resolves.
     let pings = 0;
     ws.on("ping", () => {
       pings++;
     });
-    const code = await new Promise<number>((resolve) => ws.on("close", (c) => resolve(c)));
+    const closed = new Promise<number>((resolve) => ws.on("close", (c) => resolve(c)));
+    await new Promise<void>((resolve) => ws.on("open", () => resolve()));
+    ws.send(JSON.stringify(helloFor(server)));
+    const code = await closed;
     expect(pings).toBeGreaterThanOrEqual(2);
     expect(code).toBe(1006);
   });
