@@ -164,6 +164,28 @@ describe("first connection", () => {
     expect(client.ready).toBe(true);
   });
 
+  test("a first attempt that never gets a welcome times out and the backoff retries", async () => {
+    const { server, client } = setup({ handshakeTimeoutMs: 2000 });
+    let answer = false;
+    server.onHello = () => (answer ? { welcome: server.welcome() } : undefined);
+    enableRecovery(client);
+    await flush();
+    expect(server.peers).toHaveLength(1);
+    await advance(1999);
+    expect(server.peers).toHaveLength(1);
+    expect(server.peer.closedByClient).toBeNull();
+    answer = true;
+    await advance(1);
+    expect(server.peers[0]?.closedByClient?.code).toBe(4000);
+    expect(client.connectionError()?.code).toBe("disconnected");
+    await advance(249);
+    expect(server.peers).toHaveLength(1);
+    await advance(1);
+    expect(server.peers).toHaveLength(2);
+    expect(client.ready).toBe(true);
+    expect(client.state).toBe("open");
+  });
+
   test("explicit credentials refused 4401 on the first connection end recovery", async () => {
     const { server, client } = setup({ token: "wrong" });
     enableRecovery(client);
@@ -231,6 +253,27 @@ describe("reconnection and resubscription", () => {
     // Deltas follow the new ids.
     peer.send(commit(5, [delta("n2", { objects: [obj("z")] })]));
     expect(b.mirror.objects.has("z")).toBe(true);
+  });
+
+  test("a reconnect attempt that never gets a welcome times out and the next attempt succeeds", async () => {
+    const { server, client } = await connected({}, { handshakeTimeoutMs: 2000 });
+    const a = await subscribe(client, "map");
+    server.onHello = () => undefined;
+    server.peer.drop();
+    expect(client.state).toBe("reconnecting");
+    await advance(250);
+    expect(server.peers).toHaveLength(2);
+    server.onHello = () => ({ welcome: server.welcome() });
+    await advance(2000);
+    expect(server.peers[1]?.closedByClient?.code).toBe(4000);
+    expect(client.state).toBe("reconnecting");
+    await advance(499);
+    expect(server.peers).toHaveLength(2);
+    await advance(1);
+    expect(server.peers).toHaveLength(3);
+    expect(client.state).toBe("open");
+    expect(client.ready).toBe(true);
+    expect(a.state).toBe("live");
   });
 
   test("a new session reports session_changed true", async () => {

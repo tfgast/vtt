@@ -783,6 +783,115 @@ describe("close during connect", () => {
   });
 });
 
+describe("handshake timeout", () => {
+  test("a server that opens but never answers hello: connect rejects disconnected and the socket closes 4000", async () => {
+    vi.useFakeTimers();
+    const { server, client } = setup({ handshakeTimeoutMs: 3000 });
+    server.onHello = () => undefined;
+    const closed: SocketClosedInfo[] = [];
+    client.on("socket_closed", (info) => closed.push(info));
+    let settled = false;
+    const pending = client.connect();
+    pending
+      .catch(() => {})
+      .finally(() => {
+        settled = true;
+      });
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(server.peer.hello).toBeDefined();
+    expect(settled).toBe(false);
+    expect(client.state).toBe("connecting");
+    await vi.advanceTimersByTimeAsync(1);
+    const error = await failure(pending);
+    expect(error.code).toBe("disconnected");
+    expect(error.message).toMatch(/3000 ms/);
+    expect(server.peer.closedByClient?.code).toBe(4000);
+    expect(client.state).toBe("idle");
+    expect(client.connectionError()?.code).toBe("disconnected");
+    await flush();
+    expect(closed).toEqual([]);
+    // A late welcome on the abandoned socket is ignored; a new attempt connects.
+    server.onHello = () => ({ welcome: server.welcome() });
+    await client.reopen();
+    expect(server.peers).toHaveLength(2);
+  });
+
+  test("the timeout defaults to 10 s", async () => {
+    vi.useFakeTimers();
+    const { server, client } = setup();
+    server.onHello = () => undefined;
+    const pending = client.connect();
+    pending.catch(() => {});
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(server.peer.closedByClient).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await failure(pending)).code).toBe("disconnected");
+    expect(server.peer.closedByClient?.code).toBe(4000);
+  });
+
+  test("the timeout also covers a socket that never opens", async () => {
+    vi.useFakeTimers();
+    const server = new FakeServer();
+    class Hung {
+      readonly sent: string[] = [];
+      closedWith: number | null = null;
+      addEventListener() {}
+      send(text: string) {
+        this.sent.push(text);
+      }
+      close(code?: number) {
+        this.closedWith = code ?? null;
+      }
+    }
+    const sockets: Hung[] = [];
+    const client = new ProtocolClient({
+      url: URL_,
+      token: server.token,
+      client: { name: "tester", kind: "test" },
+      WebSocket: class extends Hung {
+        constructor() {
+          super();
+          sockets.push(this);
+        }
+      } as unknown as WebSocketConstructor,
+      handshakeTimeoutMs: 500,
+    });
+    const pending = client.connect();
+    pending.catch(() => {});
+    await vi.advanceTimersByTimeAsync(500);
+    expect((await failure(pending)).code).toBe("disconnected");
+    expect(sockets[0]?.closedWith).toBe(4000);
+    expect(sockets[0]?.sent).toEqual([]);
+  });
+
+  test("a reopen that never gets a welcome rejects disconnected and leaves state and error alone", async () => {
+    vi.useFakeTimers();
+    const { server, client } = await connected({ handshakeTimeoutMs: 1000 });
+    const closed: SocketClosedInfo[] = [];
+    server.peer.drop();
+    client.on("socket_closed", (info) => closed.push(info));
+    client.setState("reconnecting");
+    server.onHello = () => undefined;
+    const pending = client.reopen();
+    pending.catch(() => {});
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await failure(pending)).code).toBe("disconnected");
+    expect(server.peer.closedByClient?.code).toBe(4000);
+    expect(client.state).toBe("reconnecting");
+    expect(client.connectionError()?.code).toBe("disconnected");
+    await flush();
+    expect(closed).toEqual([]);
+  });
+
+  test("a welcome in time clears the timer", async () => {
+    vi.useFakeTimers();
+    const { server, client } = await connected({ handshakeTimeoutMs: 1000 });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(client.state).toBe("open");
+    expect(server.peer.closedByClient).toBeNull();
+  });
+});
+
 describe("recovery seam", () => {
   test("requestDuringRecovery works in state recovering while request rejects", async () => {
     const { server, client } = await connected();

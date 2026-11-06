@@ -163,6 +163,12 @@ export type ProtocolClientOptions = {
   agent_name?: string | (() => string | undefined);
   WebSocket?: WebSocketConstructor;
   requestTimeoutMs?: number;
+  /**
+   * How long `connect`/`reopen` wait for the `welcome`, from opening the
+   * socket, before closing it with 4000 and rejecting `disconnected`
+   * (PROTOCOL.md §2). Default 10000.
+   */
+  handshakeTimeoutMs?: number;
   onWarning?: (message: string) => void;
   timers?: Timers;
 };
@@ -210,6 +216,12 @@ type CloseMode = "drop" | "abort" | "close";
 
 /** How long a socket refused by `goodbye` may stay open before the client closes it. */
 const GOODBYE_CLOSE_MS = 1000;
+
+/** The default client-side handshake timeout (PROTOCOL.md §2). */
+const HANDSHAKE_TIMEOUT_MS = 10000;
+
+/** The close code the client uses for a socket it abandons (abort, handshake timeout). */
+const CLIENT_ABORT_CODE = 4000;
 
 /**
  * The error a `goodbye` during the handshake refuses it with (PROTOCOL.md §2:
@@ -387,6 +399,7 @@ export class ProtocolClient {
   readonly #agentName: ProtocolClientOptions["agent_name"];
   readonly #WebSocket: WebSocketConstructor | undefined;
   readonly #requestTimeoutMs: number;
+  readonly #handshakeTimeoutMs: number;
   readonly #onWarning: (message: string) => void;
   readonly #timers: Timers;
 
@@ -397,6 +410,8 @@ export class ProtocolClient {
   /** The current socket completed the handshake. */
   #welcomed = false;
   #attempt: Attempt | null = null;
+  /** The current attempt's handshake timer, until its `welcome` or close. */
+  #handshakeTimer: unknown;
   #goodbye: string | null = null;
   /** Set by `close()`; nothing opens, sends or changes state afterwards. */
   #terminal = false;
@@ -431,6 +446,7 @@ export class ProtocolClient {
     this.#agentName = options.agent_name;
     this.#WebSocket = options.WebSocket;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 30000;
+    this.#handshakeTimeoutMs = options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
     this.#onWarning = options.onWarning ?? ((message) => console.warn(message));
     this.#timers = options.timers ?? defaultTimers;
     this.#host = {
@@ -537,7 +553,9 @@ export class ProtocolClient {
    * Opens the socket and sends `hello`. Resolves with the `welcome`, which
    * clears `connectionError()` and sets state `open`. Rejects on a close
    * (after `goodbye` when the server sends one): `unauthorized` for 4401,
-   * `protocol_version` for 4400, `disconnected` otherwise.
+   * `protocol_version` for 4400, `disconnected` otherwise. With no `welcome`
+   * within `handshakeTimeoutMs` it closes the socket 4000 and rejects
+   * `disconnected`.
    */
   connect(): Promise<Welcome> {
     return this.#open("connect");
@@ -549,8 +567,9 @@ export class ProtocolClient {
    * with the same `instance`, and applies the `welcome` (session, actor,
    * revision, boards, table, limits) without touching `state` or
    * `connectionError()`. Rejects with the close code's error, or
-   * `disconnected` for a transport failure; a failed attempt changes neither
-   * state nor connection error and emits no `socket_closed`.
+   * `disconnected` for a transport failure or no `welcome` within
+   * `handshakeTimeoutMs` (the socket closed 4000); a failed attempt changes
+   * neither state nor connection error and emits no `socket_closed`.
    */
   reopen(creds?: { url: string; token: string }): Promise<Welcome> {
     if (creds && !this.#terminal && this.#socket === null) {
@@ -620,8 +639,8 @@ export class ProtocolClient {
       this.#set("idle", this.#connectionError);
       return;
     }
-    this.#closeSocket(socket, 4000, reason);
-    this.#socketClosed(socket, 4000, reason, "abort");
+    this.#closeSocket(socket, CLIENT_ABORT_CODE, reason);
+    this.#socketClosed(socket, CLIENT_ABORT_CODE, reason, "abort");
   }
 
   // -------------------------------------------------------------------------
@@ -743,6 +762,10 @@ export class ProtocolClient {
       this.#attempt = { kind, resolve, reject };
     });
     if (kind === "connect") this.#set("connecting", this.#connectionError);
+    this.#handshakeTimer = this.#timers.setTimeout(
+      () => this.#handshakeTimedOut(socket),
+      this.#handshakeTimeoutMs,
+    );
     socket.addEventListener("open", () => this.#sendHello(socket));
     socket.addEventListener("message", (event: { data: unknown }) =>
       this.#onFrame(socket, event.data),
@@ -754,6 +777,23 @@ export class ProtocolClient {
     // A failed socket also fires `close`, which settles everything.
     socket.addEventListener("error", () => {});
     return promise;
+  }
+
+  /**
+   * No `welcome` in time (PROTOCOL.md §2): the attempt fails like a dropped
+   * socket (`disconnected`), and the client closes the socket with 4000.
+   */
+  #handshakeTimedOut(socket: WebSocketLike): void {
+    if (socket !== this.#socket || this.#welcomed) return;
+    const message = `no welcome within ${this.#handshakeTimeoutMs} ms`;
+    this.#closeSocket(socket, CLIENT_ABORT_CODE, "handshake timeout");
+    this.#socketClosed(
+      socket,
+      CLIENT_ABORT_CODE,
+      "handshake timeout",
+      "drop",
+      localFailure("disconnected", `the connection closed (${CLIENT_ABORT_CODE}): ${message}`),
+    );
   }
 
   #sendHello(socket: WebSocketLike): void {
@@ -879,6 +919,8 @@ export class ProtocolClient {
     }
     this.#attempt = null;
     this.#welcomed = true;
+    this.#timers.clearTimeout(this.#handshakeTimer);
+    this.#handshakeTimer = undefined;
     this.#session = welcome.session;
     this.#actor = welcome.actor;
     this.#limits = welcome.limits;
@@ -1042,6 +1084,8 @@ export class ProtocolClient {
     this.#welcomed = false;
     this.#attempt = null;
     this.#goodbye = null;
+    this.#timers.clearTimeout(this.#handshakeTimer);
+    this.#handshakeTimer = undefined;
     this.#bound.clear();
 
     const pendings = [...this.#pending.values()];
