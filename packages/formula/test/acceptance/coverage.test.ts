@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /**
  * The meta-test of the §10 acceptance suite. Every scenario has its own
  * acceptance file (one per fixture), and every formula and `when` source of

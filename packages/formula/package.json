@@ -12,6 +12,7 @@
     "@vtt/schema": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "26.6.6",
     "@vtt/fixtures": "workspace:*"
   }
 }
