@@ -49,6 +49,10 @@ Decisions: D1, D3; M4-D1, M4-D3.
   const CLOSE_CODES = { protocol: 4400, unauthorized: 4401, hello_timeout: 4408, slow_consumer: 4429, shutdown: 1001 };
   ```
 
+  These are the codes the server closes with. The client closes a socket it
+  abandons with 4000: `ProtocolClient.abortSocket` (used by recovery, §8)
+  and the client-side handshake timeout (§2).
+
 - WebSocket upgrades are accepted only on `/ws` (their `Origin` check is in
   §2).
 
@@ -99,6 +103,13 @@ Decisions: D4, D5, D8, D25, D33; M4-D1; M6-D5.
 
 - The first client message must be `hello`, within 5 s; otherwise the
   connection is closed 4408.
+- Client side, `connect` and `reopen` wait at most `handshakeTimeoutMs`
+  (a `ProtocolClient` option, default 10 s) from opening the socket for the
+  `welcome` (or a refusal). When it passes, the client closes the socket
+  with 4000 and rejects the attempt `disconnected`, as for a dropped socket;
+  recovery (§8) treats it as any failed attempt and retries with its
+  backoff. A server that accepts the socket but never answers therefore
+  never leaves the client waiting.
 - A wrong token (compared in constant time) or a first message that is not
   `hello`: `goodbye`, then close 4401.
 - A `protocol` other than 1: `goodbye`, then close 4400.
