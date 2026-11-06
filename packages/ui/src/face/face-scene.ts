@@ -8,6 +8,7 @@
  */
 import type { ObjectView, WireValue } from "@vtt/protocol";
 import type { Bounds, ObjectId, Point, Rect } from "@vtt/schema";
+import { decoratedBounds } from "../render/canvas2d";
 import { persistentTextBounds } from "../render/face-draw";
 import type { Camera } from "../scene/camera";
 import { hitsAt } from "../scene/hit-test";
@@ -152,20 +153,27 @@ export function buildFaceScene(input: SceneInput, opts: BuildFaceSceneOptions): 
  * option): the presentation bounds, or the item's own bounds without them.
  * Given the `camera`, they also hold its persistent text as magnified to
  * the legibility floor at that zoom (`persistentTextBounds`, M6-D17,
- * vtt-qf5.66). Draw culling only: hit testing keeps the presentation bounds.
+ * vtt-qf5.66) and the default renderer's screen-size padding for the marker,
+ * the hidden badge and the label strip (`decoratedBounds`, vtt-qf5.41).
+ * Draw culling only: hit testing keeps the presentation bounds.
  */
 export function faceCullBounds(item: DrawItem, scene: FaceScene, camera?: Camera): Bounds {
   const b = scene.presentation.get(item.id) ?? item.bounds;
-  const drawing = camera === undefined ? undefined : scene.faces.get(item.id);
-  if (camera === undefined || drawing === undefined) return b;
+  if (camera === undefined) return b;
+  const grown = union(b, decoratedBounds(item, camera));
+  const drawing = scene.faces.get(item.id);
+  if (drawing === undefined) return grown;
   const transform = scene.transforms.get(item.id) ?? itemTransform(item);
   const t = persistentTextBounds(drawing, transform, camera);
-  if (t === null) return b;
+  return t === null ? grown : union(grown, t);
+}
+
+function union(a: Bounds, b: Bounds): Bounds {
   return {
-    minX: Math.min(b.minX, t.minX),
-    minY: Math.min(b.minY, t.minY),
-    maxX: Math.max(b.maxX, t.maxX),
-    maxY: Math.max(b.maxY, t.maxY),
+    minX: Math.min(a.minX, b.minX),
+    minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX),
+    maxY: Math.max(a.maxY, b.maxY),
   };
 }
 
