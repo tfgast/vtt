@@ -5,6 +5,7 @@
  */
 import {
   EFFECT_VIEW_TYPES,
+  FaceElementViewSchema,
   type FaceLayoutView,
   FaceLayoutViewSchema,
   FIELD_EFFECT_FIELDS,
@@ -263,5 +264,87 @@ describe("group views with faces round-trip through parseResult", () => {
     delete after.elements[1]?.index;
     const result = { first_index: 0, next_index: 4, undo_barrier: 0, groups: [bad] };
     expect(parseResult("log", result).ok).toBe(false);
+  });
+});
+
+describe("when_selected on contents elements (M6-D12)", () => {
+  const listed: FaceLayout = {
+    elements: [
+      { type: "value", cell: "name", rect: [-1, -1, 2, 0.4] },
+      { type: "contents", rect: [-1.5, 0.9, 3, 1.2], min_size: 24, when_selected: true },
+    ],
+    collapsed: [{ type: "contents", rect: [0, 0, 1, 0.6], when_selected: false }],
+  };
+  const live = {
+    elements: listed.elements.map((e, index) => ({ ...e, index, shown: true })),
+    collapsed: [
+      { type: "contents", rect: [0, 0, 1, 0.6], when_selected: false, index: 0, shown: true },
+    ],
+  };
+
+  test("set_face and ObjectInit carry it unchanged; a non-boolean is refused", () => {
+    const op: WireOp = { type: "set_face", object: "tok", face: listed };
+    expect(WireOpSchema.parse(op)).toEqual(op);
+    expect(ObjectInitSchema.parse({ face: listed })).toEqual({ face: listed });
+    for (const bad of ["true", 1, null]) {
+      const face = { elements: [{ type: "contents", rect: [0, 0, 1, 1], when_selected: bad }] };
+      expect(WireOpSchema.safeParse({ type: "set_face", object: "tok", face }).success).toBe(false);
+    }
+    const onValue = {
+      elements: [{ type: "value", cell: "hp", rect: [0, 0, 1, 1], when_selected: true }],
+    };
+    expect(WireOpSchema.safeParse({ type: "set_face", object: "tok", face: onValue }).success).toBe(
+      false,
+    );
+  });
+
+  test("live object views keep it: FaceElementView and every live-view result", () => {
+    for (const e of [...live.elements, ...live.collapsed]) {
+      expect(FaceElementViewSchema.parse(e)).toEqual(e);
+    }
+    const v = {
+      id: "tok",
+      is_template: false,
+      is_character: false,
+      cells: {},
+      actions: [],
+      action_states: [],
+      face: live,
+    };
+    const subscribe = { subscription: "s1", revision: 3, objects: [v], covers: [] };
+    expect(parseResult("subscribe", subscribe)).toEqual({
+      ok: true,
+      value: subscribe,
+      warnings: [],
+    });
+    const got = { revision: 3, objects: [v], missing: [] };
+    expect(parseResult("get_objects", got)).toEqual({ ok: true, value: got, warnings: [] });
+  });
+
+  test("historical faces keep it: FaceLayoutView and a face field effect", () => {
+    const history: FaceLayoutView = {
+      elements: listed.elements.map((e, index) => ({ ...e, index })),
+      collapsed: [{ type: "contents", rect: [0, 0, 1, 0.6], when_selected: false, index: 0 }],
+    };
+    expect(FaceLayoutViewSchema.parse(history)).toEqual(history);
+    const log = {
+      first_index: 0,
+      next_index: 1,
+      undo_barrier: 0,
+      groups: [
+        {
+          index: 0,
+          revision: 1,
+          actor: { type: "gm" },
+          kind: "edit",
+          label: "set_face tok",
+          base_revision: 0,
+          undone: false,
+          names: {},
+          effects: [{ type: "field", object: "tok", field: "face", before: null, after: history }],
+        },
+      ],
+    };
+    expect(parseResult("log", log)).toEqual({ ok: true, value: log, warnings: [] });
   });
 });

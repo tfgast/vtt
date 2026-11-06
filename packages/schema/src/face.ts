@@ -47,6 +47,12 @@ export interface FaceContentsElement {
   entries?: "collapsed" | "full";
   show_when?: string;
   min_size?: number;
+  /**
+   * Shown only while the object (or an object inside it at any depth) is
+   * selected, or an Alt drag hovers it; otherwise a count badge (M6-D12).
+   * Absent means unset (always shown).
+   */
+  when_selected?: boolean;
 }
 
 export type FaceElement = FaceCellElement | FaceButtonElement | FaceContentsElement;
@@ -115,6 +121,7 @@ export const FaceElementSchema: z.ZodType<FaceElement> = z.discriminatedUnion("t
     type: z.literal("contents"),
     ...common,
     entries: z.enum(["collapsed", "full"]).optional(),
+    when_selected: z.boolean().optional(),
   }),
 ]);
 

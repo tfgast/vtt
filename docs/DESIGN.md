@@ -519,7 +519,7 @@ object's layout is its field `face?: FaceLayout`:
 - `FaceElement` = `{type: "value" | "editor"; cell; rect; show_when?;
   min_size?; style?}` | `{type: "button"; action; rect; label?; show_when?;
   min_size?}` | `{type: "contents"; rect; entries?: "collapsed" | "full";
-  show_when?; min_size?}`.
+  show_when?; min_size?; when_selected?: boolean}`.
 - `rect: [x, y, w, h]`, finite, `w`, `h` > 0, in board units in the
   object's unrotated local frame (origin at the anchor, y down). The
   full-face frame is the shape's bounding box (shapeless: `[-1, -0.5, 2,
@@ -529,6 +529,8 @@ object's layout is its field `face?: FaceLayout`:
   "center" | "right"; caption?: boolean}`.
 - At most 200 elements per list and one `contents` element per list;
   `show_when` non-blank, at most 10,000 characters.
+- `when_selected` (contents elements only, M6-D12) is a boolean; absent
+  means unset. See **Only when selected** below.
 - The whole layout is replaced by `set_face` (conflict key
   `face:<object>`), copied verbatim on spawn, and carried in create and
   remove snapshots; absent means no layout. There is no `schema_version`
@@ -642,6 +644,23 @@ tracing highlights the objects referenced by a hovered formula (from
 above plus its `ink` cell, a strip of its action buttons below its frame,
 and a collapsed list of its contents below that; a template object on a
 board also shows a gear (4.7).
+
+**Only when selected** (M6-D12). A token's list below it clogs the board
+and takes drops meant for the table, and neighbouring tokens' lists
+overlap. A contents element with `when_selected: true` is drawn,
+hit-tested and offered as a drop target only while its object, or an
+object contained in it at any depth, is selected, or while a drag with Alt
+held hovers the object (the Alt-drop-inside gesture, **On the canvas**
+below). Otherwise, when `contents` is non-empty, the object draws a small
+count badge in the element's place ("3", lower right, drawn at any zoom);
+hit-testing never reaches the hidden list, and a plain drop there lands on
+the board. Expanded entries in a hidden list keep their per-session
+expanded state and reappear when the list does. Selecting the object (one
+click) shows the list. The default layout of an object without a face sets
+`when_selected: true` on its contents element, as do the stocked
+`tpl_character` and `tpl_token` faces (4.7); binders, cards, hands and
+sheets leave it unset. The inspector's Face section offers it as the
+checkbox "Only when selected" on contents element rows.
 
 **Gestures.**
 
@@ -1698,3 +1717,4 @@ a separate player window, shipped game-system content.
 | 2026-11-06 | M6-D10. Hit order is three buckets of the objects under the pointer, each by descending z then descending draw index: non-zones that are not backdrops, then zones, then backdrops, a backdrop being a non-zone whose bounding rect contains the bounding rect of at least one zone under the pointer. Containment wins over z across buckets. Board clicks, drags, double-clicks, Alt+click cycling, marquee order and face hits (`hitOrder` in `scene/hit-test.ts`) all use it. Amends the old non-zones-before-zones rule. DESIGN §4.6. | Playtest 1 steps 3 and 12: a room zone drawn over the map could not be clicked, renamed or dragged without Alt+click; tokens inside a zone must still be picked before it. An Alt-drop through a room zone now lands on the board, not in the map below, as "onto an object (not a zone)" reads. |
 | 2026-11-06 | M6-D11. Navigation: a plain wheel (or two-finger scroll) pans the camera by its deltas; Ctrl or Meta with the wheel (how browsers deliver a trackpad pinch) zooms about the pointer; the active tool's `wheel` hook still comes first, so a list that scrolls takes a plain wheel over it, but never a Ctrl or Meta wheel, which zooms there too. Space is heard on the window, so Space-drag pans wherever focus is except in a text field (a Space typed there is ignored and never prevented); middle-drag is unchanged. `+` and `=` zoom in and `-` zooms out, by 1.25 about the viewport centre, as `KEY_BINDINGS` rows. Amends vtt-1xv.16's wheel zoom. DESIGN §4.6, §8.1. | Playtest 1 step 3: a trackpad has no middle button and Space was only seen with focus in the canvas, so panning was undiscoverable; the zoom keys keep zoom for a mouse wheel that now pans. |
 | 2026-11-06 | M6-D16. Stocked faces: the HIT badge has no `min_size`, token `name` and `hp` use 8 px, a binder's header shows its owner, the Area save face shows `targets`. `tpl_token` and `tpl_character` `name` and `hp` are `m=8`; `tpl_binder` (and so each character's binder) is headed by `value name sw="owner = empty"` and `value owner sw="owner != empty"`, `name` staying the literal "Binder" (its collapsed row); `gm_binder`, which has no `owner`, keeps its plain `name` header; `tpl_area_save` adds `value targets` between `damage` and a shorter contents list. Amends M6-D3. DESIGN §4.7. | Playtest 1 (vtt-nb8.14): a 0.3-unit element under `m=12` never draws below zoom 0.6, where a GM viewing the map sits, so the badge, name and hp were invisible; `name` is literal-only, so a binder could not name its character; `targets` showed only in the inspector. |
+| 2026-11-06 | M6-D12. A contents face element takes the optional boolean `when_selected` (additive; absent is unset; refused unless boolean; `set_face`, views, effects, snapshots and the file carry it unchanged; no `schema_version` change). When true, the element is drawn, hit-tested and offered as a drop target only while its object, or an object contained in it at any depth, is selected, or while a drag with Alt held hovers the object (the Alt-drop-inside gesture); otherwise, when `contents` is non-empty, the object draws a small count badge in the element's place ("3", lower right, drawn at any zoom), hit-testing never reaches the hidden list, and only the Alt-hover offers it as a drop target. Expanded entries in a hidden list keep their per-session expanded state and reappear with it. The default layout of an object without a face (`defaultLayoutFor`) sets it on its contents element; the stocked `tpl_character` and `tpl_token` faces set it on theirs (`contentsList([-1.5, 0.9, 3, 1.2], { m: 24, whenSelected: true })`); binders, cards, hands and sheets leave it unset. Existing tables keep their stored faces: the templates of a table made before this change still show their lists (playtest 2 starts a fresh table). The inspector's Face section shows it as the checkbox "Only when selected" on contents element rows. The guide's gestures become "click the token, then …". Amends M5-D7 (the encoding) and M5-D10 (objects without a face show their contents below them only while selected). Supersedes Polish vtt-qf5.49. DESIGN §4.6, §4.7; PROTOCOL §5; FIXTURES §3. | Playtest 1 steps 2 and 12: lists under tokens clog the board where spatial position matters and are hard to avoid; an empty token list silently took a zone dropped over it (vtt-nb8.11); expanded lists of neighbouring tokens overlap (vtt-qf5.49). One click to show the list keeps it reachable. |

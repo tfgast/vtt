@@ -169,6 +169,8 @@ export const FaceElementSchema = z.discriminatedUnion("type", [
     type: z.literal("contents"),
     ...faceCommon,
     entries: z.enum(["collapsed", "full"]).optional(),
+    /** Shown only while selected or Alt-drop hovered (M6-D12); absent is unset. */
+    when_selected: z.boolean().optional(),
   }),
 ]);
 
