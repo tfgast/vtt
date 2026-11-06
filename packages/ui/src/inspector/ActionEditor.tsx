@@ -13,10 +13,96 @@
  * and writes nothing itself: `onSave` receives the action and the owner
  * writes it (`ActionsList`, which closes the editor once the write commits
  * and keeps it, text and all, otherwise).
+ *
+ * Guard preview (vtt-qf5.31; M5 plan section 5): given a `preview`, a `when`
+ * that parses is evaluated ad hoc on the object (`preview.evaluate`, the GM's
+ * `evaluate` with `this`) after a short debounce, and its value is shown
+ * beside the field (`formatValue` full, with its tone). Each request is keyed
+ * by the object, the revision and the text, and each run of the request
+ * effect is cancelled when the key changes or the editor closes: only the
+ * latest run's answer applies, so a stale answer is dropped (also when the
+ * text returns to an earlier key). A shown value
+ * stays while only the revision advances (until the new answer) and is
+ * hidden as soon as the text differs. Empty text, a parse problem, a failed
+ * request or no `preview` show nothing.
  */
-import type { ActionDef } from "@vtt/schema";
-import { type CSSProperties, type KeyboardEvent, useId } from "react";
+import type { WireResult } from "@vtt/protocol";
+import type { ActionDef, ObjectId } from "@vtt/schema";
+import { type CSSProperties, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { formatValue, type RefLabel } from "../values/format";
 import { type ActionDraft, actionOfDraft, draftProblems, type SourceProblem } from "./action-ops";
+import { TONE_COLORS } from "./CellRow";
+
+/** Milliseconds of typing quiet before a guard preview is requested. */
+export const GUARD_PREVIEW_DELAY_MS = 150;
+
+/** What the action editor needs to preview its `when` (GM only). */
+export interface GuardPreview {
+  /** The object the action belongs to (`this`). */
+  object: ObjectId;
+  /** The revision the views stand at; a new one asks again. */
+  revision: number;
+  /** Evaluates `source` with `this` = `object` (the GM's `evaluate`). */
+  evaluate(source: string, object: ObjectId): Promise<WireResult>;
+  refLabel: RefLabel;
+  /** Debounce; default `GUARD_PREVIEW_DELAY_MS`. */
+  delayMs?: number;
+}
+
+interface PreviewAnswer {
+  readonly key: string;
+  readonly object: ObjectId;
+  readonly source: string;
+  readonly value: WireResult;
+}
+
+/**
+ * The current value of `source` per `preview`, or null (nothing to show).
+ * `active` false (empty text, a parse problem) asks nothing.
+ */
+function useGuardPreview(
+  preview: GuardPreview | undefined,
+  source: string,
+  active: boolean,
+): WireResult | null {
+  const [answer, setAnswer] = useState<PreviewAnswer | null>(null);
+  const evaluate = useRef(preview?.evaluate);
+  evaluate.current = preview?.evaluate;
+  const object = preview?.object;
+  const revision = preview?.revision;
+  const delay = preview?.delayMs ?? GUARD_PREVIEW_DELAY_MS;
+  const key =
+    object !== undefined && active && source.trim() !== ""
+      ? JSON.stringify([object, revision, source])
+      : null;
+
+  useEffect(() => {
+    if (key === null || object === undefined) return;
+    // This run's own cancellation: a superseded run's answer never applies,
+    // even when a later run has the same key (A → B → A).
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const run = evaluate.current;
+      if (run === undefined) return;
+      run(source, object).then(
+        (value) => {
+          if (!cancelled) setAnswer({ key, object, source, value });
+        },
+        () => {
+          if (!cancelled) setAnswer(null);
+        },
+      );
+    }, delay);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [key, object, source, delay]);
+
+  if (key === null || answer === null) return null;
+  if (answer.object !== object || answer.source !== source) return null;
+  return answer.value;
+}
 
 export interface ActionEditorProps {
   /** The draft shown. */
@@ -32,6 +118,8 @@ export interface ActionEditorProps {
   /** Called by Save with the action, only when the draft has no problem. */
   onSave(action: ActionDef): void;
   onCancel(): void;
+  /** Previews the `when`'s value beside the field (the GM's editor); none: no preview. */
+  preview?: GuardPreview;
 }
 
 const EDITOR_STYLE: CSSProperties = {
@@ -47,6 +135,7 @@ const INPUT_STYLE: CSSProperties = { fontFamily: "monospace", flex: 1, minWidth:
 const ERROR_STYLE: CSSProperties = { color: "#b3261e", fontSize: "0.85em" };
 const CARET_STYLE: CSSProperties = { margin: 0, fontSize: "0.85em", whiteSpace: "pre" };
 const LIST_STYLE: CSSProperties = { margin: 0, padding: 0, display: "grid", gap: "0.25em" };
+const VALUE_STYLE: CSSProperties = { fontSize: "0.85em", whiteSpace: "pre-wrap" };
 
 /** A parse problem: the message, then the source with a caret under the offset. */
 function Problem({ id, source, problem }: { id: string; source: string; problem: SourceProblem }) {
@@ -73,10 +162,16 @@ export function ActionEditor({
   saving = false,
   onSave,
   onCancel,
+  preview,
 }: ActionEditorProps) {
   const id = useId();
   const setDraft = (f: (d: ActionDraft) => ActionDraft) => onChange(f(draft));
   const problems = draftProblems(draft, names, original);
+  const whenValue = useGuardPreview(preview, draft.when, problems.when === null);
+  const whenFormatted =
+    whenValue === null || preview === undefined
+      ? null
+      : formatValue(whenValue, { mode: "full", refLabel: preview.refLabel });
 
   const patch = (next: Partial<ActionDraft>) => setDraft((d) => ({ ...d, ...next }));
   const setStep = (i: number, source: string) =>
@@ -136,6 +231,15 @@ export function ActionEditor({
           onChange={(e) => patch({ when: e.target.value })}
           style={INPUT_STYLE}
         />
+        {whenFormatted !== null && (
+          <output
+            aria-label="Condition value"
+            data-tone={whenFormatted.tone}
+            style={{ ...VALUE_STYLE, color: TONE_COLORS[whenFormatted.tone] }}
+          >
+            {whenFormatted.text}
+          </output>
+        )}
       </label>
       {problems.when !== null && (
         <Problem id={whenError} source={draft.when} problem={problems.when} />

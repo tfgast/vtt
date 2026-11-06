@@ -190,7 +190,8 @@ interface RenameEditor {
 const NO_CHARACTERS: readonly ViewerCharacter[] = [];
 const neverTaken = () => false;
 
-const TONE_COLORS: Record<FormatTone, string | undefined> = {
+/** The text color of each value tone in the inspector (none: inherited). */
+export const TONE_COLORS: Record<FormatTone, string | undefined> = {
   normal: undefined,
   muted: "GrayText",
   error: "#b3261e",
