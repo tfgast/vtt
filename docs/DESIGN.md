@@ -830,7 +830,8 @@ flags; cells (`name: literal`, `name = formula`; `""` is empty text, `empty`
 the empty value, `@id` a reference); actions (`Name [when]: steps`, steps
 separated by ` ; `); face elements as `kind cell|action [x, y, w, h]` with
 options (`L` style size large, `H` huge, `C` caption, `m=N` min_size N px,
-`sw="…"` show_when); `default_action`. Every record not marked otherwise
+`sw="…"` show_when, `when_selected` on a contents element: true, M6-D12);
+`default_action`. Every record not marked otherwise
 is a template (`is_template: true`) with default `visible_to`. Ids never end
 in `_<digits>`.
 

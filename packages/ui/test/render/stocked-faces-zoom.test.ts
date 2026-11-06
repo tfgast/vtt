@@ -89,8 +89,14 @@ function views(table: Table): ObjectView[] {
     .filter((v): v is ObjectView => v !== null);
 }
 
-/** Draws the GM board centred on `[x, y]` at `zoom`. */
-function render(table: Table, x: number, y: number, zoom = ZOOM): RecordingContext {
+/** Draws the GM board centred on `[x, y]` at `zoom`, with `selection` selected. */
+function render(
+  table: Table,
+  x: number,
+  y: number,
+  zoom = ZOOM,
+  selection: ObjectId[] = [],
+): RecordingContext {
   const ctx = new RecordingContext();
   const renderer = createCanvas2DRenderer<FaceScene>(ctx, {
     images: new ImageCache({ resolve: (p) => `/assets/${p}` }),
@@ -98,7 +104,7 @@ function render(table: Table, x: number, y: number, zoom = ZOOM): RecordingConte
     cullBounds: faceCullBounds,
   });
   const scene = buildFaceScene(
-    { views: views(table), covers: [], board: "gm_board", viewer: { type: "gm" }, selection: [] },
+    { views: views(table), covers: [], board: "gm_board", viewer: { type: "gm" }, selection },
     { faceState: createFaceStateStore() },
   );
   const camera: Camera = { x, y, zoom };
@@ -163,11 +169,12 @@ describe("stocked faces at zoom 0.5 (M6-D16)", () => {
   });
 
   test("a spawned character draws its name and hp", () => {
-    const { table } = placed();
-    const drawn = texts(render(table, 20, 0));
+    const { table, aldric } = placed();
+    const drawn = texts(render(table, 20, 0, ZOOM, [aldric]));
     expect(drawn).toContain("Aldric");
     expect(drawn).toContain("9");
-    // The binder's collapsed row in Aldric's list still reads its literal name.
+    // The binder's collapsed row in Aldric's list (shown while he is selected, M6-D12)
+    // still reads its literal name.
     expect(drawn).toContain("Binder");
   });
 
