@@ -22,6 +22,13 @@
  * With the session's Snap on (`ToolInput.snap`, M6-D13), resize, radius and
  * vertex drags snap to half units (see `dragHandle`); rotation does not.
  *
+ * An object with a face layout (M5-D7) keeps its face in proportion
+ * (M6-D14): a resize, radius or vertex write that changes the shape's local
+ * bounding box also carries one `set_face` with the full list's rects scaled
+ * by the box's new/old width and height, measured from the box's origin
+ * (`scaleFace`); the collapsed list and `min_size` are kept. The layout is the
+ * GM view's (`layoutOfView`) at the pointer down, or a pending write's.
+ *
  * Handles live in object-local coordinates (the object's rotation applies).
  * The stamp is captured at the pointer down on a handle; the drag emits
  * `previews`, and the release one write with that stamp and previews held by
@@ -38,7 +45,16 @@
  * follow the written geometry until the client has seen the write's revision.
  */
 import type { InputValue, ObjectView, WireOp } from "@vtt/protocol";
-import type { ObjectId, Point, Shape } from "@vtt/schema";
+import {
+  defaultFaceFrame,
+  type FaceElement,
+  type FaceLayout,
+  type ObjectId,
+  type Point,
+  type Rect,
+  type Shape,
+} from "@vtt/schema";
+import { layoutOfView } from "../face-editor/face-ops";
 import { type Camera, cameraScale, toScreen, type ViewportSize } from "../scene/camera";
 import { polygonProblem } from "../scene/polygon";
 import type { DrawItem, ScenePreview } from "../scene/scene";
@@ -299,6 +315,34 @@ export function dragHandle(
   return {};
 }
 
+/**
+ * `face` after its object's shape changed from `from` to `to` (M6-D14): each
+ * rect of the full list (`elements`) is scaled by the factors new/old of the
+ * shape's local bounding box (`defaultFaceFrame`) width and height, its
+ * position measured from the box's origin, so elements follow the box. The
+ * collapsed list (its frame is fixed), `min_size` and everything else are
+ * kept. A dimension whose old size is not positive keeps factor 1. Returns
+ * null when the box is unchanged (no `set_face` is needed).
+ */
+export function scaleFace(face: FaceLayout, from: Shape, to: Shape): FaceLayout | null {
+  const [ox, oy, ow, oh] = defaultFaceFrame(from);
+  const [nx, ny, nw, nh] = defaultFaceFrame(to);
+  if (near(ox, nx) && near(oy, ny) && near(ow, nw) && near(oh, nh)) return null;
+  const fx = ow > 0 ? nw / ow : 1;
+  const fy = oh > 0 ? nh / oh : 1;
+  const scale = (e: FaceElement): FaceElement => {
+    const [x, y, w, h] = e.rect;
+    const rect: Rect = [
+      tidy(nx + (x - ox) * fx),
+      tidy(ny + (y - oy) * fy),
+      tidy(w * fx),
+      tidy(h * fy),
+    ];
+    return { ...e, rect };
+  };
+  return { ...face, elements: face.elements.map(scale) };
+}
+
 // ---------------------------------------------------------------------------
 // The decorator
 
@@ -313,6 +357,8 @@ export interface HandleDrag {
   grab: Point;
   /** The object's label, for the write's label and notices. */
   name: string;
+  /** The object's face layout at pointer down (a pending write's, else the view's), or null. */
+  face: FaceLayout | null;
   /** The current preview, or null before the first move. */
   preview: ScenePreview | null;
   /** The camera and viewport of the last event, to restore the handles on a cancel. */
@@ -328,6 +374,8 @@ export interface PendingEdit {
   stamp: InteractionStamp;
   object: ObjectId;
   delta: ScenePreview;
+  /** The face layout it writes (M6-D14), if any; a later drag scales from it. */
+  face?: FaceLayout;
   /** The committed revision, once settled. */
   revision: number | null;
 }
@@ -499,8 +547,15 @@ function restorePending(pending: readonly PendingEdit[]): Effect {
   return { type: "previews", previews: pendingPreviews(unsettled), hold: { stamp: newest.stamp } };
 }
 
-/** The ops writing `preview` to `object`. */
-function opsFor(object: ObjectId, preview: ScenePreview): WireOp[] {
+/** The newest face layout a pending write of `object` carries, or null. */
+function pendingFace(pending: readonly PendingEdit[], object: ObjectId): FaceLayout | null {
+  let face: FaceLayout | null = null;
+  for (const p of pending) if (p.object === object && p.face !== undefined) face = p.face;
+  return face;
+}
+
+/** The ops writing `preview` (and the scaled `face`, if any) to `object`. */
+function opsFor(object: ObjectId, preview: ScenePreview, face?: FaceLayout): WireOp[] {
   const ops: WireOp[] = [];
   if (preview.shape !== undefined) ops.push({ type: "set_shape", object, shape: preview.shape });
   if (preview.position !== undefined) {
@@ -521,7 +576,17 @@ function opsFor(object: ObjectId, preview: ScenePreview): WireOp[] {
       value: { type: "number", value: preview.rotation },
     });
   }
+  if (face !== undefined) ops.push({ type: "set_face", object, face });
   return ops;
+}
+
+/** The face layout a handle drag starts from: a pending write's, else the view's, or null. */
+function faceAtDown(
+  pending: readonly PendingEdit[],
+  view: ObjectView | null,
+  object: ObjectId,
+): FaceLayout | null {
+  return pendingFace(pending, object) ?? (view === null ? null : layoutOfView(view));
 }
 
 function labelFor(handle: Handle, name: string): string {
@@ -681,6 +746,7 @@ export function withHandles<TPhase, K extends ToolId>(
       },
       grab: event.board,
       name: nameOf(input.views(item.id), item.id),
+      face: faceAtDown(phase.pending, input.views(item.id), item.id),
       preview: null,
       camera: input.camera,
       viewport: input.viewport,
@@ -750,10 +816,17 @@ export function withHandles<TPhase, K extends ToolId>(
             input,
           );
         }
+        // M6-D14: the face keeps its proportions to the new bounding box.
+        const from = drag.target.shape;
+        const face =
+          drag.face !== null && from !== null && shape !== undefined
+            ? (scaleFace(drag.face, from, shape) ?? undefined)
+            : undefined;
         const edit: PendingEdit = {
           stamp: drag.stamp,
           object: drag.target.id,
           delta: preview,
+          ...(face === undefined ? {} : { face }),
           revision: null,
         };
         const next = [...pending, edit];
@@ -763,7 +836,7 @@ export function withHandles<TPhase, K extends ToolId>(
             {
               type: "write",
               stamp: drag.stamp,
-              ops: opsFor(drag.target.id, preview),
+              ops: opsFor(drag.target.id, preview, face),
               label: labelFor(drag.handle, drag.name),
               continuations: [],
             },

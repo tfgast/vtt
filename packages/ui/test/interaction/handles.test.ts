@@ -7,8 +7,16 @@
  * Shift; the stamp is the pointer-down one; cancel writes nothing; anything
  * that hits no handle reaches the select tool.
  */
-import type { CellView, ObjectView, Viewer, WireOp, WireResult, WireValue } from "@vtt/protocol";
-import type { ObjectId, Point, Shape } from "@vtt/schema";
+import type {
+  CellView,
+  FaceView,
+  ObjectView,
+  Viewer,
+  WireOp,
+  WireResult,
+  WireValue,
+} from "@vtt/protocol";
+import type { FaceElement, FaceLayout, ObjectId, Point, Rect, Shape } from "@vtt/schema";
 import {
   buildScene,
   type Camera,
@@ -60,7 +68,7 @@ function obj(
   at: Point,
   z: number,
   shape: Shape | null,
-  extra: { rotation?: number; name?: string } = {},
+  extra: { rotation?: number; name?: string; face?: FaceLayout } = {},
 ): ObjectView {
   const values: Record<string, WireResult> = {
     board: { type: "ref", object: BOARD },
@@ -75,8 +83,39 @@ function obj(
   if (extra.name) values.name = { type: "text", value: extra.name };
   const cells: Record<string, CellView> = {};
   for (const [name, value] of Object.entries(values)) cells[name] = { value, kind: "literal" };
-  return { id, is_template: false, is_character: false, cells, actions: [] };
+  const view: ObjectView = { id, is_template: false, is_character: false, cells, actions: [] };
+  if (extra.face) view.face = faceView(extra.face);
+  return view;
 }
+
+/** A GM view's live face for a stored layout: each element with its index, shown. */
+function faceView(layout: FaceLayout): FaceView {
+  const live = (list: FaceElement[]) => list.map((e, index) => ({ ...e, index, shown: true }));
+  return {
+    elements: live(layout.elements),
+    ...(layout.collapsed === undefined ? {} : { collapsed: live(layout.collapsed) }),
+    ...(layout.default_action === undefined ? {} : { default_action: layout.default_action }),
+  } as FaceView;
+}
+
+/** A binder face (M6-D14): a name row and a contents list, plus a custom collapsed row. */
+const BINDER_FACE: FaceLayout = {
+  elements: [
+    { type: "value", cell: "name", rect: [-3.1, -4.6, 6.2, 0.8], min_size: 12 },
+    { type: "contents", rect: [-3.1, -3.6, 6.2, 8] },
+  ],
+  collapsed: [{ type: "value", cell: "name", rect: [0, 0, 6, 0.6] }],
+  default_action: "open",
+};
+const COIN_FACE: FaceLayout = {
+  elements: [{ type: "value", cell: "name", rect: [-0.8, -0.3, 1.6, 0.6] }],
+};
+const POND_FACE: FaceLayout = {
+  elements: [
+    { type: "value", cell: "name", rect: [-1, -1, 2, 0.5] },
+    { type: "value", cell: "depth", rect: [0, 0, 1, 1] },
+  ],
+};
 
 const VIEWS: ObjectView[] = [
   obj("r", [2, 1], 1, rect(4, 2), { rotation: 30, name: "Box" }),
@@ -102,6 +141,11 @@ const VIEWS: ObjectView[] = [
     },
     { name: "Odd pond" },
   ),
+  // Objects with faces, far from the rest (vtt-nb8.32, M6-D14).
+  obj("b", [60, 0], 10, rect(6.6, 9.6), { name: "Binder", face: BINDER_FACE }),
+  obj("br", [60, 30], 11, rect(6.6, 9.6), { rotation: 30, name: "Tilted", face: BINDER_FACE }),
+  obj("cf", [80, 0], 12, circle(1), { name: "Seal", face: COIN_FACE }),
+  obj("pf", [80, 20], 13, { type: "polygon", points: SQUARE }, { name: "Lake", face: POND_FACE }),
 ];
 const BY_ID = new Map(VIEWS.map((v) => [v.id, v]));
 const SCENE: Scene = buildScene({ views: VIEWS, covers: [], board: BOARD, viewer: GM });
@@ -839,5 +883,132 @@ describe("handle drags with Snap", () => {
       return valueOp(onlyWrite(d.drag(handleOf("u", "rotate").at, at38)).ops, "rotation");
     };
     expect(rotateOf(true)).toEqual(rotateOf(false));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Faces follow a resize (M6-D14, vtt-nb8.32)
+
+function faceOp(ops: WireOp[]): FaceLayout {
+  const op = ops.find((o) => o.type === "set_face");
+  if (op?.type !== "set_face" || op.face === null) throw new Error("no set_face");
+  return op.face as FaceLayout;
+}
+
+function closeRect(actual: Rect, expected: Rect) {
+  for (let i = 0; i < 4; i++) expect(actual[i]).toBeCloseTo(expected[i] as number, 9);
+}
+
+describe("resizing an object with a face scales its elements", () => {
+  const fy = 14 / 9.6;
+
+  test("a binder made taller (6.6 × 9.6 → 6.6 × 14) scales heights and y, keeps x and w", () => {
+    const d = driver({ selection: ["b"] });
+    // The s edge (60, 4.8) moves down 4.4: the n edge (y = -4.8) stays.
+    const write = onlyWrite(d.drag([60, 4.8], [60, 9.2]));
+    expect(write.ops.map((o) => o.type)).toEqual(["set_shape", "set_value", "set_face"]);
+    expect(write.label).toBe("Resize Binder");
+    expect(shapeOp(write.ops)).toEqual(rect(6.6, 14));
+    closePoint(positionOp(write.ops), [60, 2.2]);
+    const face = faceOp(write.ops);
+    const [name, contents] = face.elements as [FaceElement, FaceElement];
+    // Local frame: the box's origin moves from y -4.8 to -7.
+    closeRect(name.rect, [-3.1, -7 + 0.2 * fy, 6.2, 0.8 * fy]);
+    closeRect(contents.rect, [-3.1, -7 + 1.2 * fy, 6.2, 8 * fy]);
+    expect(contents.rect[3]).toBeCloseTo(11.6666666667, 6);
+    // min_size, the custom collapsed list and the rest of the layout are unchanged.
+    expect(name.min_size).toBe(12);
+    expect(name).toMatchObject({ type: "value", cell: "name" });
+    expect(contents.type).toBe("contents");
+    expect(face.collapsed).toEqual(BINDER_FACE.collapsed);
+    expect(face.default_action).toBe("open");
+    // The live view's fields (index, shown) are not written.
+    expect(Object.keys(contents)).toEqual(["type", "rect"]);
+  });
+
+  test("a non-uniform corner resize scales x and y independently", () => {
+    const d = driver({ selection: ["b"] });
+    // se (63.3, 4.8) → (66.6, 7.2): 9.9 × 12 (factors 1.5 and 1.25); nw (56.7, -4.8) stays.
+    const write = onlyWrite(d.drag([63.3, 4.8], [66.6, 7.2]));
+    const shape = shapeOp(write.ops);
+    if (shape.type !== "rect") throw new Error("not a rect");
+    expect(shape.width).toBeCloseTo(9.9, 9);
+    expect(shape.height).toBeCloseTo(12, 9);
+    const [name, contents] = faceOp(write.ops).elements as [FaceElement, FaceElement];
+    closeRect(contents.rect, [-4.95 + 0.2 * 1.5, -6 + 1.2 * 1.25, 6.2 * 1.5, 8 * 1.25]);
+    closeRect(name.rect, [-4.95 + 0.2 * 1.5, -6 + 0.2 * 1.25, 6.2 * 1.5, 0.8 * 1.25]);
+  });
+
+  test("a rotated binder scales like an unrotated one (factors in the local frame)", () => {
+    const d = driver({ selection: ["br"] });
+    const s = handleOf("br", "s");
+    closePoint(s.at, world([0, 4.8], [60, 30], 30));
+    const write = onlyWrite(d.drag(s.at, world([0, 9.2], [60, 30], 30)));
+    const shape = shapeOp(write.ops);
+    if (shape.type !== "rect") throw new Error("not a rect");
+    expect(shape.width).toBeCloseTo(6.6, 9);
+    expect(shape.height).toBeCloseTo(14, 9);
+    const [name, contents] = faceOp(write.ops).elements as [FaceElement, FaceElement];
+    closeRect(name.rect, [-3.1, -7 + 0.2 * fy, 6.2, 0.8 * fy]);
+    closeRect(contents.rect, [-3.1, -7 + 1.2 * fy, 6.2, 8 * fy]);
+  });
+
+  test("a circle's radius handle scales both axes by r'/r", () => {
+    const d = driver({ selection: ["cf"] });
+    const write = onlyWrite(d.drag(handleOf("cf", "radius").at, [82, 0]));
+    expect(write.ops).toEqual([
+      { type: "set_shape", object: "cf", shape: circle(2) },
+      {
+        type: "set_face",
+        object: "cf",
+        face: { elements: [{ type: "value", cell: "name", rect: [-1.6, -0.6, 3.2, 1.2] }] },
+      },
+    ]);
+  });
+
+  test("a polygon vertex drag that moves the bounding box's origin: elements follow the box", () => {
+    const d = driver({ selection: ["pf"] });
+    // v0 (-1, -1) → (-3, -2): the box goes from [-1, -1, 2, 2] to [-3, -2, 4, 3].
+    const write = onlyWrite(d.drag(handleOf("pf", "v0").at, [77, 18]));
+    expect(write.ops.map((o) => o.type)).toEqual(["set_shape", "set_face"]);
+    const [name, depth] = faceOp(write.ops).elements as [FaceElement, FaceElement];
+    closeRect(name.rect, [-3, -2, 4, 0.75]);
+    closeRect(depth.rect, [-1, -0.5, 2, 1.5]);
+  });
+
+  test("a vertex drag that keeps the bounding box writes no set_face", () => {
+    const d = driver({ selection: ["pf"] });
+    // v1 (1, -1) → (0.5, -0.5): v2 and v0 still span [-1, 1] × [-1, 1].
+    const write = onlyWrite(d.drag(handleOf("pf", "v1").at, [80.5, 19.5]));
+    expect(write.ops.map((o) => o.type)).toEqual(["set_shape"]);
+  });
+
+  test("rotating an object with a face writes no set_face", () => {
+    const d = driver({ selection: ["b"] });
+    const write = onlyWrite(d.drag(handleOf("b", "rotate").at, world([0, -6], [60, 0], 40)));
+    expect(write.ops.map((o) => o.type)).toEqual(["set_value"]);
+  });
+
+  test("an object without a face is unaffected", () => {
+    const write = onlyWrite(driver({ selection: ["u"] }).drag([7, -3], [8, -2]));
+    expect(write.ops.map((o) => o.type)).toEqual(["set_shape", "set_value"]);
+  });
+
+  test("a second resize before the first is visible scales from the pending face", () => {
+    const d = driver({ selection: ["b"] });
+    const first = faceOp(onlyWrite(d.drag([60, 4.8], [60, 9.2])).ops);
+    // The s edge is pending at y 9.2; back to 9.6 high.
+    const second = faceOp(onlyWrite(d.drag([60, 9.2], [60, 4.8])).ops);
+    expect(first.elements[1]?.rect[3]).toBeCloseTo(8 * fy, 9);
+    closeRect((second.elements[1] as FaceElement).rect, [-3.1, -3.6, 6.2, 8]);
+  });
+
+  test("with Snap the handle snaps before the factors are computed", () => {
+    const d = driver({ selection: ["b"], snap: true });
+    // The s edge snaps to y 9 (from 9.2): 6.6 × 13.8.
+    const write = onlyWrite(d.drag([60, 4.8], [60, 9.2]));
+    expect(shapeOp(write.ops)).toEqual(rect(6.6, 13.8));
+    const contents = faceOp(write.ops).elements[1] as FaceElement;
+    expect(contents.rect[3]).toBeCloseTo((8 * 13.8) / 9.6, 9);
   });
 });
