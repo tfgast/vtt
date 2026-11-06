@@ -104,6 +104,8 @@ export interface Canvas2DRendererOptions<S extends Scene = Scene> {
    * `paintItem` draws at a fixed screen size outside the footprint: the
    * shapeless marker, the hidden badge and, when visible, the label strip.
    * Gets the camera, for what grows on screen as it zooms out (vtt-qf5.66).
+   * A hook that keeps those decorations includes `decoratedBounds(item,
+   * camera)`, as `faceCullBounds` does (vtt-qf5.41).
    */
   cullBounds?: (item: DrawItem, scene: S, camera: Camera) => Bounds;
 }
@@ -366,8 +368,15 @@ export function paintItem(ctx: Ctx2D, item: DrawItem, helpers: PaintHelpers): vo
   ctx.restore();
 }
 
-/** `bounds` grown by what `paintItem` draws at a fixed screen size outside the footprint. */
-function decorated(bounds: Bounds, item: DrawItem, camera: Camera): Bounds {
+/**
+ * `item.bounds` grown by what `paintItem` draws at a fixed screen size outside
+ * the footprint, converted to board units at `camera`'s zoom: the shapeless
+ * marker, the hidden badge and, when visible, the label strip. The default
+ * cull bounds; a `cullBounds` hook includes it to keep those decorations
+ * (`faceCullBounds`, vtt-qf5.41). Draw culling only, never hit testing.
+ */
+export function decoratedBounds(item: DrawItem, camera: Camera): Bounds {
+  const bounds = item.bounds;
   const px = 1 / cameraScale(camera);
   let pad = item.shape === null ? MARKER_PX / 2 : 0;
   if (item.hiddenBadge) pad += BADGE_RADIUS_PX;
@@ -618,9 +627,7 @@ export function createCanvas2DRenderer<S extends Scene = Scene>(
 
       // 1. Scene items, back to front.
       for (const item of scene.items) {
-        const bounds = cullBounds
-          ? cullBounds(item, scene, camera)
-          : decorated(item.bounds, item, camera);
+        const bounds = cullBounds ? cullBounds(item, scene, camera) : decoratedBounds(item, camera);
         if (!boundsIntersect(bounds, view)) continue;
         ctx.save();
         ctx.translate(item.anchor[0], item.anchor[1]);
