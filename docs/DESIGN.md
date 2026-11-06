@@ -767,7 +767,9 @@ ink tool appends a stroke to the topmost object under the pointer or
 creates an `ink_<n>` object (a transparent rect), with the pen chosen in
 the toolbar's pen group while the tool is active: a colour from a palette
 of six (black, red, blue, green, yellow, white) and a width from Fine,
-Medium, Bold and Marker (0.02, 0.04, 0.08, 0.16). Its Eraser (the toggle,
+Medium, Bold and Marker (0.02, 0.04, 0.08, 0.16). It stores each stroke
+point rounded to 0.001 board units, so a save file stays readable after
+scribbling. Its Eraser (the toggle,
 or E) erases instead: a drag removes every whole stroke its path crosses or
 passes within 6 screen px of (so a tap erases the stroke under it), on any
 face-up board object, with one write against the drag's base revision, so

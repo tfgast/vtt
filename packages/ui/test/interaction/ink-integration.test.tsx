@@ -9,8 +9,9 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { canonicalJson, parseTable, serializeTable } from "@vtt/authority";
 import type { WireOp } from "@vtt/protocol";
-import type { Point, Stroke, TableObject } from "@vtt/schema";
+import type { Point, Stroke, TableFile, TableObject } from "@vtt/schema";
 import {
   BoardCanvas,
   buildFaceScene,
@@ -226,6 +227,13 @@ function drawStroke(canvas: HTMLCanvasElement, points: Point[]) {
   pointer("pointerUp", canvas, rest.at(-1) ?? first);
 }
 
+/** Every number in `json` has at most three decimals (vtt-qf5.44). */
+function expectShortNumbers(json: string) {
+  for (const n of json.match(/-?\d+(\.\d+)?(e-?\d+)?/g) ?? []) {
+    expect(n).toMatch(/^-?\d+(\.\d{1,3})?$/);
+  }
+}
+
 function expectPoints(actual: unknown, expected: Point[][]) {
   const strokes = actual as Point[][];
   expect(strokes).toHaveLength(expected.length);
@@ -261,6 +269,9 @@ describe("ink tool", () => {
     await until(() => c.content("note", "ink")?.type === "ink", "the note's ink");
     const ink = c.content("note", "ink") as { type: "ink"; strokes: Point[][] };
     expectPoints(ink.strokes, local);
+    // The stored points are rounded to 0.001: no float noise from the rotation (vtt-qf5.44).
+    expect(ink.strokes).toEqual(local);
+    expectShortNumbers(JSON.stringify(ink));
     expect(c.created("ink")).toEqual([]);
     expect(c.runtime.machine().tool).toBe("ink");
     // The authority has the first stroke before the session does. The second
@@ -344,8 +355,36 @@ describe("ink tool", () => {
         [1, 0.25],
       ],
     ]);
+    expectShortNumbers(JSON.stringify(c.content(id, "ink")));
     expect(c.content("note", "ink")).toBeUndefined();
     expect(c.runtime.machine().tool).toBe("ink");
+  });
+
+  test("an off-grid stroke on the rotated note is stored with short decimals (vtt-qf5.44)", async () => {
+    const c = await setup();
+    act(() => c.ui.setTool("ink"));
+    drawStroke(c.canvas, [
+      [2.013, 1.31],
+      [2.27, 1.777],
+      [1.41, 1.903],
+    ]);
+    await until(() => c.content("note", "ink")?.type === "ink", "the note's ink");
+    const ink = c.content("note", "ink") as { type: "ink"; strokes: Point[][] };
+    expect(ink.strokes).toHaveLength(1);
+    expect(ink.strokes[0]).toHaveLength(3);
+    expectShortNumbers(JSON.stringify(ink));
+
+    // Round trip through the save file, written as the host saves it.
+    const host = c.authority.host;
+    const saved = canonicalJson(serializeTable(host.table.store, host.assets));
+    const file = JSON.parse(saved) as TableFile;
+    const savedInk = file.snapshot.objects.note?.cells.ink?.content;
+    expect(savedInk).toEqual(ink);
+    expectShortNumbers(JSON.stringify(savedInk));
+    const reloaded = parseTable(saved);
+    expect(reloaded.editedExternally).toBe(false);
+    const back = (reloaded.store.getObject("note") as TableObject | undefined)?.cells.ink?.content;
+    expect(back).toEqual(ink);
   });
 
   test("a concurrent write to the note's ink between pointer down and up yields stale_write", async () => {

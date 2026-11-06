@@ -28,6 +28,7 @@ import {
   type Modifiers,
   type ReducerInput,
   reduce,
+  roundInkPoint,
   type Scene,
   type Tool,
   ToolRegistry,
@@ -592,5 +593,109 @@ describe("cancellation", () => {
     }
     expect(writes(effects)).toEqual([]);
     expect(lastOverlays(effects)).toEqual([]);
+  });
+});
+
+describe("stored points are rounded to 0.001 (vtt-qf5.44)", () => {
+  /** Every number in `json`, as written. */
+  const numbersIn = (json: string) => json.match(/-?\d+(\.\d+)?(e-?\d+)?/g) ?? [];
+
+  test("roundInkPoint rounds each coordinate to 0.001 and never yields -0", () => {
+    expect(roundInkPoint([1 / 3, 2 / 3])).toEqual([0.333, 0.667]);
+    expect(roundInkPoint([0.5000000000000001, -6.123233995736766e-17])).toEqual([0.5, 0]);
+    expect(Object.is(roundInkPoint([-0.0001, -0])[0], 0)).toBe(true);
+    expect(Object.is(roundInkPoint([-0.0001, -0])[1], 0)).toBe(true);
+    expect(roundInkPoint([-1.23456, 7.0005])).toEqual([-1.235, 7.001]);
+  });
+
+  test("a stroke on a rotated note writes points with at most three decimals", () => {
+    const note = view("note", {
+      at: [2, 1],
+      shape: rect(2, 2),
+      rotation: 30,
+      cells: { ink: { type: "ink", strokes: [] } },
+    });
+    const { effects } = drive(
+      createInkTool(),
+      stroke([
+        [2 + 1 / 3, 1 + 1 / 7],
+        [2 + 2 / 3, 1 + 2 / 7],
+        [2.1234567, 1.7654321],
+      ]),
+      { input: () => world([note]) },
+    );
+    const [w] = writes(effects);
+    const op = w?.ops[0] as Extract<WireOp, { type: "set_value" }>;
+    const strokes = (op.value as { strokes: Point[][] }).strokes;
+    expect(strokes).toHaveLength(1);
+    const pts = strokes[0] as Point[];
+    expect(pts).toHaveLength(3);
+    for (const [x, y] of pts) {
+      expect(Math.round(x * 1000) / 1000).toBe(x);
+      expect(Math.round(y * 1000) / 1000).toBe(y);
+    }
+    // The rounded points are the full-precision local points rounded.
+    const exact = toObjectLocal([2 + 1 / 3, 1 + 1 / 7], [2, 1], 30);
+    expect(pts[0]).toEqual(roundInkPoint(exact));
+    const json = JSON.stringify(w?.ops);
+    for (const n of numbersIn(json)) expect(n).toMatch(/^-?\d+(\.\d{1,3})?$/);
+  });
+
+  test("a stroke on empty board stores short points in the new ink object", () => {
+    const { effects } = drive(
+      createInkTool(),
+      stroke([
+        [1 / 3, 1 / 7],
+        [2 / 3, 2 / 7],
+        [1.0000001, 3 / 7],
+      ]),
+    );
+    const [w] = writes(effects);
+    const op = w?.ops[0] as Extract<WireOp, { type: "create_object" }>;
+    const cells = op.init?.cells as Record<string, { strokes?: Point[][] }>;
+    const json = JSON.stringify(cells.ink);
+    for (const n of numbersIn(json)) expect(n).toMatch(/^-?\d+(\.\d{1,3})?$/);
+  });
+
+  test("thinning runs on full-precision points, before rounding", () => {
+    const note = view("note", {
+      at: [0, 0],
+      shape: rect(4, 4),
+      cells: { ink: { type: "ink", strokes: [] } },
+    });
+    const tool = createInkTool();
+    const { effects, state } = drive(
+      tool,
+      [
+        down([0, 0]),
+        // 0.0499996 from the kept point: dropped, though it rounds to 0.05.
+        move([0.0499996, 0]),
+        move([0.1000004, 0]),
+      ],
+      { input: () => world([note]) },
+    );
+    // The preview keeps full precision.
+    expect(state.phase.stroke?.points).toEqual([
+      [0, 0],
+      [0.1000004, 0],
+    ]);
+    expect(lastOverlays(effects)?.[0]).toMatchObject({
+      points: [
+        [0, 0],
+        [0.1000004, 0],
+      ],
+    });
+    const done = drive(tool, [up([0.1000004, 0.0000004])], {
+      input: () => world([note]),
+      state,
+    });
+    const op = writes(done.effects)[0]?.ops[0] as Extract<WireOp, { type: "set_value" }>;
+    // The up point is 0.0000004 from the last kept point: thinned away.
+    expect((op.value as { strokes: Point[][] }).strokes).toEqual([
+      [
+        [0, 0],
+        [0.1, 0],
+      ],
+    ]);
   });
 });

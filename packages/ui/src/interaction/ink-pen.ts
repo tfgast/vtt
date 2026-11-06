@@ -8,6 +8,7 @@
  * - The ink tool's pen picks its colour from `INK_PALETTE` and its width from
  *   `INK_WIDTHS`; `penStroke` writes a stroke with only the fields that
  *   differ from the default pen, so a default-pen stroke stays a bare list.
+ * - Stored points are rounded to 0.001 board units (`roundInkPoint`).
  * - The eraser removes whole strokes: `strokeCrossed` is true when the
  *   eraser's path (a polyline, or one point for a tap) comes within
  *   `radius` plus half the stroke's width of the stroke's polyline, so a
@@ -70,6 +71,16 @@ export function strokePen(stroke: Stroke): ResolvedStroke {
     color: stroke.color ?? DEFAULT_INK_COLOR,
     width: stroke.width ?? DEFAULT_INK_WIDTH,
   };
+}
+
+/**
+ * `point` rounded to 0.001 board units, `-0` normalised to `0`: the ink tool
+ * stores points this way so a save file stays readable (DESIGN.md §4.6 Ink
+ * and text, §8.4 step 6). Thinning and the preview keep full precision.
+ */
+export function roundInkPoint(point: Point): Point {
+  const round = (v: number) => Math.round(v * 1000) / 1000 || 0;
+  return [round(point[0]), round(point[1])];
 }
 
 /**
