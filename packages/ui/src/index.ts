@@ -59,6 +59,7 @@ export * from "./log/log-session";
 export * from "./log/sentences";
 export * from "./nav/BoardTabs";
 export * from "./nav/board-ids";
+export * from "./nav/board-memory";
 export * from "./nav/first-visit-fit";
 export * from "./nav/ViewAsMenu";
 export * from "./render/canvas2d";
