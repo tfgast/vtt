@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /**
  * Every production scenario in packages/fixtures/scenarios, found through the
  * @vtt/fixtures package (its entry resolves to src/index.ts, so the scenarios
