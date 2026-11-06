@@ -106,6 +106,69 @@ describe("hitsAt", () => {
   });
 });
 
+describe("hitsAt: containment order (M6-D10)", () => {
+  // A map larger than the room drawn over it, a goblin in the room.
+  const bigMap = (z: number) => obj("map", [0, 0], z, rect(20, 20), { image: "t.assets/m.png" });
+  const roomOn = (z: number) => obj("room", [2, 2], z, rect(8, 8), { zone: true });
+  const goblin = (z: number) => obj("goblin", [3, 3], z, circle(0.5));
+
+  test("a zone over a larger image: the zone first", () => {
+    const s = build([bigMap(0), roomOn(1)]);
+    expect(hitsAt(s, [4, 4], CAMERA)).toEqual(["room", "map"]);
+    expect(hitTest(s, [4, 4], CAMERA)).toBe("room");
+    // Outside the zone, the map alone.
+    expect(hitsAt(s, [-5, -5], CAMERA)).toEqual(["map"]);
+  });
+
+  const permutations = <T>(xs: readonly T[]): T[][] =>
+    xs.length === 0
+      ? [[]]
+      : xs.flatMap((x, i) =>
+          permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]),
+        );
+  const zs = [...permutations([1, 2, 3]), [0, 0, 0]];
+  const cases = zs.flatMap((z) => permutations([0, 1, 2]).map((order) => ({ z, order })));
+
+  test.each(cases)(
+    "token in a zone over the map: token, zone, map (z $z, insertion $order)",
+    ({ z, order }) => {
+      const [mapZ, roomZ, goblinZ] = z as [number, number, number];
+      const views = [bigMap(mapZ), roomOn(roomZ), goblin(goblinZ)];
+      const s = build(order.map((i) => views[i] as ObjectView));
+      expect(hitsAt(s, [3, 3], CAMERA)).toEqual(["goblin", "room", "map"]);
+      expect(hitsAt(s, [5, 5], CAMERA)).toEqual(["room", "map"]);
+    },
+  );
+
+  test("two overlapping zones of equal size: higher z first", () => {
+    const low = obj("low", [0, 0], 2, rect(4, 4), { zone: true });
+    const high = obj("high", [1, 0], 5, rect(4, 4), { zone: true });
+    expect(hitsAt(build([high, low]), [0.5, 0], CAMERA)).toEqual(["high", "low"]);
+    expect(hitsAt(build([low, high]), [0.5, 0], CAMERA)).toEqual(["high", "low"]);
+  });
+
+  test("a non-zone that overlaps but does not contain the zone stays before it", () => {
+    const zone = obj("zone", [0, 0], 9, rect(6, 6), { zone: true });
+    const slab = obj("slab", [5, 0], 0, rect(6, 6));
+    expect(hitsAt(build([zone, slab]), [2.5, 0], CAMERA)).toEqual(["slab", "zone"]);
+  });
+
+  test("only zones hit at the point make a backdrop", () => {
+    // The map contains zone `far` (not under the point) and only overlaps `edge`.
+    const far = obj("far", [-5, -5], 1, rect(2, 2), { zone: true });
+    const edge = obj("edge", [10, 0], 1, rect(6, 6), { zone: true });
+    const s = build([bigMap(0), far, edge]);
+    expect(hitsAt(s, [8, 0], CAMERA)).toEqual(["map", "edge"]);
+    expect(hitsAt(s, [-5, -5], CAMERA)).toEqual(["far", "map"]);
+  });
+
+  test("backdrops keep z order among themselves, after every zone", () => {
+    const table = obj("table", [0, 0], 7, rect(30, 30));
+    const s = build([table, bigMap(0), roomOn(1), goblin(9)]);
+    expect(hitsAt(s, [3, 3], CAMERA)).toEqual(["goblin", "room", "table", "map"]);
+  });
+});
+
 describe("hitTest", () => {
   test.each<[string, Point, string | null]>([
     ["picks the higher-z of two overlapping tokens", [1.1, 1], "higher"],

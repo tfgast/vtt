@@ -71,11 +71,6 @@ GM board are plain `[x, y]`; the GM binder's centre is `[0, 0]`.
 The walkthrough found these. Work around them as described in the steps;
 they are not new findings, but say so if they bother you.
 
-- A zone that lies under the map image cannot be clicked: a click reaches
-  the map. Alt+click cycles through everything under the pointer; repeat it
-  until the zone is selected.
-- A double-click on a covered zone still edits the map, so rename rooms in
-  the inspector.
 - A character's expanded contents list is 3 units wide. Lists of characters
   closer than that overlap, and the later one hides the earlier. Space the
   characters more than 3 units apart, or collapse each sheet after filling
@@ -197,8 +192,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 | 6 | Shrine | M + [18, 1] | 5 × 6 |
 
 5. Right after drawing each zone, while it is still selected, set its
-   `name` in the inspector: "Room 1" to "Room 6". Do not try to rename it
-   on the board: a double-click there edits the map.
+   `name` in the inspector: "Room 1" to "Room 6". (Double-clicking the zone
+   on the board and typing the name works too.)
 6. For rooms 2 and 4, also set `visible_to` in the inspector to
    `=if(len(contents(this).where(tag has "pc")) > 0, all, gm)`.
 7. Go to the GM board. Click the GM binder, press "Move selection to
@@ -338,7 +333,7 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 1. Open the Crypt board. In View as, choose Aldric.
 2. Every room is covered: six covers.
 3. In View as, choose GM.
-4. Alt+click on room 1 until the zone is selected (it lies under the map).
+4. Click room 1 to select the zone.
 5. Set its `visible_to` to `all` in the inspector.
 6. View as Aldric again.
 
@@ -363,8 +358,8 @@ Do this in GM view; switch to view as Aldric only to check.
    positions and Crypt opens.
 4. Drag them into room 1: Aldric to `M + [2, 12]`, Brenna to
    `M + [3, 12]`, Corin to `M + [4, 12]` and Dara to `M + [5, 12]`.
-5. The party opens the door: Alt+click room 3 until it is selected, and set
-   its `visible_to` to `all`.
+5. The party opens the door: click room 3 to select it, and set its
+   `visible_to` to `all`.
 6. Drag Aldric into room 2, to `M + [9, 13]`.
 7. View as Aldric: room 2 is uncovered, leaving three covers (rooms 4, 5
    and 6). Switch back to GM.
@@ -492,12 +487,12 @@ miss.
    binder at `M + [27, 22]`. This drops a copy; its `dc` is your 15.
 4. Drag the zone's row out of the card's contents list onto room 3, to
    `M + [15.5, 11.5]`. The card's `targets` now holds G1, G2 and Brenna.
-5. Nudge the zone so its centre is at `M + [14.8, 12]`. The zone now lies
-   under the map: Alt+click inside it until it is selected, then drag it
-   from a point inside it. The walkthrough grabs it one unit up and left of
-   its centre, so the pointer is released at `M + [13.8, 11]`, on bare map.
-   Do not release over a token's contents list. `targets` updates as the
-   zone moves: G1, G2 and G3, without Brenna.
+5. Nudge the zone so its centre is at `M + [14.8, 12]`: drag the zone from
+   a point inside it, clear of the tokens and sheets in it. The walkthrough
+   grabs it one unit left of and below its centre, so the pointer is
+   released at `M + [13.8, 13]`, on bare map. Do not release over a token's
+   contents list. `targets` updates as the zone moves: G1, G2 and G3,
+   without Brenna.
 6. Press Lock targets. Three save rows appear in the card's list.
 7. Press Roll damage once.
 8. Expand each row in turn and press its Roll save.

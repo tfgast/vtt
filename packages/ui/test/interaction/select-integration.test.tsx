@@ -304,6 +304,56 @@ describe("select tool integration", () => {
     expect(c.ui.getState().hover).toBe("room");
   });
 
+  describe("a room zone drawn over a larger map (M6-D10)", () => {
+    // The playtest layout: the map imported first, a room zone over it, a goblin in the room.
+    const CRYPT: WireOp[] = [
+      create("crypt", [0, -20], {
+        shape: { type: "rect", width: 12, height: 8 },
+        cells: {
+          name: { type: "text", value: "Crypt" },
+          image: { type: "text", value: "t.assets/crypt-00000000.png" },
+        },
+      }),
+      create("hall", [2, -20], {
+        is_zone: true,
+        shape: { type: "rect", width: 4, height: 4 },
+        cells: { name: { type: "text", value: "Hall" } },
+      }),
+      create("gob", [3, -19], {
+        shape: { type: "circle", radius: 0.5 },
+        cells: { name: { type: "text", value: "Goblin" } },
+      }),
+    ];
+
+    async function crypt() {
+      const c = await compose();
+      await c.gm.transact(CRYPT);
+      await until(() => c.session.boardView()?.objects.has("gob") === true, "the crypt views");
+      return c;
+    }
+
+    test("a click on the room selects the room; a click on the goblin in it selects the goblin", async () => {
+      const c = await crypt();
+      click(c.canvas, [1, -21]);
+      expect(c.ui.getState().selection).toEqual(["hall"]);
+      click(c.canvas, [3, -19]);
+      expect(c.ui.getState().selection).toEqual(["gob"]);
+      // Outside the room, the map.
+      click(c.canvas, [-4, -20]);
+      expect(c.ui.getState().selection).toEqual(["crypt"]);
+    });
+
+    test("a drag started on the room moves the room, not the map", async () => {
+      const c = await crypt();
+      drag(c.canvas, [1, -21], [2, -22]);
+      await until(() => c.position("hall")?.[0] === 3, "the room's move to land");
+      expect(c.position("hall")).toEqual([3, -21]);
+      expect(c.position("crypt")).toEqual([0, -20]);
+      expect(c.position("gob")).toEqual([3, -19]);
+      expect(c.ui.getState().selection).toEqual(["hall"]);
+    });
+  });
+
   describe("dropOverride", () => {
     type Call = { ids: ObjectId[]; intent: { copy: boolean; alt: boolean } };
 

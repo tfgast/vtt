@@ -3,12 +3,13 @@
  * drops, contents scrolling, nested objects; §4.4 nothing interactive under
  * a cover; M5 plan review r1 finding 8, r2 findings 1, 3, r3 findings 1, 2,
  * 3, 5). Candidates are the items whose presentation bounds (or footprint)
- * contain the point, in vtt-3l6.5's `hitsAt` order; each is tested in its
- * own frame, primitives last-drawn first, then its footprint. Pure.
+ * contain the point, in vtt-3l6.5's `hitsAt` order (`hitOrder`, M6-D10);
+ * each is tested in its own frame, primitives last-drawn first, then its
+ * footprint. Pure.
  */
 import { type Bounds, type ObjectId, type Point, pointInRegion, type Rect } from "@vtt/schema";
 import { type Camera, cameraScale } from "../scene/camera";
-import { HIT_SLOP_PX, isCovered } from "../scene/hit-test";
+import { HIT_SLOP_PX, hitOrder, isCovered } from "../scene/hit-test";
 import type { DrawItem } from "../scene/scene";
 import type { DropTarget, FaceHit, FaceHitTarget, FaceList, FacePathEntry } from "./face-contracts";
 import {
@@ -68,22 +69,14 @@ function footprint(item: DrawItem, point: Point, camera: Camera): boolean {
 }
 
 /**
- * The items whose presentation bounds or footprint contain `point`, as
- * `hitsAt` orders them: non-zones before zones, descending z, descending
- * draw index.
+ * The items whose presentation bounds or footprint contain `point`, in
+ * `hitOrder` (as `hitsAt` orders them; M6-D10).
  */
 function candidates(scene: FaceScene, point: Point, camera: Camera): DrawItem[] {
-  const out: { item: DrawItem; index: number }[] = [];
-  scene.items.forEach((item, index) => {
+  return hitOrder(scene, (item) => {
     const p = scene.presentation.get(item.id) ?? item.bounds;
-    if (inBounds(point, p) || footprint(item, point, camera)) out.push({ item, index });
+    return inBounds(point, p) || footprint(item, point, camera);
   });
-  out.sort((a, b) => {
-    if (a.item.isZone !== b.item.isZone) return a.item.isZone ? 1 : -1;
-    if (a.item.z !== b.item.z) return a.item.z > b.item.z ? -1 : 1;
-    return b.index - a.index;
-  });
-  return out.map((h) => h.item);
 }
 
 function toBoardOf(scene: FaceScene, item: DrawItem): Affine {

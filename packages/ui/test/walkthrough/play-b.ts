@@ -75,11 +75,13 @@ export const FIREBALL_AT: Point = [27, 22];
 export const ZONE_DROP: Point = [15.5, 11.5];
 export const ZONE_NUDGE: Point = [14.8, 12];
 /**
- * Where the nudge grabs the zone, from its anchor: released at
- * M + [13.8, 11], bare map clear of G1's body and of its contents list
- * (which the anchor's own point M + [14.8, 12] lies on).
+ * Where the nudge grabs the zone, from its anchor: pressed at M + [14.5,
+ * 12.5], inside the zone clear of G1 and of Brenna's expanded sheet, so a
+ * plain press picks the zone (M6-D10); released at M + [13.8, 13], clear of
+ * G1's body and of every contents list (which the anchor's own point
+ * M + [14.8, 12] lies on).
  */
-export const ZONE_GRAB: Point = [-1, -1];
+export const ZONE_GRAB: Point = [-1, 1];
 /** The trap note and its die in the tray (§8.4 step 13), relative to M. */
 export const NOTE_AT: Point = [7, 19];
 export const NOTE_TEXT = "DC 12";
@@ -315,14 +317,14 @@ async function reads(
 }
 
 /**
- * Drags a zone that lies under the map image on the board so its anchor
- * lands on `to`: an Alt+click cycle selects it (`click`), then a plain drag
- * pressed at `grab` (board units from its anchor; any point inside the
- * zone, where it is in the hit list, so the selection is dragged, DESIGN
- * §4.6) and released at `grab` from `to`. `dragObject` presses only an
- * object that is first under the pointer, which a zone under a map never
- * is. The grab offset matters: the release point decides the drop, and a
- * release over a token's contents list puts the zone into that token.
+ * Drags a zone drawn over the map image on the board so its anchor lands on
+ * `to`, as a plain drag: no selection held (Escape clears it), pressed at
+ * `grab` (board units from its anchor, inside the zone) and released at
+ * `grab` from `to`. A zone is hit before the map it lies on (DESIGN §4.6,
+ * M6-D10), so the press picks the zone itself; before M6-D10 this needed an
+ * Alt+click cycle first. The grab offset matters: the release point decides
+ * the drop, and a release over a token's contents list puts the zone into
+ * that token.
  */
 async function nudgeZone(
   ctx: DriverContext,
@@ -331,9 +333,9 @@ async function nudgeZone(
   to: Point,
   grab: Point,
 ): Promise<void> {
-  await g.click(zone);
-  if (ctx.ui.getState().selection.join() !== zone) {
-    throw new Error(`play B: clicking ${zone} did not select it`);
+  await g.key("Escape");
+  if (ctx.ui.getState().selection.length !== 0) {
+    throw new Error("play B: Escape did not clear the selection before the zone nudge");
   }
   const [ax, ay] = (await gmPosition(ctx, zone)) as Point;
   await g.drag([ax + grab[0], ay + grab[1]], [to[0] + grab[0], to[1] + grab[1]]);
@@ -347,6 +349,9 @@ async function nudgeZone(
     },
     () => `${zone} moved to ${JSON.stringify(to)}`,
   );
+  if (ctx.ui.getState().selection.join() !== zone) {
+    throw new Error(`play B: the plain drag did not pick ${zone}`);
+  }
 }
 
 /** The Log tab's groups, opening the tab first if it is closed. */
