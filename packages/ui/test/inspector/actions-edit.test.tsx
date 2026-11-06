@@ -8,15 +8,8 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  DocumentStore,
-  newTableSnapshot,
-  type ScriptedDiceEntry,
-  ScriptedDiceSource,
-  startServer,
-  TableHost,
-} from "@vtt/authority";
-import { type InvokeParams, ProtocolClient, type WireOp } from "@vtt/protocol";
+import { type ScriptedDiceEntry, ScriptedDiceSource } from "@vtt/authority";
+import type { InvokeParams, WireOp } from "@vtt/protocol";
 import type { ActionDef, ObjectId, OpGroup } from "@vtt/schema";
 import {
   ActionsList,
@@ -24,7 +17,6 @@ import {
   createInteractionRuntime,
   createRuntimeInputs,
   createSelectTool,
-  createTableSession,
   createToolContext,
   createUiStore,
   INVOKE_EXTENSION,
@@ -38,7 +30,7 @@ import {
   useSession,
 } from "@vtt/ui";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { JSDOM_ORIGIN, NodeWebSocket, until, whenReady } from "../support/authority";
+import { startAuthority, until, whenReady } from "../support/authority";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -152,24 +144,10 @@ function Harness(props: { session: TableSession; object: ObjectId; runtime: Inte
 
 async function world(options: { dice?: ScriptedDiceEntry[]; object?: "card" | "template" } = {}) {
   const dice = new ScriptedDiceSource(options.dice ?? []);
-  const host = TableHost.inMemory(DocumentStore.fromSnapshot(newTableSnapshot()), { dice });
-  const server = await startServer({ host, port: 0, allowOrigins: [JSDOM_ORIGIN] });
-  cleanups.push(async () => {
-    await server.close();
-    await host.close().catch(() => undefined);
-  });
-  const client = async (name: string) => {
-    const c = new ProtocolClient({
-      url: server.url,
-      token: server.token,
-      client: { name, kind: "test" },
-      WebSocket: NodeWebSocket,
-      onWarning: () => undefined,
-    });
-    cleanups.push(() => c.close());
-    await c.connect();
-    return c;
-  };
+  const authority = await startAuthority({ dice });
+  const { host } = authority;
+  cleanups.push(() => authority.cleanup());
+  const client = (name: string) => authority.client(name);
   const gm = await client("seed");
   const seeded = await gm.transact(SEED, { label: "Seed" });
   if (seeded.status !== "committed") throw new Error(JSON.stringify(seeded));
@@ -189,12 +167,7 @@ async function world(options: { dice?: ScriptedDiceEntry[]; object?: "card" | "t
   const card = spawned.bindings.$card as ObjectId;
   const object = options.object === "template" ? "attack_card" : card;
 
-  const session = createTableSession({
-    url: server.url,
-    token: server.token,
-    WebSocket: NodeWebSocket,
-  });
-  cleanups.push(() => session.close());
+  const session = authority.session();
   await whenReady(session);
   await until(() => session.objectView(object) !== null, "the object's view");
 

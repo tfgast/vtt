@@ -46,16 +46,14 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   canonicalJson,
-  DocumentStore,
   diffStoredState,
   type RunningServer,
   replay,
   ScenarioError,
   type ScriptedDiceEntry,
   ScriptedDiceSource,
-  startServer,
   storedStateEqual,
-  TableHost,
+  type TableHost,
 } from "@vtt/authority";
 import { documentFromSetup, fixtureValueEquals } from "@vtt/authority/test-runner";
 import type {
@@ -108,7 +106,6 @@ import {
   contentsRect,
   createAppRenderer,
   createFaceStateStore,
-  createTableSession,
   createUiStore,
   dropTargetAt,
   entryTransform,
@@ -132,7 +129,7 @@ import {
 } from "@vtt/ui";
 import { createElement } from "react";
 import { type MockInstance, vi } from "vitest";
-import { JSDOM_ORIGIN, NodeWebSocket, until, whenReady } from "../support/authority";
+import { startAuthority, until, whenReady } from "../support/authority";
 
 // ---------------------------------------------------------------------------
 // The matrix
@@ -221,19 +218,13 @@ const settle = (ms = 40) => act(() => new Promise<void>((r) => setTimeout(r, ms)
 
 async function openWorld(scenario: Scenario): Promise<World> {
   const dice = new ScriptedDiceSource(scenario.dice as ScriptedDiceEntry[]);
-  const host = TableHost.inMemory(DocumentStore.fromSnapshot(documentFromSetup(scenario.setup)), {
-    dice,
-  });
+  const authority = await startAuthority({ snapshot: documentFromSetup(scenario.setup), dice });
+  const { host, server } = authority;
   let commits = 0;
   const offCommit = host.table.onCommit(() => {
     commits++;
   });
-  const server = await startServer({ host, port: 0, allowOrigins: [JSDOM_ORIGIN] });
-  const session = createTableSession({
-    url: server.url,
-    token: server.token,
-    WebSocket: NodeWebSocket,
-  });
+  const session = authority.session();
   const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
     left: 0,
     top: 0,
@@ -269,8 +260,7 @@ async function openWorld(scenario: Scenario): Promise<World> {
     request.mockRestore();
     rect.mockRestore();
     offCommit();
-    await server.close();
-    await host.close().catch(() => undefined);
+    await authority.cleanup();
   };
   try {
     await whenReady(session);

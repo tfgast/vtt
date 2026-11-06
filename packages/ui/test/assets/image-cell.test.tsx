@@ -8,7 +8,7 @@
  */
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createAssetHttpHandler, type HttpHandler } from "@vtt/authority";
+import { createAssetHttpHandler } from "@vtt/authority";
 import type { ProtocolClient, WireOp } from "@vtt/protocol";
 import {
   bindCellUpload,
@@ -85,13 +85,10 @@ interface Setup {
 }
 
 async function setup(options: { holdUpload?: Promise<void>; bind?: boolean } = {}): Promise<Setup> {
-  // The asset handler needs the host, which the helper creates: route through a late binding.
-  let assets: HttpHandler | null = null;
   const authority = await startAuthority({
     file: true,
-    http: [(req, res, ctx) => (assets === null ? false : assets(req, res, ctx))],
+    http: (host) => [createAssetHttpHandler({ host })],
   });
-  assets = createAssetHttpHandler({ host: authority.host });
   const base = `http://127.0.0.1:${authority.server.port}`;
   const seed = await authority.client("seed");
   await seed.transact(SEED, { label: "Seed" });
