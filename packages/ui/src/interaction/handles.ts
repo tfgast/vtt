@@ -250,7 +250,8 @@ export function handleMarks(handles: readonly Handle[]): HandleMark[] {
  * on half units, and a rotated rect follows the snapped point), a polygon's
  * vertex lands on half units, and a circle's radius is rounded to a multiple
  * of `SNAP_STEP`. Every size stays at least `HANDLE_MIN_SIZE`. The rotate
- * handle ignores `grid`.
+ * handle ignores `grid`, and so does a drag with no displacement (`point`
+ * equal to `grab`), which keeps the original geometry.
  */
 export function dragHandle(
   target: HandleTarget,
@@ -271,7 +272,9 @@ export function dragHandle(
   if (shape === null) return {};
   // Where the handle's center is dragged to.
   const raw = add(handle.at, sub(point, grab));
-  const moved = grip.type === "radius" ? raw : snapPoint(raw, grid);
+  // No displacement is the original geometry, even off the grid.
+  const snapping = grid && (point[0] !== grab[0] || point[1] !== grab[1]);
+  const moved = grip.type === "radius" ? raw : snapPoint(raw, snapping);
   if (grip.type === "resize" && shape.type === "rect") {
     const { sx, sy } = grip;
     // The fixed point: the opposite corner, or the middle of the opposite edge.
@@ -284,7 +287,7 @@ export function dragHandle(
   }
   if (grip.type === "radius" && shape.type === "circle") {
     const length = Math.hypot(moved[0] - anchor[0], moved[1] - anchor[1]);
-    const snapped = grid ? Math.round(length / SNAP_STEP) * SNAP_STEP : length;
+    const snapped = snapping ? Math.round(length / SNAP_STEP) * SNAP_STEP : length;
     const radius = Math.max(HANDLE_MIN_SIZE, tidy(snapped));
     return { shape: { type: "circle", radius } };
   }

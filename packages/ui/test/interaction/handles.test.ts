@@ -85,6 +85,23 @@ const VIEWS: ObjectView[] = [
   obj("p", [0, 5], 4, { type: "polygon", points: SQUARE }, { name: "Pond" }),
   obj("dot", [-6, -6], 5, null, { name: "Dot" }),
   obj("tok", [10, 6], 6, circle(0.5), { name: "Goblin" }),
+  // Off the grid, far from the rest (vtt-nb8.34 stationary clicks with Snap on).
+  obj("img", [30.3, 20.1], 7, rect(2.5, 1.3), { name: "Odd image" }),
+  obj("oc", [40.1, 0.2], 8, circle(1.3), { name: "Odd coin" }),
+  obj(
+    "op",
+    [40.3, 10.2],
+    9,
+    {
+      type: "polygon",
+      points: [
+        [-1.1, -0.9],
+        [1.3, -1.2],
+        [0.2, 1.1],
+      ],
+    },
+    { name: "Odd pond" },
+  ),
 ];
 const BY_ID = new Map(VIEWS.map((v) => [v.id, v]));
 const SCENE: Scene = buildScene({ views: VIEWS, covers: [], board: BOARD, viewer: GM });
@@ -518,6 +535,32 @@ describe("withHandles(selectTool)", () => {
     expect(of(effects, "write")).toEqual([]);
     expect(of(effects, "previews").map((p) => p.previews.size)).toEqual([0]);
   });
+
+  test.each([
+    ["an image corner", "img", "se"],
+    ["a rotated rect corner", "r", "se"],
+    ["a rotated rect edge", "r", "e"],
+    ["an off-grid circle radius", "oc", "radius"],
+    ["an off-grid polygon vertex", "op", "v1"],
+  ] as const)(
+    "with Snap on, a stationary press and release on %s writes nothing",
+    (_n, id, key) => {
+      const d = driver({ selection: [id], snap: true });
+      const h = handleOf(id, key);
+      const effects = [
+        ...d.send(pointer("pointer_down", h.at)),
+        ...d.send(pointer("pointer_move", h.at)),
+        ...d.send(pointer("pointer_up", h.at)),
+      ];
+      expect(of(effects, "write")).toEqual([]);
+      // The preview during the stationary move is the original geometry.
+      for (const p of of(effects, "previews")) {
+        const preview = p.previews.get(id);
+        if (preview?.shape !== undefined) expect(preview.shape).toEqual(item(id).shape);
+        if (preview?.position !== undefined) closePoint(preview.position, item(id).anchor, 9);
+      }
+    },
+  );
 
   test("a press and release on a handle without moving writes nothing", () => {
     const d = driver({ selection: ["u"] });
