@@ -357,7 +357,10 @@ class AuthorityServer {
           id: this.#host.tableId,
         },
       }),
-      ready: (conn) => this.#deps.hub.addConnection(conn.id),
+      ready: (conn) =>
+        this.#deps.hub.addConnection(conn.id, {
+          cellPatches: conn.capabilities.includes("cell_patches"),
+        }),
       route: (ctx, request) => routeRequest(this.#deps, ctx, request),
       closed: (conn) => {
         this.#conns.delete(conn.id);

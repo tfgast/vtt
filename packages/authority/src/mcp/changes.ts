@@ -121,10 +121,16 @@ function sides<B extends object, T>(base: B, before: T | undefined, after: T | u
  * there), names sorted per object; `objects` every object whose
  * `ObjectFacts` (flags, actions, face) differ, an object entering or
  * leaving included. Objects keep
- * the delta's order (upserted views, then removed ids).
+ * the delta's order (upserted views, then patched objects, then removed ids).
  */
 export function commitRecord(event: DeltaEvent): CommitRecord {
-  const ids = [...new Set([...event.delta.objects.map((v) => v.id), ...event.delta.removed])];
+  const ids = [
+    ...new Set([
+      ...event.delta.objects.map((v) => v.id),
+      ...(event.delta.patches ?? []).map((p) => p.object),
+      ...event.delta.removed,
+    ]),
+  ];
   const record: CommitRecord = {
     type: "commit",
     revision: event.revision,

@@ -15,6 +15,7 @@ import {
   dropUnknownEffects,
   GroupHeaderSchema,
   GroupViewSchema,
+  ObjectPatchSchema,
   ObjectViewSchema,
   WireActorSchema,
 } from "./views";
@@ -91,6 +92,11 @@ export const HelloSchema = z.strictObject({
     instance: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   }),
   agent_name: z.string().min(1).max(100).optional(),
+  /**
+   * Optional capabilities the client supports (vtt-qf5.4); unknown names
+   * are ignored by the authority. See `CAPABILITIES`.
+   */
+  capabilities: z.array(z.string().min(1).max(64)).max(32).optional(),
 });
 export type Hello = z.infer<typeof HelloSchema>;
 
@@ -156,6 +162,8 @@ export const WelcomeSchema = looseObject({
   /** `path` and `id` are null for an in-memory table. */
   table: looseObject({ name: z.string(), path: z.string().nullable(), id: z.string().nullable() }),
   limits: LimitsSchema,
+  /** The accepted `hello.capabilities` (vtt-qf5.4); present only when the hello had some. */
+  capabilities: z.array(z.string()).optional(),
 });
 export type Welcome = z.infer<typeof WelcomeSchema>;
 
@@ -197,6 +205,8 @@ export const SubscriptionDeltaSchema = looseObject({
   covers: looseObject({ upsert: z.array(CoverSchema), removed: z.array(z.string()) }).optional(),
   groups_upserted: z.array(GroupViewSchema).optional(),
   groups_removed: z.array(Count).optional(),
+  /** Cell-level patches (vtt-qf5.4); only with the `cell_patches` capability. */
+  patches: z.array(ObjectPatchSchema).optional(),
 });
 export type SubscriptionDelta = z.infer<typeof SubscriptionDeltaSchema>;
 

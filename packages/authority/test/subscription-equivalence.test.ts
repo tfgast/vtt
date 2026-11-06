@@ -7,6 +7,14 @@
  * mirror (objects, covers, log-window groups) must equal a fresh `subscribe`
  * with the same params at that revision. A failure names the seed, the
  * commit and the ops that led there.
+ *
+ * Both delta encodings are checked in one run (vtt-qf5.4): the writer's
+ * client negotiates `cell_patches` (the default) and a second client holding
+ * its `all` subscriptions (both viewers) does not.
+ * After every commit each patch mirror is checked against a fresh subscribe
+ * and each whole-view mirror against its patch twin (cheap, local); every
+ * 50th commit the whole-view mirrors are also checked against a fresh
+ * subscribe directly.
  */
 import {
   DocumentStore,
@@ -472,12 +480,17 @@ afterEach(async () => {
   host = undefined;
 }, 60_000);
 
-async function connect(s: RunningServer, name: string): Promise<ProtocolClient> {
+async function connect(
+  s: RunningServer,
+  name: string,
+  cellPatches = true,
+): Promise<ProtocolClient> {
   const client = new ProtocolClient({
     url: s.url,
     token: s.token,
     client: { name, kind: "test" },
     onWarning: () => undefined,
+    cellPatches,
   });
   clients.push(client);
   await client.connect();
@@ -525,6 +538,20 @@ function mirrorDiff(mirror: ViewMirror, fresh: SubscribeResult): string[] {
   return out;
 }
 
+/** How two mirrors of the same params differ; empty when equal. */
+function mirrorsDiff(a: ViewMirror, b: ViewMirror): string[] {
+  return mirrorDiff(a, {
+    subscription: "",
+    revision: b.revision,
+    objects: [...b.objects.values()],
+    covers: [...b.covers.values()],
+    groups: [...b.groups.values()],
+  });
+}
+
+/** Commits between direct checks of the whole-view mirrors against a fresh subscribe. */
+const LEGACY_FRESH_EVERY = 50;
+
 const SCOPES: SubscribeParams["scope"][] = [
   { type: "board", board: "table" },
   { type: "board", board: "crypt" },
@@ -536,6 +563,14 @@ const SCOPES: SubscribeParams["scope"][] = [
   { type: "all" },
   { type: "log" },
 ];
+
+/**
+ * The scope the whole-view client also holds: `all`, which covers every
+ * object the board and objects scopes hold (log carries no object views).
+ */
+const TWIN_SCOPES: ReadonlySet<SubscribeParams["scope"]> = new Set([
+  SCOPES[3],
+] as SubscribeParams["scope"][]);
 
 const label = (p: SubscribeParams) =>
   `${p.viewer?.type === "character" ? "aldric" : "gm"} ${canon(p.scope)}`;
@@ -559,6 +594,17 @@ async function runSeed(seed: number): Promise<void> {
   server = await startServer({ host, port: 0, timers });
   const writer = await connect(server, "writer");
   const checker = await connect(server, "checker");
+  const legacy = await connect(server, "legacy", false);
+  const counts = { patches: 0, legacyPatches: 0, legacyObjects: 0 };
+  writer.on("commit", (e) => {
+    for (const d of e.deltas) counts.patches += d.patches?.length ?? 0;
+  });
+  legacy.on("commit", (e) => {
+    for (const d of e.deltas) {
+      counts.legacyPatches += d.patches?.length ?? 0;
+      counts.legacyObjects += d.objects.length;
+    }
+  });
   const boardSeq = { n: 1 };
   const history: string[] = [];
 
@@ -576,21 +622,39 @@ async function runSeed(seed: number): Promise<void> {
 
   for (let i = 0; i < WARMUP; i++) await commitOne();
 
-  const subs: Subscription[] = [];
+  const subs: { sub: Subscription; twin: Subscription | null }[] = [];
   for (const viewer of [GM, ALDRIC]) {
-    for (const scope of SCOPES) subs.push(await writer.subscribe({ scope, viewer }));
+    for (const scope of SCOPES) {
+      const sub = await writer.subscribe({ scope, viewer });
+      const twin = TWIN_SCOPES.has(scope) ? await legacy.subscribe({ scope, viewer }) : null;
+      subs.push({ sub, twin });
+    }
   }
 
   for (let k = 0; k < COMMITS; k++) {
     await commitOne();
-    for (const sub of subs) {
+    // The legacy client has processed this commit's event once a request answers.
+    await legacy.request("get_objects", { ids: ["aldric"] });
+    const direct = (k + 1) % LEGACY_FRESH_EVERY === 0;
+    for (const { sub, twin } of subs) {
       const fresh = await checker.request("subscribe", sub.params);
       await checker.request("unsubscribe", { subscription: fresh.subscription });
-      const diffs = sub.state === "live" ? mirrorDiff(sub.mirror, fresh) : [`state ${sub.state}`];
-      if (diffs.length > 0) {
+      const live = (x: Subscription) => (x.state === "live" ? [] : [`state ${x.state}`]);
+      const checks: [string, string[]][] = [
+        ["patches", [...live(sub), ...mirrorDiff(sub.mirror, fresh)]],
+      ];
+      if (twin !== null) {
+        checks.push([
+          "whole views vs patches",
+          [...live(twin), ...mirrorsDiff(twin.mirror, sub.mirror)],
+        ]);
+        if (direct) checks.push(["whole views", mirrorDiff(twin.mirror, fresh)]);
+      }
+      for (const [mode, diffs] of checks) {
+        if (diffs.length === 0) continue;
         throw new Error(
           [
-            `seed ${seed}, commit ${k} (revision ${writer.revision}), subscription ${label(sub.params)}:`,
+            `seed ${seed}, commit ${k} (revision ${writer.revision}), subscription ${label(sub.params)} (${mode}):`,
             ...diffs.slice(0, 8).map((d) => `  ${d.length > 600 ? `${d.slice(0, 600)}…` : d}`),
             "last writes:",
             ...history.slice(-12).map((h) => `  ${h}`),
@@ -600,6 +664,10 @@ async function runSeed(seed: number): Promise<void> {
     }
   }
   expect(writer.revision).toBe(WARMUP + COMMITS);
+  // Patches were actually exercised, and never reached the client without the capability.
+  expect(counts.patches).toBeGreaterThan(0);
+  expect(counts.legacyPatches).toBe(0);
+  expect(counts.legacyObjects).toBeGreaterThan(0);
 }
 
 describe("subscription equivalence over the protocol", () => {

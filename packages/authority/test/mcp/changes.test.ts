@@ -80,6 +80,24 @@ describe("commitRecord (PROTOCOL.md §11)", () => {
     });
   });
 
+  test("a patched object (vtt-qf5.4) is recorded like an upserted one", () => {
+    const before = view("goblin", { cells: { hp: num(7), name: num(1) } });
+    const after = view("goblin", { cells: { hp: num(9), name: num(1) } });
+    const record = commitRecord({
+      revision: 9,
+      group,
+      delta: {
+        subscription: "s1",
+        objects: [],
+        removed: [],
+        patches: [{ object: "goblin", cells: { hp: num(9) } }],
+      },
+      before: new Map([["goblin", before]]),
+      after: new Map([["goblin", after]]),
+    });
+    expect(record.cells).toEqual([{ object: "goblin", cell: "hp", before: num(7), after: num(9) }]);
+  });
+
   test("an added cell has only after, a deleted cell only before", () => {
     const record = commitRecord(
       deltaEvent(

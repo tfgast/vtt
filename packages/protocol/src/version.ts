@@ -5,6 +5,15 @@ import { MAX_ACTION_WRITES, MAX_EACH_ITEMS, MAX_FACE_ELEMENTS } from "@vtt/schem
 /** The `protocol` number of `hello` and `welcome`; v1 grows only additively (§12). */
 export const PROTOCOL_VERSION = 1;
 
+/**
+ * The optional capabilities a client may list in `hello.capabilities` (§2,
+ * vtt-qf5.4); the authority echoes the ones it accepts in
+ * `welcome.capabilities`. `cell_patches`: commit events may carry cell-level
+ * patches (§8).
+ */
+export const CAPABILITIES = ["cell_patches"] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+
 /** The authority's default port (§2, D25). */
 export const DEFAULT_PORT = 4747;
 

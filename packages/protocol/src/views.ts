@@ -271,6 +271,18 @@ export const ObjectViewSchema = looseObject({
 });
 export type ObjectView = z.infer<typeof ObjectViewSchema>;
 
+/**
+ * A cell-level patch of an object view (vtt-qf5.4, §8): only to connections
+ * that negotiated `cell_patches`, for an object they already hold whose view
+ * changed only in `cells`. Each named cell is set to its new view, or
+ * deleted when `null`; the rest of the stored view is kept.
+ */
+export const ObjectPatchSchema = looseObject({
+  object: Id,
+  cells: looseRecord(z.string(), CellViewSchema.nullable()),
+});
+export type ObjectPatch = z.infer<typeof ObjectPatchSchema>;
+
 export const ObjectSnapshotViewSchema = looseObject({
   id: Id,
   is_template: z.boolean(),

@@ -70,8 +70,8 @@ export type ResyncInfo = { from_revision: number; to_revision: number; session_c
 
 /**
  * One delta entry of a commit event, emitted after the mirror applied it.
- * `before` and `after` are keyed by every id in `delta.objects` and
- * `delta.removed`; `undefined` means absent from the mirror.
+ * `before` and `after` are keyed by every id in `delta.objects`,
+ * `delta.patches` (vtt-qf5.4) and `delta.removed`; `undefined` means absent from the mirror.
  */
 export type DeltaEvent = {
   revision: number;
@@ -171,6 +171,13 @@ export type ProtocolClientOptions = {
   handshakeTimeoutMs?: number;
   onWarning?: (message: string) => void;
   timers?: Timers;
+  /**
+   * Lists `cell_patches` in `hello.capabilities`, so commit events may carry
+   * cell-level patches, which the mirrors apply (PROTOCOL.md §8,
+   * vtt-qf5.4). Default true; false sends no capabilities, as an older
+   * client does.
+   */
+  cellPatches?: boolean;
 };
 
 export type TransactOptions = {
@@ -399,6 +406,7 @@ export class ProtocolClient {
   #token: string;
   readonly #clientInfo: ProtocolClientOptions["client"];
   readonly #agentName: ProtocolClientOptions["agent_name"];
+  readonly #cellPatches: boolean;
   readonly #WebSocket: WebSocketConstructor | undefined;
   readonly #requestTimeoutMs: number;
   readonly #handshakeTimeoutMs: number;
@@ -446,6 +454,7 @@ export class ProtocolClient {
     this.#clientInfo = { ...options.client };
     this.instance = options.instance ?? globalThis.crypto.randomUUID();
     this.#agentName = options.agent_name;
+    this.#cellPatches = options.cellPatches ?? true;
     this.#WebSocket = options.WebSocket;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 30000;
     this.#handshakeTimeoutMs = options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
@@ -808,6 +817,7 @@ export class ProtocolClient {
       token: this.#token,
       client: { ...this.#clientInfo, instance: this.instance },
       ...(agentName === undefined ? {} : { agent_name: agentName }),
+      ...(this.#cellPatches ? { capabilities: ["cell_patches"] } : {}),
     };
     try {
       socket.send(JSON.stringify(hello));
@@ -981,7 +991,11 @@ export class ProtocolClient {
     for (const delta of event.deltas) {
       const sub = this.#bound.get(delta.subscription);
       if (sub?.state !== "live") continue;
-      const ids = [...delta.objects.map((view) => view.id), ...delta.removed];
+      const ids = [
+        ...delta.objects.map((view) => view.id),
+        ...(delta.patches ?? []).map((patch) => patch.object),
+        ...delta.removed,
+      ];
       const before = new Map(ids.map((id) => [id, sub.mirror.objects.get(id)]));
       sub.mirror.apply(delta, event.revision);
       const after = new Map(ids.map((id) => [id, sub.mirror.objects.get(id)]));

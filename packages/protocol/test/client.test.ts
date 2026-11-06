@@ -81,6 +81,7 @@ describe("handshake", () => {
       token: "tok",
       client: { name: "a", kind: "agent", instance: "inst-1" },
       agent_name: "claude",
+      capabilities: ["cell_patches"],
     });
     expect(server.peer.url).toBe(URL_);
     expect(welcome.session).toBe("session-1");
@@ -94,6 +95,12 @@ describe("handshake", () => {
     const hello = server.peer.hello as { client: { instance: string }; agent_name?: string };
     expect(hello.client.instance).toMatch(UUID);
     expect(hello.agent_name).toBe("late-name");
+  });
+
+  test("cellPatches: false sends no capabilities, as an old client (vtt-qf5.4)", async () => {
+    const { server, client } = setup({ cellPatches: false });
+    await client.connect();
+    expect(server.peer.hello).not.toHaveProperty("capabilities");
   });
 
   test("an absent agent_name is not sent", async () => {
@@ -525,6 +532,23 @@ describe("commit events and subscriptions", () => {
     expect(client.session).toBe("session-2");
     expect(client.revision).toBe(40);
     expect(client.table).toEqual(server.table);
+  });
+
+  test("a patch delta updates the mirror and keys before/after by the patched ids (vtt-qf5.4)", async () => {
+    const ctx = await connected();
+    const sub = await subscribed(
+      ctx,
+      subscribeResult("s1", 0, { objects: [obj("a", 1), obj("b")] }),
+    );
+    let seen: DeltaEvent | undefined;
+    sub.on("delta", (_s, e) => {
+      seen = e;
+    });
+    const hp = { value: { type: "number", value: 4 }, kind: "literal" } as const;
+    ctx.server.peer.send(commit(1, [delta("s1", { patches: [{ object: "a", cells: { hp } }] })]));
+    expect(sub.mirror.objects.get("a")).toEqual(obj("a", 4));
+    expect(seen?.before).toEqual(new Map([["a", obj("a", 1)]]));
+    expect(seen?.after).toEqual(new Map([["a", obj("a", 4)]]));
   });
 
   test("delta listeners get before/after and see the mirror updated; commit listeners run last", async () => {

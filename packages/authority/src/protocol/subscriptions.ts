@@ -10,6 +10,13 @@
  * the ids that left scope, were removed or became invisible, and the cover
  * changes by key.
  *
+ * Cell patches (vtt-qf5.4). For a connection added with `cellPatches`, a
+ * changed view of an object the subscription already holds (sent and not
+ * since removed) whose fields other than `cells` are canonically unchanged
+ * is sent as a patch naming only the cells whose canonical JSON changed
+ * (`null` for a cell gone from the view). A created, entering or newly
+ * visible object, or one whose other fields changed, is still a whole view.
+ *
  * Selective recomputation. A commit's candidate objects are the objects of
  * its changed cells, field effects, creations, removals, moves (both
  * containers), per-cell visibility changes, action changes, face changes
@@ -37,11 +44,13 @@
 import type { CellKey } from "@vtt/formula";
 import {
   type BoardView,
+  type CellView,
   type CommitEvent,
   type Cover,
   type GroupHeader,
   type GroupView,
   LIMITS,
+  type ObjectPatch,
   type ObjectView,
   ProtocolFailure,
   type SubscribeParams,
@@ -168,6 +177,20 @@ interface ObjectSub {
   last: Map<ObjectId, string>;
   /** Canonical JSON of every cover sent and not since removed, by key. */
   covers: Map<string, string>;
+  /** With cell patches only: the parts of every view in `last`. */
+  parts: Map<ObjectId, ViewParts> | null;
+}
+
+/** A view's canonical JSON split into its cells and everything else. */
+interface ViewParts {
+  rest: string;
+  cells: Map<string, string>;
+}
+
+/** Options of a connection, from its handshake. */
+export interface ConnectionOptions {
+  /** The connection negotiated `cell_patches` (vtt-qf5.4). */
+  cellPatches?: boolean;
 }
 
 interface ProvidedSub {
@@ -186,6 +209,28 @@ function canonical(x: unknown): string {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return v;
     return Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   });
+}
+
+function viewParts(view: ObjectView): ViewParts {
+  const { cells, ...rest } = view;
+  return {
+    rest: canonical(rest),
+    cells: new Map(Object.entries(cells).map(([name, cell]) => [name, canonical(cell)])),
+  };
+}
+
+/**
+ * The patch turning `old` into `view`'s cells, when only cells differ
+ * between them; otherwise null.
+ */
+function patchOf(old: ViewParts, fresh: ViewParts, view: ObjectView): ObjectPatch | null {
+  if (old.rest !== fresh.rest) return null;
+  const cells: [string, CellView | null][] = [];
+  for (const [name, json] of fresh.cells) {
+    if (old.cells.get(name) !== json) cells.push([name, view.cells[name] as CellView]);
+  }
+  for (const name of old.cells.keys()) if (!fresh.cells.has(name)) cells.push([name, null]);
+  return { object: view.id, cells: Object.fromEntries(cells) };
 }
 
 /** The ids a stored cell's effective literal content names (literal, or a formula's override). */
@@ -223,6 +268,8 @@ export class SubscriptionHub {
   readonly #subs = new Map<string, Sub>();
   /** Connection → its subscription ids, in subscription order. */
   readonly #conns = new Map<string, Set<string>>();
+  /** The connections that receive cell patches. */
+  readonly #patching = new Set<string>();
   readonly #providers = new Map<string, ScopeProvider>();
   readonly #listeners: CommitEventListener[] = [];
   /** Referenced id → the objects whose effective literal content names it. */
@@ -262,9 +309,14 @@ export class SubscriptionHub {
     };
   }
 
-  /** Makes `conn` receive commit events, with or without subscriptions. Idempotent. */
-  addConnection(conn: string): void {
-    if (!this.#conns.has(conn)) this.#conns.set(conn, new Set());
+  /**
+   * Makes `conn` receive commit events, with or without subscriptions.
+   * Idempotent; `options` given on the first call only take effect.
+   */
+  addConnection(conn: string, options: ConnectionOptions = {}): void {
+    if (this.#conns.has(conn)) return;
+    this.#conns.set(conn, new Set());
+    if (options.cellPatches === true) this.#patching.add(conn);
   }
 
   /** Forgets `conn` and frees every subscription it has. */
@@ -272,6 +324,7 @@ export class SubscriptionHub {
     const ids = this.#conns.get(conn);
     if (ids === undefined) return;
     this.#conns.delete(conn);
+    this.#patching.delete(conn);
     for (const id of ids) this.#drop(id);
   }
 
@@ -316,6 +369,7 @@ export class SubscriptionHub {
       inScope: new Set(),
       last: new Map(),
       covers: new Map(),
+      parts: this.#patching.has(conn) ? new Map() : null,
     };
     const builder = new ViewBuilder(this.table, viewer);
     const scopeIds = this.#scopeIds(sub.scope);
@@ -326,6 +380,7 @@ export class SubscriptionHub {
       if (view === null) continue;
       objects.push(view);
       sub.last.set(id, canonical(view));
+      sub.parts?.set(id, viewParts(view));
     }
     const covers = this.#covers(builder, sub.scope, scopeIds);
     for (const cover of covers) sub.covers.set(cover.key, canonical(cover));
@@ -535,25 +590,43 @@ export class SubscriptionHub {
     const scopeIds = this.#scopeIds(sub.scope);
     const next = new Set(scopeIds);
     const removed = [...sub.last.keys()].filter((id) => !next.has(id));
-    for (const id of removed) sub.last.delete(id);
+    for (const id of removed) {
+      sub.last.delete(id);
+      sub.parts?.delete(id);
+    }
     const objects: ObjectView[] = [];
+    const patches: ObjectPatch[] = [];
     for (const id of scopeIds) {
       if (!whole && sub.inScope.has(id) && !candidates.has(id)) continue;
       const view = this.#view(builder, id, cells);
       if (view === null) {
+        sub.parts?.delete(id);
         if (sub.last.delete(id)) removed.push(id);
         continue;
       }
       const json = canonical(view);
       if (sub.last.get(id) === json) continue;
       sub.last.set(id, json);
+      if (sub.parts !== null) {
+        const fresh = viewParts(view);
+        const old = sub.parts.get(id);
+        sub.parts.set(id, fresh);
+        const patch = old === undefined ? null : patchOf(old, fresh, view);
+        if (patch !== null) {
+          patches.push(patch);
+          continue;
+        }
+      }
       objects.push(view);
     }
     sub.inScope = next;
     const covers = whole ? this.#coverDelta(sub, builder, scopeIds) : null;
-    if (objects.length === 0 && removed.length === 0 && covers === null) return null;
+    if (objects.length === 0 && patches.length === 0 && removed.length === 0 && covers === null) {
+      return null;
+    }
     const delta: SubscriptionDelta = { subscription: sub.info.id, objects, removed };
     if (covers !== null) delta.covers = covers;
+    if (patches.length > 0) delta.patches = patches;
     return delta;
   }
 
