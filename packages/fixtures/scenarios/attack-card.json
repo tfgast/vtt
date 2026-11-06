@@ -140,7 +140,11 @@
     { "type": "roll", "expr": "1d8+3", "dice": [5], "dropped": [], "total": 8 }
   ],
   "expect": [
-    { "type": "log_groups", "count": 0, "note": "Nothing has happened yet." },
+    {
+      "type": "log_groups",
+      "count": 0,
+      "note": "FIXTURES §8: \"Every step that is neither rejected nor `bind` appends exactly one group\"; no step has run."
+    },
     {
       "type": "cell_visible",
       "object": "goblin1",
@@ -167,7 +171,7 @@
           "object": "attack1",
           "cell": "attacker",
           "value": { "type": "ref", "object": "aldric" },
-          "note": "attacker: (set at spawn to the binder's owner)"
+          "note": "\"attacker: (set at spawn to the binder's owner)\" (FORMULAS §10); FIXTURES §9: \"the format records the resulting literal\"."
         },
         {
           "type": "cell",
@@ -180,14 +184,14 @@
           "type": "contents",
           "object": "aldric_binder",
           "contents": ["attack_card"],
-          "note": "Spawning copies; the template stays in the binder."
+          "note": "DESIGN §4.1: \"Spawning from a template copies the template\"; the template stays in the binder."
         },
         {
           "type": "cell",
           "object": "attack1",
           "cell": "bonus",
           "value": { "type": "number", "value": 5 },
-          "note": "bonus = attacker.attack_bonus"
+          "note": "\"bonus = attacker.attack_bonus\" (FORMULAS §10): Aldric's attack_bonus is 5."
         },
         {
           "type": "cell",
@@ -201,28 +205,28 @@
           "object": "attack1",
           "cell": "hit",
           "value": { "type": "boolean", "value": false },
-          "note": "hit = roll != empty and total >= target.ac; roll is empty, so `and` short-circuits to false."
+          "note": "\"hit = roll != empty and total >= target.ac\" (FORMULAS §10): roll is empty, so `and` short-circuits to false (FORMULAS §2.1)."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll",
           "enabled": false,
-          "note": "[Roll] when: target != empty and roll = empty; target is empty."
+          "note": "\"[Roll] when: target != empty and roll = empty\" (FORMULAS §10): target is empty; FIXTURES §9: \"Roll disabled while `target` is empty\"."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll damage",
           "enabled": false,
-          "note": "[Roll damage] when: hit and dmg = empty; hit is false."
+          "note": "\"[Roll damage] when: hit and dmg = empty\" (FORMULAS §10): hit is false; FIXTURES §9: \"Roll damage disabled until `hit`\"."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Apply",
           "enabled": false,
-          "note": "[Apply] when: hit and dmg != empty and not applied; hit is false."
+          "note": "\"[Apply] when: hit and dmg != empty and not applied\" (FORMULAS §10): hit is false."
         },
         {
           "type": "face_element",
@@ -236,7 +240,7 @@
           "object": "attack1",
           "element": 7,
           "shown": true,
-          "note": "The Apply button (element 7), show_when: not applied; shown, and disabled by its guard."
+          "note": "FIXTURES §9: \"the Apply button (element 7) is shown until `applied`\"; shown, and disabled by its guard, since \"Show-when only hides\"."
         },
         { "type": "log_groups", "count": 1, "note": "A spawn is one group (FIXTURES §8)." }
       ]
@@ -256,35 +260,35 @@
           "object": "attack1",
           "cell": "target",
           "value": { "type": "ref", "object": "goblin1" },
-          "note": "target: empty, now set to the goblin."
+          "note": "FIXTURES §9: \"`target` is set with a `set` of a `ref` value\"; it was \"target: empty\" (FORMULAS §10)."
         },
         {
           "type": "cell",
           "object": "attack1",
           "cell": "hit",
           "value": { "type": "boolean", "value": false },
-          "note": "hit = roll != empty and ...; still no roll."
+          "note": "\"hit = roll != empty and total >= target.ac\" (FORMULAS §10): roll is still empty."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll",
           "enabled": true,
-          "note": "[Roll] when: target != empty and roll = empty; both hold now."
+          "note": "\"[Roll] when: target != empty and roll = empty\" (FORMULAS §10): both hold now."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll damage",
           "enabled": false,
-          "note": "[Roll damage] when: hit and dmg = empty; hit is false."
+          "note": "\"[Roll damage] when: hit and dmg = empty\" (FORMULAS §10): hit is false."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Apply",
           "enabled": false,
-          "note": "[Apply] when: hit and ...; hit is false."
+          "note": "\"[Apply] when: hit and dmg != empty and not applied\" (FORMULAS §10): hit is false."
         },
         {
           "type": "face_element",
@@ -299,14 +303,14 @@
           "element": 5,
           "viewer": "aldric",
           "shown": true,
-          "note": "The Roll button (element 5), show_when: roll = empty; Aldric's face view shows it too."
+          "note": "FIXTURES §9: \"the Roll button (element 5) is shown until `roll` is set\"; PROTOCOL §7.2: character views keep \"only the elements that are shown\", so Aldric's view has it too."
         },
         {
           "type": "face_element",
           "object": "attack1",
           "element": 7,
           "shown": true,
-          "note": "The Apply button (element 7), show_when: not applied; shown before Apply."
+          "note": "FIXTURES §9: \"the Apply button (element 7) is shown until `applied`\"; shown before Apply."
         },
         { "type": "log_groups", "count": 2, "note": "A set is one group (FIXTURES §8)." }
       ]
@@ -321,7 +325,7 @@
           "object": "attack1",
           "cell": "roll",
           "value": { "type": "roll", "expr": "1d20", "dice": [12], "dropped": [], "total": 12 },
-          "note": "[Roll] roll(1d20) -> roll"
+          "note": "FORMULAS §10 Roll: \"roll(1d20) -> roll\"; the roll result is written as given by the script (FIXTURES §5): 12."
         },
         {
           "type": "cell",
@@ -335,7 +339,7 @@
           "object": "attack1",
           "cell": "hit",
           "value": { "type": "boolean", "value": true },
-          "note": "hit = roll != empty and total >= target.ac: 17 >= 13."
+          "note": "\"hit = roll != empty and total >= target.ac\" (FORMULAS §10): 12 + 5 = 17 >= 13."
         },
         {
           "type": "cell_visible",
@@ -358,21 +362,21 @@
           "object": "attack1",
           "action": "Roll",
           "enabled": false,
-          "note": "[Roll] when: ... and roll = empty; roll is set."
+          "note": "\"[Roll] when: target != empty and roll = empty\" (FORMULAS §10): roll is set."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll damage",
           "enabled": true,
-          "note": "[Roll damage] when: hit and dmg = empty; both hold now."
+          "note": "\"[Roll damage] when: hit and dmg = empty\" (FORMULAS §10): both hold now."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Apply",
           "enabled": false,
-          "note": "[Apply] when: hit and dmg != empty and ...; dmg is empty."
+          "note": "\"[Apply] when: hit and dmg != empty and not applied\" (FORMULAS §10): dmg is empty."
         },
         {
           "type": "face_element",
@@ -394,7 +398,7 @@
           "object": "attack1",
           "element": 7,
           "shown": true,
-          "note": "The Apply button (element 7), show_when: not applied; still shown, applied is false."
+          "note": "FIXTURES §9: \"the Apply button (element 7) is shown until `applied`\"; still shown, applied is false."
         },
         { "type": "log_groups", "count": 3, "note": "An invoke is one group (FIXTURES §8)." },
         {
@@ -420,35 +424,35 @@
           "object": "attack1",
           "cell": "dmg",
           "value": { "type": "roll", "expr": "1d8+3", "dice": [5], "dropped": [], "total": 8 },
-          "note": "[Roll damage] roll(attacker.damage_dice) -> dmg"
+          "note": "FIXTURES §9: \"`Roll damage` rolls `attacker.damage_dice`\"; the scripted 1d8+3 = [5] + 3 = 8 is written to dmg."
         },
         {
           "type": "cell",
           "object": "goblin1",
           "cell": "damage_taken",
           "value": { "type": "number", "value": 0 },
-          "note": "Rolling damage writes only dmg; nothing is applied until Apply."
+          "note": "FORMULAS §8: \"Actions are the only place anything is written or rolled\"; Roll damage's one step writes dmg, so damage_taken waits for Apply."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll",
           "enabled": false,
-          "note": "[Roll] when: ... and roll = empty; roll is set."
+          "note": "\"[Roll] when: target != empty and roll = empty\" (FORMULAS §10): roll is set."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll damage",
           "enabled": false,
-          "note": "[Roll damage] when: hit and dmg = empty; dmg is set."
+          "note": "\"[Roll damage] when: hit and dmg = empty\" (FORMULAS §10): dmg is set."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Apply",
           "enabled": true,
-          "note": "[Apply] when: hit and dmg != empty and not applied; all hold now."
+          "note": "\"[Apply] when: hit and dmg != empty and not applied\" (FORMULAS §10): all hold now."
         },
         {
           "type": "face_element",
@@ -481,14 +485,14 @@
           "object": "goblin1",
           "cell": "damage_taken",
           "value": { "type": "number", "value": 8 },
-          "note": "[Apply] add(target.damage_taken, dmg): 0 + 8."
+          "note": "FORMULAS §10 Apply: \"add(target.damage_taken, dmg)\": 0 + 8; FORMULAS §8.3: for add \"a roll counts as its total\"."
         },
         {
           "type": "cell",
           "object": "attack1",
           "cell": "applied",
           "value": { "type": "boolean", "value": true },
-          "note": "[Apply] set(applied, true)"
+          "note": "FORMULAS §10 Apply: \"set(applied, true)\"."
         },
         {
           "type": "action",
@@ -502,14 +506,14 @@
           "object": "attack1",
           "action": "Roll",
           "enabled": false,
-          "note": "[Roll] when: ... and roll = empty; roll is set."
+          "note": "\"[Roll] when: target != empty and roll = empty\" (FORMULAS §10): roll is set."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll damage",
           "enabled": false,
-          "note": "[Roll damage] when: hit and dmg = empty; dmg is set."
+          "note": "\"[Roll damage] when: hit and dmg = empty\" (FORMULAS §10): dmg is set."
         },
         {
           "type": "face_element",
@@ -531,7 +535,7 @@
           "object": "attack1",
           "element": 5,
           "shown": false,
-          "note": "The Roll button (element 5), show_when: roll = empty; still hidden, roll is set."
+          "note": "FIXTURES §9: \"the Roll button (element 5) is shown until `roll` is set\"; still hidden, roll is set."
         },
         {
           "type": "log_groups",
@@ -577,21 +581,21 @@
           "object": "goblin1",
           "cell": "damage_taken",
           "value": { "type": "number", "value": 8 },
-          "note": "No state change: damage is not applied twice."
+          "note": "FIXTURES §6: \"A refused step changes nothing\"; damage is not applied twice."
         },
         {
           "type": "cell",
           "object": "attack1",
           "cell": "applied",
           "value": { "type": "boolean", "value": true },
-          "note": "No state change."
+          "note": "FIXTURES §6: \"A refused step changes nothing\"."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Apply",
           "enabled": false,
-          "note": "Still disabled: not applied is false."
+          "note": "\"[Apply] when: hit and dmg != empty and not applied\" (FORMULAS §10): applied is true, so still disabled."
         },
         {
           "type": "face_element",
@@ -631,35 +635,35 @@
           "object": "attack1",
           "cell": "dmg",
           "value": { "type": "roll", "expr": "1d8+3", "dice": [5], "dropped": [], "total": 8 },
-          "note": "One undo reverses one whole action: only Apply; the earlier Roll damage stands."
+          "note": "DESIGN §4.5: \"One undo reverses one whole action\"; only Apply is reversed, so the earlier Roll damage stands."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Apply",
           "enabled": true,
-          "note": "[Apply] when: hit and dmg != empty and not applied; applied is false again."
+          "note": "\"[Apply] when: hit and dmg != empty and not applied\" (FORMULAS §10): applied is false again."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll damage",
           "enabled": false,
-          "note": "[Roll damage] when: hit and dmg = empty; dmg is still set."
+          "note": "\"[Roll damage] when: hit and dmg = empty\" (FORMULAS §10): dmg is still set."
         },
         {
           "type": "action",
           "object": "attack1",
           "action": "Roll",
           "enabled": false,
-          "note": "[Roll] when: ... and roll = empty; roll is still set."
+          "note": "\"[Roll] when: target != empty and roll = empty\" (FORMULAS §10): roll is still set."
         },
         {
           "type": "face_element",
           "object": "attack1",
           "element": 7,
           "shown": true,
-          "note": "Undo of Apply restores applied to false, so the Apply button is shown again."
+          "note": "FIXTURES §9: \"the Apply button (element 7) is shown until `applied`\"; undo restored applied to false, so the Apply button is shown again."
         },
         {
           "type": "log_groups",

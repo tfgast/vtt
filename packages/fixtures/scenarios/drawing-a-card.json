@@ -93,29 +93,33 @@
       "type": "contents",
       "object": "deck",
       "contents": ["card_ace", "card_king"],
-      "note": "A deck container with two cards."
+      "note": "FIXTURES §9: \"A `deck` container with two cards\"; ace then king."
     },
     {
       "type": "contents",
       "object": "aldric_hand",
       "contents": [],
-      "note": "The hand starts empty."
+      "note": "FIXTURES §9: \"Two Draws, each asserted with `contents` on deck and hand\"; before the first, the hand is empty."
     },
     {
       "type": "action",
       "object": "draw_button",
       "action": "Draw",
       "enabled": true,
-      "note": "[Draw] when: len(deck.contents) > 0; the deck has two cards."
+      "note": "\"[Draw] when: len(deck.contents) > 0\" (FORMULAS §10): the deck has two cards."
     },
     {
       "type": "object_visible",
       "object": "card_ace",
       "viewer": "bryn",
       "visible": true,
-      "note": "The cards are visible_to all, and so is the deck."
+      "note": "FIXTURES §9: \"The cards are `visible_to: all`\"; the deck does not restrict them, so Bryn sees the ace."
     },
-    { "type": "log_groups", "count": 0, "note": "Nothing has happened yet." }
+    {
+      "type": "log_groups",
+      "count": 0,
+      "note": "FIXTURES §8: \"Every step that is neither rejected nor `bind` appends exactly one group\"; no step has run."
+    }
   ],
   "steps": [
     {
@@ -127,7 +131,7 @@
           "type": "contents",
           "object": "deck",
           "contents": ["card_king"],
-          "note": "first(deck.contents) left the deck."
+          "note": "FORMULAS §10 Draw: \"move(first(deck.contents), owner.hand)\"; FORMULAS §5: \"`first(deck.contents)` draws the top card\", so the ace left the deck."
         },
         {
           "type": "contents",
@@ -140,7 +144,7 @@
           "object": "card_ace",
           "container": "aldric_hand",
           "index": 0,
-          "note": "The ace is in the hand."
+          "note": "FIXTURES §9: each Draw is asserted with \"`container` on the card\"; the ace is at index 0 of the hand."
         },
         {
           "type": "cell",
@@ -168,14 +172,14 @@
           "object": "card_king",
           "viewer": "bryn",
           "visible": true,
-          "note": "The king is still in the public deck."
+          "note": "DESIGN §4.4: effective visibility is \"its own `visible_to` intersected with its container's effective visibility\"; the king is still in the public deck."
         },
         {
           "type": "action",
           "object": "draw_button",
           "action": "Draw",
           "enabled": true,
-          "note": "[Draw] when: len(deck.contents) > 0; one card left."
+          "note": "\"[Draw] when: len(deck.contents) > 0\" (FORMULAS §10): one card left."
         },
         { "type": "log_groups", "count": 1, "note": "An invoke is one group (FIXTURES §8)." }
       ]
@@ -189,7 +193,7 @@
           "type": "contents",
           "object": "deck",
           "contents": [],
-          "note": "The deck is empty."
+          "note": "FORMULAS §5: \"`first(deck.contents)` draws the top card\"; the king was the top card, so the deck is empty."
         },
         {
           "type": "contents",
@@ -202,21 +206,21 @@
           "object": "card_king",
           "container": "aldric_hand",
           "index": 1,
-          "note": "The king is second in the hand."
+          "note": "FIXTURES §9: \"`container` on the card\"; appended at the end (FORMULAS §8.2), the king is at index 1."
         },
         {
           "type": "object_visible",
           "object": "card_king",
           "viewer": "aldric",
           "visible": true,
-          "note": "Inside Aldric's hand, seen by Aldric."
+          "note": "DESIGN §4.4: \"A card marked `all` inside a hand marked to one character is seen only by that character\"; Aldric is that character."
         },
         {
           "type": "object_visible",
           "object": "card_king",
           "viewer": "bryn",
           "visible": false,
-          "note": "Inside Aldric's hand, not seen by Bryn."
+          "note": "DESIGN §4.4: \"A card marked `all` inside a hand marked to one character is seen only by that character\"; Bryn is not that character."
         },
         {
           "type": "action",
@@ -271,7 +275,7 @@
           "object": "card_ace",
           "board": "table",
           "position": [3, 3],
-          "note": "The ace is on the table."
+          "note": "DESIGN §4.1: \"Moving an object out of a container onto a board ends the containment\"; the ace is on the table at [3, 3]."
         },
         {
           "type": "contents",
@@ -291,14 +295,14 @@
           "object": "card_ace",
           "viewer": "aldric",
           "visible": true,
-          "note": "visible_to all."
+          "note": "DESIGN §4.4: \"Moving it out of the hand restores `all`\"; Aldric sees it as everyone does."
         },
         {
           "type": "object_visible",
           "object": "card_king",
           "viewer": "bryn",
           "visible": false,
-          "note": "The king is still in Aldric's hand."
+          "note": "DESIGN §4.4: \"A card marked `all` inside a hand marked to one character is seen only by that character\"; the king is still in Aldric's hand."
         },
         { "type": "log_groups", "count": 3, "note": "A move is one group (FIXTURES §8)." },
         { "type": "replay" }
