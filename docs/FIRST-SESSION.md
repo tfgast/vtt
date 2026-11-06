@@ -298,10 +298,9 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 > Correct the DC by typing over it.
 
 1. Paste the quoted request into your agent, verbatim.
-2. Wait for it to finish. If it says it cannot read a character's cells,
-   tell it to call `get_objects` with `cells: "all"`. If it did not set the
-   card's `owner`, tell it to set the card's `owner` to Aldric (its
-   instructions say so): the card's buttons are then pressed as Aldric.
+2. Wait for it to finish. If it did not set the card's `owner`, tell it to
+   set the card's `owner` to Aldric (its instructions say so): the card's
+   buttons are then pressed as Aldric.
 
 The walkthrough's agent commits two changes, labelled "Room 4: difficult
 terrain, hatched" and "Fireball for Aldric". Yours may label or split them
