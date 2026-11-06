@@ -3,7 +3,8 @@
  * elements, Collapsed face, Default face, Gestures: contents scrolling and
  * nested objects, Ink; §4.4 face-down objects show their back; §4.7 contents
  * entries collapsed by default; docs/PROTOCOL.md §7.2; M5 plan Q8, Q9, Q11,
- * Q19 and reviews r1 8, 11, 16, r2 1, 3, r3 1, 8): what an object's face
+ * Q19 and reviews r1 8, 11, 16, r2 1, 3, r3 1, 8; Only when selected,
+ * M6-D12): what an object's face
  * looks like to one viewer, as primitives in the object's local frame
  * (origin at the anchor, y down, unrotated). Pure: drawing is vtt-1xv.15's,
  * hit testing vtt-1xv.26's.
@@ -49,6 +50,13 @@ export const DEFAULT_FACE_MIN_PX = 12;
 /** The board-template gear: its size in units and its `minSize` in CSS px. */
 export const BOARD_GEAR_SIZE = 0.3;
 export const BOARD_GEAR_MIN_PX = 10;
+/**
+ * The count badge standing in for a hidden `when_selected` list (M6-D12):
+ * its height in units (at most the element's) and its width as a multiple
+ * of its height (at most the element's).
+ */
+export const COUNT_BADGE_SIZE = 0.5;
+export const COUNT_BADGE_ASPECT = 1.6;
 /** A row gear's side as a fraction of the collapsed row height. */
 const ROW_GEAR_RATIO = 0.7;
 
@@ -192,12 +200,19 @@ export interface ResolveFaceOptions {
   gm: boolean;
   /** Formats a base's `text` cell; defaults to `buildScene`'s compact formatting with names. */
   formatText?: (value: WireValue) => string;
+  /**
+   * Whether object `id`'s `when_selected` contents elements are shown (it or
+   * a descendant is selected, or an Alt-held drag hovers it; M6-D12).
+   * Default: none is.
+   */
+  revealed?: (id: ObjectId) => boolean;
 }
 
 interface Ctx {
   views: ViewLookup;
   faceState: Pick<FaceStateStore, "isExpanded" | "scrollOffset">;
   gm: boolean;
+  revealed: (id: ObjectId) => boolean;
   formatText: (value: WireValue) => string;
   refLabel: RefLabel;
 }
@@ -222,6 +237,7 @@ export function resolveFace(view: ObjectView, opts: ResolveFaceOptions): FaceDra
     views: opts.views,
     faceState: opts.faceState,
     gm: opts.gm,
+    revealed: opts.revealed ?? (() => false),
     refLabel,
     formatText:
       opts.formatText ?? ((value) => formatValue(value, { mode: "compact", refLabel }).text),
@@ -410,6 +426,11 @@ function elementPrimitives(
         );
         break;
       case "contents":
+        if (e.when_selected === true && !ctx.revealed(view.id)) {
+          const badge = countBadge(view, e.rect, e.index);
+          if (badge !== null) out.push(badge);
+          break;
+        }
         out.push(
           layoutContents(
             view,
@@ -425,6 +446,31 @@ function elementPrimitives(
     }
   }
   return out;
+}
+
+/**
+ * The badge in a hidden `when_selected` list's place (M6-D12): the number
+ * of readable entries (redacted ones are not counted), at the lower right
+ * of the element's rect, drawn at any zoom (no `minSize`, M6-D16) and hit
+ * as the object's body; null when there is nothing readable to count.
+ */
+function countBadge(view: ObjectView, rect: Rect, element: number): TextPrimitive | null {
+  const count = contentsRefs(view).filter((id) => id !== null).length;
+  if (count === 0) return null;
+  const [x, y, w, h] = rect;
+  const bh = Math.min(COUNT_BADGE_SIZE, h);
+  const bw = Math.min(w, bh * COUNT_BADGE_ASPECT);
+  return {
+    kind: "text",
+    rect: [x + w - bw, y + h - bh, bw, bh],
+    minSize: 0,
+    element,
+    text: String(count),
+    tone: "normal",
+    size: "large",
+    align: "right",
+    target: BODY,
+  };
 }
 
 /**

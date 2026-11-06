@@ -139,6 +139,8 @@ const ATTACK_CARD: WireOp = {
 };
 
 const LIST: Rect = [-3, -3, 6, 4.8];
+/** The token's when_selected list: below its radius-0.9 footprint, as the stocked token face places it. */
+const TOK_LIST: Rect = [-1.5, 0.9, 3, 1.2];
 
 /** A container at (x, y) with a contents element `list`. */
 const container = (id: string, x: number, y: number, tag: string[], list = LIST, h = 6) =>
@@ -208,6 +210,34 @@ const SEED: WireOp[] = [
   // A pouch (not a binder) at (60, -20) holding one card.
   container("pouch", 60, -20, ["pouch"]),
   entry("p0", "pouch"),
+  // A token at (80, 0) whose list below it shows only when selected (M6-D12), holding a gem.
+  {
+    type: "create_object",
+    id: "tok",
+    to: at(80, 0),
+    init: {
+      shape: { type: "circle", radius: 0.9 },
+      cells: { name: text("Tok"), visible_to: ALL, face_up: bool(true) },
+      face: {
+        elements: [
+          { type: "value", cell: "name", rect: [-0.9, -0.3, 1.8, 0.6] },
+          { type: "contents", rect: TOK_LIST, when_selected: true },
+        ],
+      },
+    },
+  },
+  entry("gem1", "tok"),
+  // A room zone at (90, 0).
+  {
+    type: "create_object",
+    id: "room",
+    to: at(90, 0),
+    init: {
+      is_zone: true,
+      shape: rectShape(2, 2),
+      cells: { name: text("Room"), visible_to: ALL, face_up: bool(true) },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -622,4 +652,58 @@ describe("entry drags out of a binder", () => {
     expect(contentsOf(w, "bnd_a")).toEqual(["tcard", "acard", "xcard"]);
     expect(contentsOf(w, "bnd_b")).toEqual(["b0", "b1", "b2"]);
   });
+});
+
+describe("a when_selected list (vtt-nb8.35, M6-D12)", () => {
+  // In the token's list rect, below its footprint: local (-1, 1.9) of the token at (80, 0).
+  const IN_LIST: Point = [79, 1.9];
+
+  test("a zone released over an unselected token's list lands on the board; its contents are untouched", async () => {
+    const w = await world();
+    expect(
+      w
+        .faces()
+        .faces.get("tok")
+        ?.primitives.some((p) => p.kind === "contents"),
+    ).toBe(false);
+    w.drag([90, 0], [[85, 1], IN_LIST]);
+    await until(() => {
+      const pos = w.object("room")?.cells.position?.content;
+      return JSON.stringify(pos) !== JSON.stringify({ type: "list", items: [num(90), num(0)] });
+    }, "the room moved");
+    expect(w.object("room")?.board).toBe(BOARD);
+    expect(contentsOf(w, "tok")).toEqual(["gem1"]);
+  });
+
+  test("with Alt held at the drop over the token, the zone goes inside", async () => {
+    const w = await world();
+    w.drag(
+      [90, 0],
+      [
+        [85, 1],
+        [80, 0.5],
+      ],
+      [false, false, true, true],
+    );
+    await until(() => contentsOf(w, "tok").includes("room"), "the room in the token");
+    expect(contentsOf(w, "tok")).toEqual(["gem1", "room"]);
+  });
+
+  test("an entry dropped onto a selected token's list goes inside", async () => {
+    const w = await world();
+    w.click([80, 0.5]);
+    await waitFor(() => expect(w.ui.getState().selection).toEqual(["tok"]));
+    await settle();
+    w.drag(rowAt(0, TOP, 1), [[40, -10], IN_LIST]);
+    await until(() => contentsOf(w, "tok").includes("acard"), "acard in the token");
+    expect(contentsOf(w, "tok")).toEqual(["gem1", "acard"]);
+    expect(contentsOf(w, "bnd_a")).toEqual(["tcard", "xcard"]);
+  });
+
+  // Needs the Alt-hover state tracked by the select tool and passed to the scene and the drop
+  // override (`altHoverAt`, `createFaceDropOverride(faceState, { altHover })`): outside this
+  // bead's files (select-tool.ts, App.tsx); see the bead report.
+  test.todo(
+    "dragging with Alt from the token's footprint onto its revealed list keeps the list and drops inside",
+  );
 });
