@@ -382,29 +382,46 @@ async function ending(run: () => unknown): Promise<string> {
   }
 }
 
-test("every falsified expectation fails the same way in both runners", async () => {
-  let count = 0;
-  for (const file of Object.keys(EXPECTED)) {
-    const s = await loadScenarioFile(file);
-    const lists = [s.expect ?? [], ...s.steps.map((step) => step.expect ?? [])];
-    for (const [li, list] of lists.entries()) {
-      for (const [ei, e] of list.entries()) {
-        const wrong = falsify(e);
-        if (wrong === undefined) continue;
-        const m = structuredClone(s);
-        const owner: { expect?: Expectation[] } = li === 0 ? m : (m.steps[li - 1] as Step);
-        const target = [...(owner.expect ?? [])];
-        target[ei] = wrong;
-        owner.expect = target;
-        const direct = await ending(() => runScenario(m));
-        const wire = await ending(() => runScenarioOverProtocol(m));
-        expect(wire, `${file}, list ${li}, expect #${ei}`).toBe(direct);
-        count++;
+/**
+ * Every falsified expectation, one test per scenario file so each file's
+ * runs (a fresh server per wire run) get their own timeout (vtt-qf5.65);
+ * the last test checks the total across files.
+ */
+describe("every falsified expectation fails the same way in both runners", () => {
+  const counts = new Map<string, number>();
+
+  test.each(Object.keys(EXPECTED))(
+    "%s",
+    async (file) => {
+      let count = 0;
+      const s = await loadScenarioFile(file);
+      const lists = [s.expect ?? [], ...s.steps.map((step) => step.expect ?? [])];
+      for (const [li, list] of lists.entries()) {
+        for (const [ei, e] of list.entries()) {
+          const wrong = falsify(e);
+          if (wrong === undefined) continue;
+          const m = structuredClone(s);
+          const owner: { expect?: Expectation[] } = li === 0 ? m : (m.steps[li - 1] as Step);
+          const target = [...(owner.expect ?? [])];
+          target[ei] = wrong;
+          owner.expect = target;
+          const direct = await ending(() => runScenario(m));
+          const wire = await ending(() => runScenarioOverProtocol(m));
+          expect(wire, `${file}, list ${li}, expect #${ei}`).toBe(direct);
+          count++;
+        }
       }
-    }
-  }
-  expect(count).toBeGreaterThan(300);
-}, 60_000);
+      counts.set(file, count);
+    },
+    60_000,
+  );
+
+  test("together they falsify more than 300 expectations", () => {
+    expect([...counts.keys()].sort()).toEqual(Object.keys(EXPECTED).sort());
+    const total = [...counts.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBeGreaterThan(300);
+  });
+});
 
 describe("invoke, action and face_element over the wire (vtt-1xv.13)", () => {
   const roll14 = { type: "roll" as const, expr: "1d20", dice: [14], dropped: [], total: 14 };
