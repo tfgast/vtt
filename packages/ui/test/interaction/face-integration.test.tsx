@@ -50,6 +50,7 @@ import {
   DISABLED_ALPHA,
   defaultFacePolicy,
   drawFaceItem,
+  type EditorOpenRequest,
   entryTransform,
   type FaceDrawing,
   type FaceGesture,
@@ -264,6 +265,39 @@ const die = (id: string, x: number, template: boolean): WireOp => ({
   },
 });
 
+/**
+ * A d20 drawn as the examples draw it (M6-D9): `total` large over the centre,
+ * the Roll button below it, and (for these tests) a `modifier` editor above
+ * it; `when` guards its Roll.
+ */
+const facedDie = (id: string, x: number, when?: string): WireOp => ({
+  type: "create_object",
+  id,
+  to: at(x, -3),
+  init: {
+    shape: rectShape(1.2, 1.4),
+    cells: {
+      name: text(id),
+      visible_to: ALL,
+      face_up: bool(true),
+      value: EMPTY,
+      modifier: num(0),
+      total: formula("value + modifier"),
+    },
+    actions: [
+      { name: "Roll", ...(when === undefined ? {} : { when }), steps: ["roll(1d20) -> value"] },
+    ],
+    face: {
+      elements: [
+        { type: "editor", cell: "modifier", rect: [-0.4, -0.65, 0.8, 0.2] },
+        { type: "value", cell: "total", rect: [-0.4, -0.4, 0.8, 0.5], style: { size: "large" } },
+        { type: "button", action: "Roll", rect: [-0.4, 0.18, 0.8, 0.25] },
+      ],
+      default_action: "Roll",
+    },
+  },
+});
+
 /** A 6 × 2 card with a Go button (expanded in a 6-wide list: 1.8 high). */
 const rowCard = (id: string, container: string): WireOp => ({
   type: "create_object",
@@ -332,6 +366,18 @@ const SEED: WireOp[] = [
   ATTACK_CARD,
   die("d20", -4, false),
   die("tpl_d20", 4, true),
+  facedDie("fd20", -8),
+  facedDie("stuck_d20", -12, "modifier > 5"),
+  {
+    type: "create_object",
+    id: "note",
+    to: at(-16, -3),
+    init: {
+      shape: rectShape(1, 1),
+      cells: { name: text("note"), visible_to: ALL, face_up: bool(true), hp: num(7) },
+      face: { elements: [{ type: "value", cell: "hp", rect: [-0.4, -0.2, 0.8, 0.4] }] },
+    },
+  },
   // A binder with the default face: 14 entries in an 8-row list, the last a card.
   {
     type: "create_object",
@@ -493,6 +539,9 @@ async function world(options: Options = {}) {
       ...(options.gestures ? { gestures: options.gestures } : {}),
     }),
   );
+  const port = createInPlaceEditorPort(ui);
+  /** Every request the runtime made of the in-place editor. */
+  const opens: EditorOpenRequest[] = [];
   const runtime = createInteractionRuntime({
     registry,
     inputs: createRuntimeInputs(session, ui),
@@ -501,7 +550,13 @@ async function world(options: Options = {}) {
       upload: async () => ({ path: "x.png", width: 1, height: 1 }),
     }),
     ui,
-    editor: createInPlaceEditorPort(ui),
+    editor: {
+      open(request) {
+        opens.push(request);
+        port.open(request);
+      },
+      close: () => port.close(),
+    },
     whenRevision: (r) => session.whenRevision(r),
     extensions: {
       effects: { [INVOKE_EXTENSION]: invokeExtension(session, sessionNotices(session)) },
@@ -607,6 +662,7 @@ async function world(options: Options = {}) {
     click,
     dblClick,
     wheel,
+    opens,
   };
 }
 
@@ -891,6 +947,104 @@ describe("the default action", () => {
     expect(w.invokes()).toHaveLength(1);
     expect(w.host.revision).toBe(r);
     expect(w.stored("tpl_d20", "total")).toEqual(EMPTY);
+  });
+});
+
+describe("double-click by element kind (M6-D9)", () => {
+  // The faced d20 `fd20` at [-8, -3] and the stuck one at [-12, -3] (local rects above).
+  const onDie = (x: number, r: Rect): Point => [x + r[0] + r[2] / 2, -3 + r[1] + r[3] / 2];
+  const TOTAL_R: Rect = [-0.4, -0.4, 0.8, 0.5];
+  const D20_TOTAL = onDie(-8, TOTAL_R);
+  const D20_ROLL = onDie(-8, [-0.4, 0.18, 0.8, 0.25]);
+  const D20_MODIFIER = onDie(-8, [-0.4, -0.65, 0.8, 0.2]);
+  const D20_BODY: Point = [-8 + 0.5, -3 + 0.6];
+
+  test("the GM double-clicks the d20's total: one Roll invoke, no editor opened", async () => {
+    const w = await world({ dice: [roll("1d20", 15)] });
+    expect(faceHitAt(w.faces(), D20_TOTAL, w.ui.getState().camera)?.target).toEqual({
+      type: "value",
+      cell: "total",
+    });
+    w.dblClick(D20_TOTAL);
+    await until(() => w.cell("fd20", "value")?.type === "roll", "the roll");
+    await settle();
+    expect(w.invokes()).toMatchObject([{ object: "fd20", action: "Roll" }]);
+    expect(w.invokes()).toHaveLength(1);
+    expect(w.opens).toEqual([]);
+    expect(screen.queryByRole("textbox", { name: "Edit total" })).toBeNull();
+  });
+
+  test("a character viewer double-clicks the d20's total: one Roll invoke as that character", async () => {
+    const w = await world({ dice: [roll("1d20", 15)] });
+    await act(() => w.session.setView(BOARD, ALDRIC));
+    await until(
+      () =>
+        w.session.objectView("fd20")?.action_states?.some((s) => s.name === "Roll" && s.enabled) ===
+        true,
+      "Roll enabled for Aldric",
+    );
+    w.dblClick(D20_TOTAL);
+    await until(() => w.groups().at(-1)?.label === "Roll", "the Roll group");
+    await settle();
+    expect(w.invokes()).toMatchObject([{ object: "fd20", action: "Roll", actor: ALDRIC }]);
+    expect(w.invokes()).toHaveLength(1);
+    expect(w.opens).toEqual([]);
+  });
+
+  test("the GM double-clicks the d20's body: one invoke", async () => {
+    const w = await world({ dice: [roll("1d20", 15)] });
+    w.dblClick(D20_BODY);
+    await until(() => w.cell("fd20", "value")?.type === "roll", "the roll");
+    await settle();
+    expect(w.invokes()).toHaveLength(1);
+    expect(w.opens).toEqual([]);
+  });
+
+  test("the GM double-clicks a value element of an object without a default action: the editor opens once", async () => {
+    const w = await world();
+    w.dblClick([-16, -3]);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Edit hp" })).toBeDefined());
+    await settle();
+    expect(w.opens).toMatchObject([{ object: "note", cell: "hp" }]);
+    expect(w.opens).toHaveLength(1);
+    expect(w.invokes()).toEqual([]);
+  });
+
+  test("the GM double-clicks the d20's editor element: its editor opens and nothing is invoked", async () => {
+    const w = await world({ dice: [roll("1d20", 15)] });
+    w.dblClick(D20_MODIFIER);
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Edit modifier" })).toBeDefined(),
+    );
+    await settle();
+    expect(w.invokes()).toEqual([]);
+    expect(w.opens.length).toBeGreaterThan(0);
+    expect(w.opens.every((o) => o.object === "fd20" && o.cell === "modifier")).toBe(true);
+    expect(w.dice.remaining()).toBe(1);
+  });
+
+  test("the GM double-clicks the d20's Roll button: exactly two invokes, one per click", async () => {
+    const w = await world({ dice: [roll("1d20", 15), roll("1d20", 4)] });
+    w.dblClick(D20_ROLL);
+    await until(() => w.cell("fd20", "value")?.type === "roll", "the roll");
+    await settle();
+    expect(w.invokes()).toMatchObject([
+      { object: "fd20", action: "Roll" },
+      { object: "fd20", action: "Roll" },
+    ]);
+    expect(w.invokes()).toHaveLength(2);
+    expect(w.opens).toEqual([]);
+  });
+
+  test("the GM double-clicks the total of a d20 whose Roll has a false when: it is edited in place", async () => {
+    const w = await world({ dice: [roll("1d20", 15)] });
+    w.dblClick(onDie(-12, TOTAL_R));
+    await until(() => w.opens.length > 0, "the editor request");
+    await settle();
+    expect(w.opens).toMatchObject([{ object: "stuck_d20", cell: "total" }]);
+    expect(w.opens).toHaveLength(1);
+    expect(w.invokes()).toEqual([]);
+    expect(w.notices()).toEqual([]);
   });
 });
 

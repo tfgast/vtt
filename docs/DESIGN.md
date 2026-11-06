@@ -628,9 +628,13 @@ board also shows a gear (4.7).
 
 **Gestures.**
 
-- A single click on an editor element and a double-click on a value element
-  edit that cell in place. A double-click elsewhere on an object with an
-  enabled `default_action` invokes it (else the default edit in place).
+- A single click on an editor element edits that cell in place (a
+  double-click there does nothing more). A double-click on an object's body,
+  image or value element invokes its `default_action` when it has one and it
+  is enabled (a disabled one counts as absent); otherwise a double-click on a
+  value element edits that cell in place, and on the body the default edit in
+  place. Each click on a button is one press; a double-click there adds
+  nothing (M6-D9).
 - Dropping an object on another object's editor element sets that cell to a
   reference to it (nothing moves). Dropping on a contents element inserts
   there (copy versus move is the intent fixed at drag start, M4-D8), except
@@ -1660,4 +1664,5 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M6-D6. The MCP server sends `instructions` at `initialize`. DESIGN §5.2; PROTOCOL §11. | A bring-your-own agent should find the templates and the write rules without being told by the GM. |
 | 2026-11-05 | M6-D7. Example images (`crypt-map.png`, `goblin.png`) ship in `@vtt/fixtures/assets`, generated in-repo. | §8.4 step 3 needs a map; generated art has no licence question. |
 | 2026-11-05 | M6-D8. A group's `names` are the touched objects' plus, when the actor is a character, that character's, captured at commit (before removal if the group removes it). Gm and agent actors add nothing. Character group views filter `names` as before. Amends the operation group entry above. DESIGN §7; PROTOCOL §7.6. | The log must name the character the GM drove (M5-D1) and keep names as they were (4.8); a view-as Apply touches only the card and its target, so the header showed the character's id. |
+| 2026-11-06 | M6-D9. A double-click on an object's body, image or value element invokes its enabled `default_action` before anything else; only without one (or with it disabled, which counts as absent) does a double-click on a value element edit it in place. The two clicks before it select and never open an editor. An editor element is unchanged (its click opens the editor; the double-click adds nothing); each click on a button is one press and the double-click adds nothing; chevrons and gears are unchanged. Amends M5-D10's double-click sentence. DESIGN §4.6. | Playtest 1 steps 4 and 13: the d20 draws `total` over its centre, so a GM double-click opened the editor (a formula cell: the formula bar) and a view-as one did nothing; only the rim rolled. |
 | 2026-11-06 | M6-D11. Navigation: a plain wheel (or two-finger scroll) pans the camera by its deltas; Ctrl or Meta with the wheel (how browsers deliver a trackpad pinch) zooms about the pointer; the active tool's `wheel` hook still comes first, so a list that scrolls takes a plain wheel over it, but never a Ctrl or Meta wheel, which zooms there too. Space is heard on the window, so Space-drag pans wherever focus is except in a text field (a Space typed there is ignored and never prevented); middle-drag is unchanged. `+` and `=` zoom in and `-` zooms out, by 1.25 about the viewport centre, as `KEY_BINDINGS` rows. Amends vtt-1xv.16's wheel zoom. DESIGN §4.6, §8.1. | Playtest 1 step 3: a trackpad has no middle button and Space was only seen with focus in the canvas, so panning was undiscoverable; the zoom keys keep zoom for a mouse wheel that now pans. |

@@ -19,17 +19,21 @@
  * - an editor element (the GM, a cell `cellCapabilities` lets them type
  *   into): a click opens the in-place editor over the element's rect; a
  *   formula cell focuses the formula bar there (vtt-3l6.13's rule). A value
- *   element likewise on a double-click. A double-click's effects carry the
- *   stamp of its first pointer down;
+ *   element likewise on a double-click when its object has no enabled
+ *   `default_action` (else the double-click invokes it, below; M6-D9). A
+ *   double-click's effects carry the stamp of its first pointer down;
+ * - a double-click on a button, chevron, gear or entry row does nothing more
+ *   (each click of a button was one press);
  * - a chevron click → `policy.onToggle`, else the entry toggles and, when it
  *   expands, the list holding it (the last entry of the hit's `path`) is
  *   scrolled to reveal it (`revealOffset` on the re-resolved drawing); a
  *   gear click → `policy.onGear`, else nothing;
- * - a double-click elsewhere on an object (its body or its contents
- *   element's empty area) whose face has an enabled `default_action` →
- *   `requestInvoke` (so a template refuses); otherwise the wrapped tool's
- *   (M4's in-place editor) for a board object, and the in-place editor over
- *   a contained object's drawing for the GM;
+ * - a double-click on an object's body, a value element or its contents
+ *   element's empty area, whose face has an enabled `default_action` →
+ *   `requestInvoke` (so a template refuses); otherwise a value element as
+ *   above, and the body or contents area is the wrapped tool's (M4's
+ *   in-place editor) for a board object, and the in-place editor over a
+ *   contained object's drawing for the GM;
  * - the wheel (`Tool.wheel`): without Ctrl or Meta, the innermost
  *   overflowing list among the hit's `path` and its own `contents` target
  *   scrolls by `deltaY / 100` units, clamped, and the event is claimed;
@@ -369,8 +373,16 @@ export function withFaces<TPhase, K extends ToolId>(
     const done = (effects: Effect[]): Result => ({ state, effects });
     const t = hit.target;
     const view = input.views(hit.object);
+    // The object's default action when it exists and is enabled (a disabled one is as absent).
+    const action = view?.face?.default_action;
+    const runDefault =
+      view !== null && action !== undefined && enabledAction(view, action)
+        ? () => done(requestInvoke(policy, view, action, stamp, input))
+        : null;
     switch (t.type) {
       case "value":
+        // The default action first (M6-D9), else edit in place.
+        if (runDefault !== null) return runDefault();
         if (!editable(input, view, t.cell)) return delegate(state, event, input);
         return done([
           { type: "open_editor", stamp, object: hit.object, cell: t.cell, rect: hit.rect },
@@ -379,16 +391,14 @@ export function withFaces<TPhase, K extends ToolId>(
         // Its click opened the editor already.
         return editable(input, view, t.cell) ? done([]) : delegate(state, event, input);
       case "button":
+      // Each click was one press; the double-click adds nothing (M6-D9).
       case "chevron":
       case "gear":
       case "entry":
         return done([]);
       case "body":
       case "contents": {
-        const action = view?.face?.default_action;
-        if (view !== null && action !== undefined && enabledAction(view, action)) {
-          return done(requestInvoke(policy, view, action, stamp, input));
-        }
+        if (runDefault !== null) return runDefault();
         if (hit.path.length === 0) return delegate(state, event, input);
         // A contained object: M4's edit in place, over its drawing.
         if (input.viewer.type !== "gm") return done([]);
