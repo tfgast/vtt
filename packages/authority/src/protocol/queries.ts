@@ -11,6 +11,7 @@
  * from `ViewBuilder`; nothing here evaluates for a character except through
  * the engine and visibility.
  */
+import { anchorOf, compareIds, geometryNumber as sharedGeometryNumber } from "@vtt/formula";
 import {
   type AtPositionParams,
   type AtPositionResult,
@@ -55,20 +56,6 @@ export const DEFAULT_PAGE_LIMIT = 50;
 export const DEFAULT_CHANGES_LIMIT = 100;
 
 const GM: Viewer = { type: "gm" };
-
-/** Compares ids by Unicode code point (FORMULAS.md §5 order). */
-function compareIds(a: string, b: string): number {
-  const ai = a[Symbol.iterator]();
-  const bi = b[Symbol.iterator]();
-  for (;;) {
-    const x = ai.next();
-    const y = bi.next();
-    if (x.done || y.done) return x.done && y.done ? 0 : x.done ? -1 : 1;
-    const cx = x.value.codePointAt(0) as number;
-    const cy = y.value.codePointAt(0) as number;
-    if (cx !== cy) return cx < cy ? -1 : 1;
-  }
-}
 
 const notFound = (): never => {
   throw new ProtocolFailure("not_found", "not found");
@@ -217,26 +204,10 @@ export function zonesOnBoard(table: Table, params: ZonesParams): ZonesResult {
 // ---------------------------------------------------------------------------
 // at_position
 
-/** A number as geometry reads it: empty as 0, a roll as its total; undefined otherwise. */
+/** A finite number as geometry reads it (formula's geometryNumber), else undefined. */
 function geometryNumber(r: Result): number | undefined {
-  const n =
-    r.type === "number"
-      ? r.value
-      : r.type === "empty"
-        ? 0
-        : r.type === "roll"
-          ? r.total
-          : undefined;
+  const n = sharedGeometryNumber(r);
   return n !== undefined && Number.isFinite(n) ? n : undefined;
-}
-
-/** The anchor, if `r` is a list of two finite numbers. */
-function anchorOf(r: Result): Point | undefined {
-  if (r.type !== "list" || r.items.length !== 2) return undefined;
-  const [x, y] = r.items;
-  if (x?.type !== "number" || y?.type !== "number") return undefined;
-  if (!Number.isFinite(x.value) || !Number.isFinite(y.value)) return undefined;
-  return [x.value, y.value];
 }
 
 interface Footprint {
