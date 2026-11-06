@@ -99,7 +99,11 @@ describe("selection", () => {
     const { ui } = await setup();
     expect(screen.getByText("Nothing selected")).toBeDefined();
     act(() => ui.select(["goblin", "pawn", "room"]));
-    expect(screen.getByText("3 objects selected")).toBeDefined();
+    // Several: the multi-selection mode (vtt-qf5.15), with no per-object sections.
+    expect(screen.getByRole("heading", { name: "3 objects" })).toBeDefined();
+    expect(screen.getByRole("region", { name: "Shared cells" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "Actions" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Contents" })).toBeNull();
     act(() => ui.select(["goblin"]));
     expect(within(header()).getByRole("heading", { name: "Goblin" })).toBeDefined();
     expect(within(header()).getByText("goblin")).toBeDefined();

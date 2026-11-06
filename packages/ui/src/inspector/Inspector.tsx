@@ -3,7 +3,9 @@
  * in the UI, M4-D11; §4.4; §4.8 the log panel, M5 composition vtt-1xv.23):
  * three tabs, "Inspector", "Objects" (the `ObjectList`) and "Log"
  * (vtt-1xv.20's `LogPanel`, mounted while its tab is shown). The Inspector
- * tab shows "Nothing selected", "N objects selected", or for one selected
+ * tab shows "Nothing selected"; for two or more selected objects a header
+ * "N objects" and the `MultiCellList` of their shared cells (vtt-qf5.15,
+ * M6-D36), nothing else; or for one selected
  * object its `ObjectHeader`, `CellList` (vtt-3l6.11), `ContentsList`,
  * `ActionsList` (vtt-1xv.19, given the app's face policy and runtime) and
  * `FaceSection` (vtt-1xv.18), all from the current viewer's view of the
@@ -26,6 +28,7 @@ import type { CellAddress, UiStore } from "../state/ui-state";
 import { ActionsList } from "./ActionsList";
 import { CellList } from "./CellList";
 import { ContentsList } from "./ContentsList";
+import { MultiCellList } from "./MultiCellList";
 import { ObjectHeader } from "./ObjectHeader";
 import { ObjectList } from "./ObjectList";
 
@@ -40,9 +43,9 @@ export interface InspectorProps {
   runtime?: Pick<InteractionRuntime, "execute">;
 }
 
-/** The selection text for `count` selected objects other than one. */
+/** The selection text for `count` selected objects other than one (the multi-selection header). */
 export function selectionText(count: number): string {
-  return count === 0 ? "Nothing selected" : `${count} objects selected`;
+  return count === 0 ? "Nothing selected" : `${count} objects`;
 }
 
 type Tab = "inspector" | "objects" | "log";
@@ -92,7 +95,21 @@ function SelectionInspector({ session, ui, onEditFormula, policy, runtime }: Ins
   // Re-render on every view change (commits, view switches, resyncs).
   useSession((s) => s.viewVersion);
   const viewer = useSession((s) => s.viewer);
-  if (selection.length !== 1) return <p style={NOTE_STYLE}>{selectionText(selection.length)}</p>;
+  if (selection.length === 0) return <p style={NOTE_STYLE}>{selectionText(0)}</p>;
+  if (selection.length > 1) {
+    const objects = selection.flatMap((id) => {
+      const view = session.objectView(id);
+      return view === null ? [] : [{ id, view }];
+    });
+    return (
+      <div>
+        <section aria-label="Selection">
+          <h3 style={{ margin: 0 }}>{selectionText(selection.length)}</h3>
+        </section>
+        <MultiCellList objects={objects} session={session} readOnly={viewer.type !== "gm"} />
+      </div>
+    );
+  }
   const object = selection[0] as ObjectId;
   const view = session.objectView(object);
   if (view === null) {

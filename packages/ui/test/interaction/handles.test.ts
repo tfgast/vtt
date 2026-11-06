@@ -529,7 +529,8 @@ describe("withHandles(selectTool)", () => {
   describe("no handles", () => {
     const cases: [string, { selection: ObjectId[]; viewer?: Viewer }][] = [
       ["a shapeless object", { selection: ["dot"] }],
-      ["a multiple selection", { selection: ["u", "c"] }],
+      // Two or more board objects get group handles instead (group-handles.test.ts, vtt-qf5.15).
+      ["a multiple selection with one board object", { selection: ["u", "elsewhere"] }],
       ["a character view", { selection: ["u"], viewer: HERO }],
     ];
     test.each(cases)("for %s", (_name, setup) => {
