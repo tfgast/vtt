@@ -303,6 +303,7 @@ describe("defaultLayoutFor", () => {
       { type: "value", cell: "hp", rect: undefined, style: { caption: true } },
       { type: "button", action: "Roll", rect: undefined },
       { type: "button", action: "Attack", rect: undefined },
+      { type: "contents", rect: undefined, min_size: 24, when_selected: true },
     ]);
     const rects: Rect[] = [
       [-2, -1.5, 4, 0.6],
@@ -310,6 +311,7 @@ describe("defaultLayoutFor", () => {
       [-2, -0.3, 4, 0.6],
       [-2, 0.3, 4, 0.6],
       [-2, 0.9, 4, 0.6],
+      [-3, 1.65, 6, 0.6],
     ];
     face.elements.forEach((e, i) => {
       expectRect(e.rect, rects[i] as Rect);
@@ -318,12 +320,41 @@ describe("defaultLayoutFor", () => {
     expect(face).not.toHaveProperty("default_action");
   });
 
-  test("a shapeless object with no user cells or actions gets just its name", () => {
+  test("a shapeless object with no user cells or actions gets its name and contents list", () => {
     const view = tokenView({ actions: [] });
     const { shape: _s, hp: _h, ac: _a, ...cells } = view.cells;
     expect(ok(defaultLayoutFor({ ...view, cells }))).toEqual({
-      elements: [{ type: "value", cell: "name", rect: [-1, -0.5, 2, 1], style: { size: "large" } }],
+      elements: [
+        { type: "value", cell: "name", rect: [-1, -0.5, 2, 1], style: { size: "large" } },
+        { type: "contents", rect: [-3, 0.65, 6, 0.6], min_size: 24, when_selected: true },
+      ],
     });
+  });
+
+  test("ends with a when_selected contents list below the last row, with or without contents (M6-D19)", () => {
+    const refs = (n: number) => ({
+      value: {
+        type: "list" as const,
+        items: Array.from({ length: n }, (_, i) => ({ type: "ref" as const, object: `o${i}` })),
+      },
+      kind: "structural" as const,
+    });
+    const cases: [ObjectView, Rect][] = [
+      [tokenView(), [-3, 1.65, 6, 0.6]],
+      [tokenView({ cells: { ...tokenView().cells, contents: refs(0) } }), [-3, 1.65, 6, 0.6]],
+      [tokenView({ cells: { ...tokenView().cells, contents: refs(3) } }), [-3, 1.65, 6, 1.8]],
+      [tokenView({ cells: { ...tokenView().cells, contents: refs(20) } }), [-3, 1.65, 6, 4.8]],
+    ];
+    for (const [view, expected] of cases) {
+      const elements = ok(defaultLayoutFor(view)).elements;
+      const last = elements.at(-1);
+      expect(last).toMatchObject({ type: "contents", min_size: 24, when_selected: true });
+      expect(elements.filter((e) => e.type === "contents")).toHaveLength(1);
+      expectRect(last?.rect, expected);
+      // Below every other generated row.
+      const rowsBottom = Math.max(...elements.slice(0, -1).map((e) => e.rect[1] + e.rect[3]));
+      expect((last as FaceElement).rect[1]).toBeGreaterThan(rowsBottom);
+    }
   });
 
   test("more rows than a list allows is reported", () => {

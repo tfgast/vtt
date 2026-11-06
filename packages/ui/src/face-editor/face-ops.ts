@@ -23,6 +23,12 @@ import {
   type Shape,
   STRUCTURAL_CELLS,
 } from "@vtt/schema";
+import {
+  CONTENTS_ROW_RATIO,
+  DEFAULT_CONTENTS_ROWS,
+  DEFAULT_CONTENTS_WIDTH,
+  STRIP_TOP_GAP,
+} from "../face/face-model";
 
 /** A layout's element list: `elements` (the full face) or `collapsed`. */
 export type FaceListName = "full" | "collapsed";
@@ -333,12 +339,31 @@ export function blankElement(
   }
 }
 
+/** The generated contents list's rect: centred below `frame`, 1 to 8 rows. */
+function generatedContentsRect(view: ObjectView, frame: Rect): Rect {
+  const v = view.cells.contents?.value;
+  const count = v?.type === "list" ? v.items.length : 0;
+  const rows = Math.min(Math.max(count, 1), DEFAULT_CONTENTS_ROWS);
+  const w = DEFAULT_CONTENTS_WIDTH;
+  const rowHeight = w / (1 / CONTENTS_ROW_RATIO);
+  return [
+    frame[0] + frame[2] / 2 - w / 2,
+    frame[1] + frame[3] + STRIP_TOP_GAP,
+    w,
+    rows * rowHeight,
+  ];
+}
+
 /**
  * "Create face": a `name` value element across the top, then one captioned
  * value row per user cell (alphabetically), then one button per action (in
- * action order), each row the frame's width and `frame height / rows` high.
- * No collapsed list and no `default_action`. More rows than a list allows
- * is reported.
+ * action order), each row the frame's width and `frame height / rows` high,
+ * then the object's contents list below the frame, shown only while
+ * selected (`when_selected`, `min_size` 24; M6-D19), placed as the faceless
+ * default places it (`defaultContentsRect`): centred, 6 units wide, one row
+ * per entry from 1 up to `DEFAULT_CONTENTS_ROWS`. The list is always
+ * included, even while `contents` is empty. No collapsed list and no
+ * `default_action`. More rows than a list allows is reported.
  */
 export function defaultLayoutFor(view: ObjectView): FaceOpResult {
   const [fx, fy, fw, fh] = faceFrameFor(view, "full");
@@ -360,6 +385,12 @@ export function defaultLayoutFor(view: ObjectView): FaceOpResult {
     ...actions.map(
       (action, i): FaceElement => ({ type: "button", action, rect: rect(1 + cells.length + i) }),
     ),
+    {
+      type: "contents",
+      rect: generatedContentsRect(view, [fx, fy, fw, fh]),
+      min_size: 24,
+      when_selected: true,
+    },
   ];
   return checked({ elements });
 }

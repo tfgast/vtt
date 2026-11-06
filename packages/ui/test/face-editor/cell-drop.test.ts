@@ -213,6 +213,7 @@ describe("a drop on a board object", () => {
     expect(face.elements.map((e) => (e.type === "value" ? e.cell : e.type))).toEqual([
       "name",
       "hp",
+      "contents",
       "hp",
     ]);
     // Local (-0.5, -0.5); 2 units wide in a 2-unit frame: x clamps to -1.
