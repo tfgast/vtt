@@ -162,6 +162,43 @@ const STUCK = mk("stuck", {
 /** A faceless token. */
 const PLAIN = mk("plain", { shape: rect(1, 1), at: [-10, 0] });
 
+/**
+ * A d20 drawn as the examples draw it (M6-D9): `total` (a formula) large over
+ * the centre, the Roll button below it, and (for these tests) a `modifier`
+ * editor above it; `default_action` Roll, enabled unless `stuck`.
+ */
+const d20 = (id: string, at: Point, stuck: boolean) =>
+  mk(id, {
+    shape: rect(1.2, 1.4),
+    at,
+    cells: { total: num(15), modifier: num(0) },
+    formulas: ["total"],
+    actions: ["Roll"],
+    states: [
+      stuck
+        ? { name: "Roll", enabled: false, reason: "when_false" }
+        : { name: "Roll", enabled: true },
+    ],
+    face: {
+      elements: [
+        editor("modifier", [-0.4, -0.65, 0.8, 0.2], 0),
+        value("total", [-0.4, -0.4, 0.8, 0.5], 1, { style: { size: "large" } }),
+        button("Roll", [-0.4, 0.18, 0.8, 0.25], 2),
+      ],
+      default_action: "Roll",
+    },
+  });
+const D20 = d20("d20", [30, 0], false);
+/** The same d20 whose Roll has a false `when`. */
+const STUCK_D20 = d20("stuck_d20", [33, 0], true);
+/** A note with a value element and no default action. */
+const NOTE = mk("note", {
+  shape: rect(1, 1),
+  at: [26, 0],
+  cells: { hp: num(7) },
+  face: { elements: [value("hp", [-0.4, -0.2, 0.8, 0.4], 0)] },
+});
+
 /** A row card: 6 × 2, a Go button; expanded in a 6-wide list its row is 1.8 high. */
 const rowCard = (id: string, container: string) =>
   mk(id, {
@@ -221,6 +258,9 @@ const VIEWS: ObjectView[] = [
   TPL,
   STUCK,
   PLAIN,
+  D20,
+  STUCK_D20,
+  NOTE,
   BINDER,
   ...ENTRIES.map((id) => rowCard(id, "b")),
   OUTER,
@@ -416,6 +456,12 @@ const APPLY = centreOn([0, 0], [-1.2, 1.1, 2.4, 0.45]);
 const TARGET = centreOn([0, 0], [-1.2, -1.2, 2.4, 0.4]);
 const TOTAL = centreOn([0, 0], [-1.2, -0.7, 1.1, 0.5]);
 const BODY: Point = [0.8, -0.2];
+const NOTE_HP = centreOn([26, 0], [-0.4, -0.2, 0.8, 0.4]);
+const D20_TOTAL = centreOn([30, 0], [-0.4, -0.4, 0.8, 0.5]);
+const D20_ROLL = centreOn([30, 0], [-0.4, 0.18, 0.8, 0.25]);
+const D20_MODIFIER = centreOn([30, 0], [-0.4, -0.65, 0.8, 0.2]);
+const D20_BODY: Point = [30.5, 0.6];
+const STUCK_TOTAL = centreOn([33, 0], [-0.4, -0.4, 0.8, 0.5]);
 
 describe("buttons", () => {
   test("down + up within 4 px on an enabled button → the invoke effect with the pointer-down stamp", () => {
@@ -525,29 +571,29 @@ describe("editing in place", () => {
     expect(r.inner.events).toEqual(["pointer_down", "pointer_up"]);
   });
 
-  test("a value element: a single click is the wrapped tool's, a double-click edits it", () => {
+  test("a value element of an object without a default action: a single click is the wrapped tool's, a double-click edits it", () => {
     const r = rig();
-    click(r, TOTAL);
+    click(r, NOTE_HP);
     expect(r.inner.events).toEqual(["pointer_down", "pointer_up"]);
-    const effects = r.send(dbl(TOTAL), { revision: 6, interactionId: "i3" });
+    const effects = r.send(dbl(NOTE_HP), { revision: 6, interactionId: "i3" });
     expect(effects).toHaveLength(1);
-    expect(effects[0]).toMatchObject({ type: "open_editor", object: "card", cell: "total" });
+    expect(effects[0]).toMatchObject({ type: "open_editor", object: "note", cell: "hp" });
     expect(r.inner.events).toEqual(["pointer_down", "pointer_up"]);
   });
 
   test("a double-click edits with the stamp of its first pointer down although the revision advanced", () => {
     const r = rig();
-    r.send(ptr("pointer_down", TOTAL), { revision: 5, interactionId: "i1" });
-    r.send(ptr("pointer_up", TOTAL), { revision: 6, interactionId: "i2" });
-    r.send(ptr("pointer_down", TOTAL), { revision: 7, interactionId: "i3" });
-    r.send(ptr("pointer_up", TOTAL), { revision: 8, interactionId: "i4" });
-    const effects = r.send(dbl(TOTAL), { revision: 9, interactionId: "i5" });
+    r.send(ptr("pointer_down", NOTE_HP), { revision: 5, interactionId: "i1" });
+    r.send(ptr("pointer_up", NOTE_HP), { revision: 6, interactionId: "i2" });
+    r.send(ptr("pointer_down", NOTE_HP), { revision: 7, interactionId: "i3" });
+    r.send(ptr("pointer_up", NOTE_HP), { revision: 8, interactionId: "i4" });
+    const effects = r.send(dbl(NOTE_HP), { revision: 9, interactionId: "i5" });
     expect(effects).toEqual([
       {
         type: "open_editor",
         stamp: STAMP_GM,
-        object: "card",
-        cell: "total",
+        object: "note",
+        cell: "hp",
         rect: expect.any(Object),
       },
     ]);
@@ -612,6 +658,154 @@ describe("double-click on the body", () => {
     r.send(dbl([14, 0]));
     r.send(dbl([-10, 0]));
     expect(r.inner.events).toEqual(["double_click", "double_click"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Double-click by element kind (M6-D9)
+
+/**
+ * A full double click at `at`: down, up, down, up (revisions 5 to 8,
+ * `i1` to `i4`), then the `double_click` (revision 9, `i5`).
+ */
+function doubleClick(r: Rig, at: Point, over: Partial<ToolInput> = {}) {
+  const clicks: Effect[] = [];
+  ["pointer_down", "pointer_up", "pointer_down", "pointer_up"].forEach((type, i) => {
+    clicks.push(
+      ...r.send(ptr(type as "pointer_down" | "pointer_up", at), {
+        ...over,
+        revision: 5 + i,
+        interactionId: `i${i + 1}`,
+      }),
+    );
+  });
+  const dblclick = r.send(dbl(at), { ...over, revision: 9, interactionId: "i5" });
+  return { clicks, dblclick, all: [...clicks, ...dblclick] };
+}
+
+const invokesIn = (effects: readonly Effect[]) =>
+  effects.filter((e) => e.type === "extension" && e.name === INVOKE_EXTENSION);
+const editorsIn = (effects: readonly Effect[]) => effects.filter((e) => e.type === "open_editor");
+
+describe("double-click by element kind (M6-D9)", () => {
+  test("on the d20's total as the GM: one Roll invoke with the first down's stamp, no editor; the clicks select", () => {
+    const r = rig();
+    const { clicks, dblclick, all } = doubleClick(r, D20_TOTAL);
+    expect(clicks).toEqual([]);
+    expect(dblclick).toEqual([
+      {
+        type: "extension",
+        name: INVOKE_EXTENSION,
+        stamp: STAMP_GM,
+        payload: { object: "d20", action: "Roll", table: { board: BOARD, position: [0, 0] } },
+      },
+    ]);
+    expect(invokesIn(all)).toHaveLength(1);
+    expect(editorsIn(all)).toEqual([]);
+    expect(r.inner.events).toEqual(["pointer_down", "pointer_up", "pointer_down", "pointer_up"]);
+  });
+
+  test("on the d20's total as a character viewer: one Roll invoke as that character", () => {
+    const r = rig();
+    const { all } = doubleClick(r, D20_TOTAL, { viewer: ALDRIC });
+    expect(invokesIn(all)).toHaveLength(1);
+    expect(invokesIn(all)[0]).toMatchObject({
+      stamp: { viewer: ALDRIC, baseRevision: 5 },
+      payload: { object: "d20", action: "Roll", actor: { type: "character", id: "aldric" } },
+    });
+    expect(editorsIn(all)).toEqual([]);
+    expect(r.inner.events).not.toContain("double_click");
+  });
+
+  test("on the d20's body: one invoke", () => {
+    const r = rig();
+    const { all } = doubleClick(r, D20_BODY);
+    expect(invokesIn(all)).toHaveLength(1);
+    expect(invokesIn(all)[0]).toMatchObject({ payload: { object: "d20", action: "Roll" } });
+    expect(editorsIn(all)).toEqual([]);
+  });
+
+  test("on a value element of an object without a default action: the editor opens once", () => {
+    const r = rig();
+    const { all } = doubleClick(r, NOTE_HP);
+    expect(invokesIn(all)).toEqual([]);
+    expect(editorsIn(all)).toEqual([
+      {
+        type: "open_editor",
+        stamp: STAMP_GM,
+        object: "note",
+        cell: "hp",
+        rect: expect.any(Object),
+      },
+    ]);
+  });
+
+  test("on the d20's editor element: each click opens its editor, the double-click adds nothing, nothing is invoked", () => {
+    const r = rig();
+    const { clicks, dblclick, all } = doubleClick(r, D20_MODIFIER);
+    expect(dblclick).toEqual([]);
+    expect(invokesIn(all)).toEqual([]);
+    // The second click lands on the open editor in the app; here it reopens the same cell.
+    expect(clicks.map((e) => e.type)).toEqual(["open_editor", "open_editor"]);
+    expect(editorsIn(all).every((e) => e.type === "open_editor" && e.cell === "modifier")).toBe(
+      true,
+    );
+    expect(r.inner.events).toEqual([]);
+  });
+
+  test("on the d20's Roll button: exactly two invokes, one per click, nothing from the double-click", () => {
+    const r = rig();
+    const { clicks, dblclick } = doubleClick(r, D20_ROLL);
+    expect(invokesIn(clicks)).toHaveLength(2);
+    expect(clicks).toHaveLength(2);
+    expect(dblclick).toEqual([]);
+    expect(r.inner.events).toEqual([]);
+  });
+
+  test("on the total of a d20 whose Roll has a false when: the GM edits the value in place", () => {
+    const r = rig();
+    const { all } = doubleClick(r, STUCK_TOTAL);
+    expect(invokesIn(all)).toEqual([]);
+    expect(all.filter((e) => e.type === "notice")).toEqual([]);
+    expect(editorsIn(all)).toEqual([
+      {
+        type: "open_editor",
+        stamp: STAMP_GM,
+        object: "stuck_d20",
+        cell: "total",
+        rect: expect.any(Object),
+      },
+    ]);
+  });
+
+  test("on the total of that stuck d20 as a character viewer: the wrapped tool's, nothing invoked", () => {
+    const r = rig();
+    const { all } = doubleClick(r, STUCK_TOTAL, { viewer: ALDRIC });
+    expect(all).toEqual([]);
+    expect(r.inner.events).toEqual([
+      "pointer_down",
+      "pointer_up",
+      "pointer_down",
+      "pointer_up",
+      "double_click",
+    ]);
+  });
+
+  test("on the Attack card's total as the GM: its default action, not the editor", () => {
+    const r = rig();
+    const { all } = doubleClick(r, TOTAL);
+    expect(editorsIn(all)).toEqual([]);
+    expect(invokesIn(all)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ object: "card", action: "Roll" }),
+      }),
+    ]);
+  });
+
+  test("on a d20 template's value element: the default action refuses with the template notice", () => {
+    const r = rig();
+    const { all } = doubleClick(r, centreOn([10, 0], [-0.4, -0.4, 0.8, 0.4]));
+    expect(all).toEqual([{ type: "notice", level: "info", text: TEMPLATE_REFUSAL }]);
   });
 });
 
