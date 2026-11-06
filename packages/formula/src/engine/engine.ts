@@ -13,7 +13,7 @@ import { validateRefs } from "../eval/refs";
 import type { Registry } from "../functions/registry";
 import { type CellKey, type Change, cellKey, type Dependency, type EvalHost } from "../host";
 import { type ParseResult, parse } from "../syntax/parser";
-import { type AdhocOptions, evaluateAdhoc } from "./adhoc";
+import { type AdhocOptions, evaluateAdhoc, evaluateRecorded } from "./adhoc";
 import { DEFAULT_BUDGET } from "./budget";
 import { DependencyGraph, getOrCreate } from "./graph";
 import { type EngineStats, resolve } from "./resolve";
@@ -50,8 +50,31 @@ export interface Engine {
   evaluate(source: string, options: AdhocOptions): Result;
 
   /**
-   * Mark everything `changes` affects dirty and return the formula cells this
-   * call newly marked dirty. Call once per committed revision, before any
+   * Evaluate a tracked expression: a formula that is not a cell (a `when`
+   * guard, a show-when) under the caller's opaque `key`, on
+   * `options.thisId` as `evaluate` does, keeping the dependencies its final
+   * attempt recorded. The result is cached by key: while the key is clean
+   * and `source` and `thisId` are those of its last evaluation, the cached
+   * result is returned without evaluating; otherwise the expression is
+   * evaluated and its result and dependency set replace the key's.
+   * `invalidateAll` reports the key when a change may alter its result.
+   * Tracked expressions are not cells: no formula can read them, and they
+   * never appear in `invalidate`'s cells or `dependenciesOf`.
+   */
+  evaluateTracked(key: string, source: string, options: AdhocOptions): Result;
+
+  /** Forget the tracked expression `key`, if any; it is never reported again. */
+  dropTracked(key: string): void;
+
+  /**
+   * `invalidateAll(changes).cells`: tracked expressions are marked dirty
+   * too, but not reported.
+   */
+  invalidate(changes: readonly Change[]): CellKey[];
+
+  /**
+   * Mark everything `changes` affects dirty and return the formula cells and
+   * the tracked expression keys this call newly marked dirty. Call once per committed revision, before any
    * read. The host must report every changed cell, including the derived
    * `container` of a moved object and both parents' `contents`.
    *
@@ -61,15 +84,26 @@ export interface Engine {
    * `name`) also dirties every cell with an `index` dependency. Creating or
    * deleting an object dirties the index dependents, the cells that checked
    * its existence, and the readers of any of its cells; deletion also drops
-   * the object's memoized results.
+   * the object's memoized results. A tracked expression is dirtied by the
+   * same rules applied to its own dependency set, and when a cell it read is
+   * dirtied. A key already dirty is not reported again until it is
+   * re-evaluated.
    */
-  invalidate(changes: readonly Change[]): CellKey[];
+  invalidateAll(changes: readonly Change[]): Invalidation;
 
   /** The dependency set the cell's last complete evaluation recorded, if any. */
   dependenciesOf(id: ObjectId, cell: string): readonly Dependency[] | undefined;
 
   /** Cumulative counters, for tests. */
   stats(): EngineStats;
+}
+
+/** What `invalidateAll` newly marked dirty. */
+export interface Invalidation {
+  /** Formula cells. */
+  cells: CellKey[];
+  /** Tracked expression keys (`evaluateTracked`). */
+  tracked: string[];
 }
 
 /** Cells whose change invalidates the spatial and tag index (FORMULAS §7). */
@@ -90,12 +124,20 @@ interface Memo {
   dirty: boolean;
 }
 
+interface Tracked extends Memo {
+  source: string;
+  thisId: ObjectId | undefined;
+}
+
 export function createEngine(host: EvalHost, options: EngineOptions = {}): Engine {
   const memo = new Map<CellKey, Memo>();
   /** Memoized cell names per object, for dropping a deleted object's entries. */
   const memoByObject = new Map<ObjectId, Set<string>>();
   const graph = new DependencyGraph();
   const parses = new Map<string, ParseResult>();
+  /** Tracked expressions by key, with their own graph (keys are not cells). */
+  const tracked = new Map<string, Tracked>();
+  const trackedGraph = new DependencyGraph();
   const counters: EngineStats = { evaluations: 0, attempts: 0, reads: 0, parses: 0 };
 
   const forget = (id: ObjectId, cell: string) => {
@@ -134,7 +176,39 @@ export function createEngine(host: EvalHost, options: EngineOptions = {}): Engin
     },
   };
 
-  return {
+  /**
+   * Marks dirty and returns the tracked keys that read a changed cell, the
+   * index or an existence, or any cell of a created or deleted object, as
+   * `changes` describe them, or a cell in `dirtied`.
+   */
+  const invalidateTracked = (changes: readonly Change[], dirtied: readonly CellKey[]): string[] => {
+    const out: string[] = [];
+    const dirtyAll = (keys: readonly CellKey[]) => {
+      for (const k of keys) {
+        const t = tracked.get(k);
+        if (t === undefined || t.dirty) continue;
+        t.dirty = true;
+        out.push(k);
+      }
+    };
+    for (const change of changes) {
+      if (change.type === "cell") {
+        dirtyAll(trackedGraph.readersOfCell(change.object, change.cell));
+        if (INDEX_CELLS.has(change.cell)) dirtyAll(trackedGraph.readersOfIndex());
+        continue;
+      }
+      dirtyAll(trackedGraph.readersOfIndex());
+      dirtyAll(trackedGraph.readersOfExists(change.object));
+      dirtyAll(trackedGraph.readersOfAnyCell(change.object));
+    }
+    for (const key of dirtied) {
+      const sep = key.indexOf(":");
+      dirtyAll(trackedGraph.readersOfCell(key.slice(0, sep), key.slice(sep + 1)));
+    }
+    return out;
+  };
+
+  const engine: Engine = {
     value(id, cell) {
       if (!host.exists(id)) return err("#REF", `reference to deleted object ${id}`);
       const content = host.cell(id, cell);
@@ -153,7 +227,28 @@ export function createEngine(host: EvalHost, options: EngineOptions = {}): Engin
       return evaluateAdhoc(ctx, source, adhoc);
     },
 
+    evaluateTracked(key, source, adhoc) {
+      const t = tracked.get(key);
+      if (t !== undefined && !t.dirty && t.source === source && t.thisId === adhoc.thisId) {
+        return t.result;
+      }
+      const { result, deps } = evaluateRecorded(ctx, source, adhoc);
+      tracked.set(key, { result, dirty: false, source, thisId: adhoc.thisId });
+      // The graph is typed by cell keys; tracked keys only live in their own graph.
+      trackedGraph.set(key as CellKey, deps);
+      return result;
+    },
+
+    dropTracked(key) {
+      tracked.delete(key);
+      trackedGraph.delete(key as CellKey);
+    },
+
     invalidate(changes) {
+      return engine.invalidateAll(changes).cells;
+    },
+
+    invalidateAll(changes) {
       const dirtied: CellKey[] = [];
       const work: CellKey[] = [];
       const dirty = (key: CellKey) => {
@@ -188,7 +283,7 @@ export function createEngine(host: EvalHost, options: EngineOptions = {}): Engin
         const sep = key.indexOf(":");
         dirtyAll(graph.readersOfCell(key.slice(0, sep), key.slice(sep + 1)));
       }
-      return dirtied;
+      return { cells: dirtied, tracked: invalidateTracked(changes, dirtied) };
     },
 
     dependenciesOf(id, cell) {
@@ -199,4 +294,5 @@ export function createEngine(host: EvalHost, options: EngineOptions = {}): Engin
       return { ...counters };
     },
   };
+  return engine;
 }

@@ -117,21 +117,43 @@ interface Reduction {
 }
 
 /**
+ * How an object view's `when` guards and `show_when`s are evaluated
+ * (vtt-qf5.25): as tracked engine expressions under the key `key` returns
+ * for the object and a part naming the expression within it (`when:<i>`
+ * for the i-th action, `full:<i>` and `collapsed:<i>` for face elements),
+ * so `engine.invalidateAll` reports when their results may change.
+ */
+export interface GuardTracking {
+  key(object: ObjectId, part: string): string;
+}
+
+/**
  * Builds views for one viewer from one Table. Meant for one build pass at
  * one revision: `canSeeObject` and `canSeeCell` are memoized, and the memo
- * is dropped if the store's revision moves on.
+ * is dropped if the store's revision moves on. Guards and show-whens are
+ * evaluated ad hoc, or as tracked expressions when `tracking` is given
+ * (the subscription hub's); the results are the same.
  */
 export class ViewBuilder {
   readonly table: Table;
   readonly viewer: Viewer;
+  readonly #tracking: GuardTracking | undefined;
   #revision: number;
   #objects = new Map<ObjectId, boolean>();
   #cells = new Map<ObjectId, Map<string, boolean>>();
 
-  constructor(table: Table, viewer: Viewer) {
+  constructor(table: Table, viewer: Viewer, tracking?: GuardTracking) {
     this.table = table;
     this.viewer = viewer;
+    this.#tracking = tracking;
     this.#revision = table.store.revision;
+  }
+
+  /** A guard or show-when's result on `id`: tracked under `part` when tracking. */
+  #condition(id: ObjectId, part: string, source: string): Result {
+    const engine = this.table.engine;
+    if (this.#tracking === undefined) return engine.evaluate(source, { thisId: id });
+    return engine.evaluateTracked(this.#tracking.key(id, part), source, { thisId: id });
   }
 
   get #gm(): boolean {
@@ -194,7 +216,7 @@ export class ViewBuilder {
       is_character: o.is_character,
       cells: out,
       actions: o.actions.map((a) => this.#action(a)),
-      action_states: o.actions.map((a) => this.#actionState(id, a)),
+      action_states: o.actions.map((a, i) => this.#actionState(id, a, i)),
     };
     if (cells === "all" && o.face !== undefined) view.face = this.#liveFace(o, o.face);
     if (this.#gm) {
@@ -276,9 +298,9 @@ export class ViewBuilder {
    * evaluated on the object; only boolean `true` enables), `reason` only
    * when not enabled.
    */
-  #actionState(id: ObjectId, a: DeepReadonly<ActionDef>): ActionStateView {
+  #actionState(id: ObjectId, a: DeepReadonly<ActionDef>, index: number): ActionStateView {
     if (a.when === undefined) return { name: a.name, enabled: true };
-    const guard = this.table.engine.evaluate(a.when, { thisId: id });
+    const guard = this.#condition(id, `when:${index}`, a.when);
     if (guard.type === "boolean" && guard.value) return { name: a.name, enabled: true };
     return {
       name: a.name,
@@ -301,10 +323,13 @@ export class ViewBuilder {
   #liveFace(o: DeepReadonly<TableObject>, face: DeepReadonly<FaceLayout>): FaceView {
     const gm = this.#gm;
     const actions = new Set(o.actions.map((a) => a.name));
-    const list = (elements: readonly DeepReadonly<FaceElement>[]): FaceElementView[] => {
+    const list = (
+      which: "full" | "collapsed",
+      elements: readonly DeepReadonly<FaceElement>[],
+    ): FaceElementView[] => {
       const out: FaceElementView[] = [];
       elements.forEach((e, index) => {
-        const hidden = this.#hiddenReason(o.id, e, actions);
+        const hidden = this.#hiddenReason(o.id, `${which}:${index}`, e, actions);
         if (!gm) {
           if (hidden !== null) return;
           if ((e.type === "value" || e.type === "editor") && !this.canSeeCell(o.id, e.cell)) return;
@@ -320,8 +345,8 @@ export class ViewBuilder {
       });
       return out;
     };
-    const out: FaceView = { elements: list(face.elements) };
-    if (face.collapsed !== undefined) out.collapsed = list(face.collapsed);
+    const out: FaceView = { elements: list("full", face.elements) };
+    if (face.collapsed !== undefined) out.collapsed = list("collapsed", face.collapsed);
     if (face.default_action !== undefined && (gm || actions.has(face.default_action))) {
       out.default_action = face.default_action;
     }
@@ -331,11 +356,12 @@ export class ViewBuilder {
   /** Why a face element is not shown, or null when it is. */
   #hiddenReason(
     id: ObjectId,
+    part: string,
     e: DeepReadonly<FaceElement>,
     actions: ReadonlySet<string>,
   ): Pick<FaceElementView, "reason" | "error"> | null {
     if (e.show_when !== undefined) {
-      const r = this.table.engine.evaluate(e.show_when, { thisId: id });
+      const r = this.#condition(id, part, e.show_when);
       if (r.type === "error") return { reason: "show_when_error", error: r.code };
       if (r.type !== "boolean" || !r.value) return { reason: "show_when_false" };
     }

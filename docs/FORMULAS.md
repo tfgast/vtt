@@ -427,6 +427,16 @@ candidate set's formula-valued `shape` case never arises.) Its rules:
   what the changed subscribed views need (their cells, those cells'
   dependencies, and the visibility and geometry inputs of those views) and
   sends the views that changed; every other dirty cell stays dirty until read.
+- **Tracked expressions.** A formula that is not a cell, such as an action's
+  `when` guard or a face element's show-when, can be evaluated as a tracked
+  expression under a key the authority chooses (`evaluateTracked`). Its
+  dependencies are recorded as a cell's are, its result is cached by key, and
+  a commit marks it dirty by the same rules, including through the cells it
+  read; invalidation reports the newly dirty keys beside the newly dirty
+  cells. A tracked expression is not a cell: no formula can read it, and it
+  never appears in a view or a file. The authority uses them to re-view an
+  object for its guards and show-whens only when something they read may
+  have changed (M6-D38).
 - **Viewer-independent.** Queries and formulas see the whole document. What a
   viewer may *see* is applied afterwards, to presentation. `contents()` never
   filters by visibility.
