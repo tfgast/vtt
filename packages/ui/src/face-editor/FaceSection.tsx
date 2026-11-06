@@ -448,9 +448,23 @@ function FaceEditor({ object, view, session, readOnly }: FaceEditorProps) {
     const baseRevision = writer.now();
     const element = blankElement(kind, view, tab);
     if (element === null) return;
-    writer.edit((f) => addElement(f, tab, element), baseRevision, { structural: true });
-    // Appended: the new element is at the end of the list as shown now.
-    setFresh({ list: tab, index: list.length, focused: false });
+    const target = tab;
+    // The queue builds the add from the acknowledged layout when it sends it,
+    // so the new element's index is that layout's length then, not the
+    // length shown at the click: two Adds before the first acknowledgement
+    // each reveal their own row (vtt-qf5.63). The row is marked once the
+    // mirror shows it.
+    writer.edit(
+      (f) => {
+        const result = addElement(f, target, element);
+        if (result.ok) {
+          setFresh({ list: target, index: faceListOf(f, target).length, focused: false });
+        }
+        return result;
+      },
+      baseRevision,
+      { structural: true },
+    );
   };
   const hasContents = list.some((e) => e.type === "contents");
   const actions = view.actions.map((a) => a.name);
