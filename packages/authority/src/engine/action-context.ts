@@ -29,10 +29,11 @@
  * §6 computed by brute force (the spatial index reflects only committed
  * state). Candidate geometry is then read by the evaluator through `read`.
  *
- * Each read consults `tx.changes()`, which copies the summary so far; a
- * context is meant for one action's handful of steps.
+ * Rules 2 and 3 ask the transaction (`tx.hasCreated`, `tx.hasChanged`)
+ * rather than building `tx.changes()`, which copies the summary so far, so
+ * a read costs the same however much the transaction has changed.
  */
-import { cellKey, type EvalEnv, validateRefs } from "@vtt/formula";
+import { type EvalEnv, validateRefs } from "@vtt/formula";
 import {
   type Bounds,
   boundsIntersect,
@@ -67,8 +68,7 @@ export class ActionContext implements EvalEnv {
   read(id: ObjectId, cell: string): Result | undefined {
     if (!this.#exists(id)) return err("#REF", `reference to deleted object ${id}`);
     const exists = (o: ObjectId) => this.#exists(o);
-    const changes = this.#tx.changes();
-    if (changes.created.includes(id) || changes.changedCells.includes(cellKey(id, cell))) {
+    if (this.#tx.hasCreated(id) || this.#tx.hasChanged(id, cell)) {
       const content = workingContent(this.#tx.doc, id, cell);
       return content === undefined ? undefined : validateRefs(content, exists);
     }
