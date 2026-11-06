@@ -84,7 +84,9 @@ function gate() {
   return { promise, open };
 }
 
-async function setup(options: { holdUpload?: Promise<void> } = {}) {
+async function setup(
+  options: { holdUpload?: Promise<void>; measured?: { width: number; height: number } } = {},
+) {
   // The asset handler needs the host, which the helper creates: route through a late binding.
   let assets: HttpHandler | null = null;
   const authority: TestAuthority = await startAuthority({
@@ -106,7 +108,7 @@ async function setup(options: { holdUpload?: Promise<void> } = {}) {
     uploads.started++;
     const { path } = await uploadAsset(file, { token: authority.token, base });
     if (options.holdUpload !== undefined) await options.holdUpload;
-    return { path, ...MEASURED };
+    return { path, ...(options.measured ?? MEASURED) };
   };
   const picked: { file: File | null } = { file: null };
   const toolContext = createToolContext(session, ui, {
@@ -367,5 +369,50 @@ describe("zone tools", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(c.authority.host.revision).toBe(before);
     expect(c.createdOn(GM_BOARD)).toEqual([]);
+  });
+});
+
+describe("creation with Snap (M6-D13, vtt-nb8.34)", () => {
+  test("a zone dragged off the grid is stored on half units with Snap on", async () => {
+    const c = await setup();
+    expect(c.ui.getState().snap).toBe(true);
+    c.ui.setTool("zone-rect");
+    act(() => {
+      c.runtime.dispatch(ptr("pointer_down", [0.1, -0.2]));
+      c.runtime.dispatch(ptr("pointer_move", [2.4, 1.1]));
+      c.runtime.dispatch(ptr("pointer_up", [3.3, 2.2]));
+    });
+    await until(() => c.createdOn(GM_BOARD).length === 1, "the zone");
+    const [id] = c.createdOn(GM_BOARD) as [string];
+    // Corners (0, 0) and (3.5, 2).
+    expect(c.object(id)?.shape).toEqual({ type: "rect", width: 3.5, height: 2 });
+    expect(c.position(id)).toEqual([1.75, 1]);
+  });
+
+  test("with Snap off the same drag is stored as drawn", async () => {
+    const c = await setup();
+    c.ui.setSnap(false);
+    c.ui.setTool("zone-rect");
+    act(() => {
+      c.runtime.dispatch(ptr("pointer_down", [0.1, -0.2]));
+      c.runtime.dispatch(ptr("pointer_up", [3.3, 2.2]));
+    });
+    await until(() => c.createdOn(GM_BOARD).length === 1, "the zone");
+    const [id] = c.createdOn(GM_BOARD) as [string];
+    const shape = c.object(id)?.shape;
+    if (shape?.type !== "rect") throw new Error("not a rect");
+    expect(shape.width).toBeCloseTo(3.2, 9);
+    expect(shape.height).toBeCloseTo(2.4, 9);
+  });
+
+  test("a 250 × 130 px image keeps its exact size and lands on a half-unit anchor", async () => {
+    const c = await setup({ measured: { width: 250, height: 130 } });
+    c.ui.setTool("image");
+    c.picked.file = png("odd.png");
+    clickAt(c.runtime, [1.3, -0.8]);
+    await until(() => c.createdOn(GM_BOARD).length === 1, "the image object");
+    const [id] = c.createdOn(GM_BOARD) as [string];
+    expect(c.object(id)?.shape).toEqual({ type: "rect", width: 2.5, height: 1.3 });
+    expect(c.position(id)).toEqual([1.5, -1]);
   });
 });

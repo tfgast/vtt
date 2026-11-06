@@ -19,6 +19,9 @@
  *   `set_value rotation` (degrees clockwise; Shift snaps to
  *   `ROTATE_SNAP_DEG`).
  *
+ * With the session's Snap on (`ToolInput.snap`, M6-D13), resize, radius and
+ * vertex drags snap to half units (see `dragHandle`); rotation does not.
+ *
  * Handles live in object-local coordinates (the object's rotation applies).
  * The stamp is captured at the pointer down on a handle; the drag emits
  * `previews`, and the release one write with that stamp and previews held by
@@ -40,7 +43,7 @@ import { type Camera, cameraScale, toScreen, type ViewportSize } from "../scene/
 import { polygonProblem } from "../scene/polygon";
 import type { DrawItem, ScenePreview } from "../scene/scene";
 import type { InteractionStamp, Previews } from "./contracts";
-import type { Effect } from "./effects";
+import { type Effect, SNAP_STEP, snapPoint } from "./effects";
 import type { InteractionEvent, PointerInteractionEvent } from "./events";
 import { PRIMARY_BUTTON } from "./machine";
 import type { HandleMark, ToolOverlay } from "./overlays";
@@ -233,12 +236,22 @@ export function handleMarks(handles: readonly Handle[]): HandleMark[] {
 
 /**
  * The geometry after dragging `handle` of `target` from board point `grab`
- * to `point` (`snap`: Shift held, for the rotate handle). The pointer's
+ * to `point` (`snap`: Shift held, for the rotate handle; `grid`: the
+ * session's Snap, M6-D13). The pointer's
  * displacement moves the handle from where it was, so the offset between the
  * press and the handle's center changes nothing (a press without movement is
  * the original geometry). Only what changes is set: `shape` and `position`
  * for a rect, `shape` for a circle or a polygon (not validated here),
  * `rotation` for the rotate handle (the angle swept about the anchor).
+ *
+ * With `grid` on, the dragged handle's board point snaps to the nearest
+ * half unit (`snapPoint`) and the shape is recomputed from it: a rect's edges
+ * stay in its local frame (so an unrotated rect's dragged edge or corner lands
+ * on half units, and a rotated rect follows the snapped point), a polygon's
+ * vertex lands on half units, and a circle's radius is rounded to a multiple
+ * of `SNAP_STEP`. Every size stays at least `HANDLE_MIN_SIZE`. The rotate
+ * handle ignores `grid`, and so does a drag with no displacement (`point`
+ * equal to `grab`), which keeps the original geometry.
  */
 export function dragHandle(
   target: HandleTarget,
@@ -246,6 +259,7 @@ export function dragHandle(
   grab: Point,
   point: Point,
   snap: boolean,
+  grid = false,
 ): ScenePreview {
   const { shape, anchor } = target;
   const r = rotationOf(target.rotation);
@@ -257,7 +271,10 @@ export function dragHandle(
   }
   if (shape === null) return {};
   // Where the handle's center is dragged to.
-  const moved = add(handle.at, sub(point, grab));
+  const raw = add(handle.at, sub(point, grab));
+  // No displacement is the original geometry, even off the grid.
+  const snapping = grid && (point[0] !== grab[0] || point[1] !== grab[1]);
+  const moved = grip.type === "radius" ? raw : snapPoint(raw, snapping);
   if (grip.type === "resize" && shape.type === "rect") {
     const { sx, sy } = grip;
     // The fixed point: the opposite corner, or the middle of the opposite edge.
@@ -269,10 +286,9 @@ export function dragHandle(
     return { shape: { type: "rect", width, height }, position: tidyPoint(position) };
   }
   if (grip.type === "radius" && shape.type === "circle") {
-    const radius = Math.max(
-      HANDLE_MIN_SIZE,
-      tidy(Math.hypot(moved[0] - anchor[0], moved[1] - anchor[1])),
-    );
+    const length = Math.hypot(moved[0] - anchor[0], moved[1] - anchor[1]);
+    const snapped = snapping ? Math.round(length / SNAP_STEP) * SNAP_STEP : length;
+    const radius = Math.max(HANDLE_MIN_SIZE, tidy(snapped));
     return { shape: { type: "circle", radius } };
   }
   if (grip.type === "vertex" && shape.type === "polygon") {
@@ -689,6 +705,7 @@ export function withHandles<TPhase, K extends ToolId>(
           drag.grab,
           event.board,
           event.modifiers.shift,
+          input.snap === true,
         );
         const next = withPhase(state, { drag: { ...drag, preview } });
         const { pending } = plain(state).phase;
@@ -711,6 +728,7 @@ export function withHandles<TPhase, K extends ToolId>(
           drag.grab,
           event.board,
           event.modifiers.shift,
+          input.snap === true,
         );
         const ended = withPhase(state, { drag: null });
         const { pending } = plain(state).phase;

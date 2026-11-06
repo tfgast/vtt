@@ -194,8 +194,9 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 4. Draw a zone exactly over each room, dragging from its top-left corner to
    its bottom-right corner. Drawing a zone selects it and switches back to
    the select tool, so press R again before each room (or hold Shift as you
-   start the drag, which keeps the zone tool). Check that Fog is still
-   checked each time:
+   start the drag, which keeps the zone tool). With Snap on (the default),
+   both corners snap to the nearest half unit, so a corner dropped near a
+   room's corner lands on it. Check that Fog is still checked each time:
 
 | Room | Name on the map | Top-left | Size |
 |---|---|---|---|

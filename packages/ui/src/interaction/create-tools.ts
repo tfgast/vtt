@@ -19,6 +19,14 @@
  * only: a press, a drag, a polygon draft, a file picker not yet answered. A
  * started upload always finishes on its stamped board (review r3 finding 1).
  * No `z` is written: the authority puts a created object on top.
+ *
+ * With the session's Snap on (`ToolInput.snap`, M6-D13), creation snaps to
+ * half units (`snapPoint`): a token, card or note's anchor, a rect zone's two dragged
+ * corners (a click's center), a circle zone's center and its radius (a
+ * multiple of `SNAP_STEP`), each polygon vertex (and the drawn cursor), and
+ * an image's anchor (its size stays the import's). Sizes below
+ * `MIN_ZONE_SIZE` are clamped to it from the first corner or the center, as
+ * without Snap. Previews show the snapped geometry.
  */
 import type { ObjectInit, WireOp } from "@vtt/protocol";
 import type { Point, Shape } from "@vtt/schema";
@@ -26,7 +34,7 @@ import { cameraScale } from "../scene/camera";
 import { HIT_SLOP_PX } from "../scene/hit-test";
 import { normalizePolygon, polygonProblem } from "../scene/polygon";
 import type { InteractionStamp } from "./contracts";
-import type { Continuation, Effect } from "./effects";
+import { type Continuation, type Effect, SNAP_STEP, snapPoint } from "./effects";
 import type { InteractionEvent } from "./events";
 import { PRIMARY_BUTTON } from "./machine";
 import type { ToolOverlay } from "./overlays";
@@ -201,7 +209,7 @@ function placeTool<K extends "token" | "card" | "note">(spec: PlaceSpec<K>): Too
       if (isPrimaryDown(event) && press === null) {
         const stamp = captureStamp(input);
         if (stamp === null) return { state, effects: [] };
-        const at = event.board;
+        const at = snapPoint(event.board, input.snap === true);
         return {
           state: {
             ...state,
@@ -289,28 +297,36 @@ function span(from: number, to: number): [number, number] {
   return [Math.min(from, end), Math.max(from, end)];
 }
 
-function rectGeometry(drag: ZoneDrag): { anchor: Point; shape: Shape } {
-  if (!drag.dragged) return { anchor: drag.origin, shape: { type: "rect", width: 2, height: 2 } };
-  const [minX, maxX] = span(drag.origin[0], drag.current[0]);
-  const [minY, maxY] = span(drag.origin[1], drag.current[1]);
+/** A zone's geometry from its drag, snapped to half units when `snap` is on. */
+type ZoneGeometry = (drag: ZoneDrag, snap: boolean) => { anchor: Point; shape: Shape };
+
+function rectGeometry(drag: ZoneDrag, snap: boolean): { anchor: Point; shape: Shape } {
+  const origin = snapPoint(drag.origin, snap);
+  if (!drag.dragged) return { anchor: origin, shape: { type: "rect", width: 2, height: 2 } };
+  const current = snapPoint(drag.current, snap);
+  const [minX, maxX] = span(origin[0], current[0]);
+  const [minY, maxY] = span(origin[1], current[1]);
   return {
     anchor: [(minX + maxX) / 2, (minY + maxY) / 2],
     shape: { type: "rect", width: maxX - minX, height: maxY - minY },
   };
 }
 
-function circleGeometry(drag: ZoneDrag): { anchor: Point; shape: Shape } {
-  if (!drag.dragged) return { anchor: drag.origin, shape: { type: "circle", radius: 1 } };
-  const radius = Math.max(distance(drag.origin, drag.current), MIN_ZONE_SIZE);
-  return { anchor: drag.origin, shape: { type: "circle", radius } };
+function circleGeometry(drag: ZoneDrag, snap: boolean): { anchor: Point; shape: Shape } {
+  const center = snapPoint(drag.origin, snap);
+  if (!drag.dragged) return { anchor: center, shape: { type: "circle", radius: 1 } };
+  const length = distance(center, drag.current);
+  const snapped = snap ? Math.round(length / SNAP_STEP) * SNAP_STEP : length;
+  const radius = Math.max(snapped, MIN_ZONE_SIZE);
+  return { anchor: center, shape: { type: "circle", radius } };
 }
 
 function zoneDragTool<K extends "zone-rect" | "zone-circle">(
   id: K,
-  geometry: (drag: ZoneDrag) => { anchor: Point; shape: Shape },
+  geometry: ZoneGeometry,
 ): Tool<ZoneDragPhase, K> {
-  const preview = (drag: ZoneDrag): Effect => {
-    const { anchor, shape } = geometry(drag);
+  const preview = (drag: ZoneDrag, input: ToolInput): Effect => {
+    const { anchor, shape } = geometry(drag, input.snap === true);
     return overlays([{ kind: "creation_preview", anchor, shape, zone: true }]);
   };
   const idle = (state: ToolState<ZoneDragPhase, K>): ToolResult<ZoneDragPhase, K> => ({
@@ -341,7 +357,7 @@ function zoneDragTool<K extends "zone-rect" | "zone-circle">(
           current: event.board,
           dragged: false,
         };
-        return { state: { ...state, phase: { drag: next } }, effects: [preview(next)] };
+        return { state: { ...state, phase: { drag: next } }, effects: [preview(next, input)] };
       }
       if (drag === null || !("pointerId" in event) || event.pointerId !== drag.pointerId) {
         return { state, effects: [] };
@@ -349,11 +365,11 @@ function zoneDragTool<K extends "zone-rect" | "zone-circle">(
       switch (event.type) {
         case "pointer_move": {
           const next = moved(drag, event.board, input);
-          return { state: { ...state, phase: { drag: next } }, effects: [preview(next)] };
+          return { state: { ...state, phase: { drag: next } }, effects: [preview(next, input)] };
         }
         case "pointer_up": {
           const final = moved(drag, event.board, input);
-          const { anchor, shape } = geometry(final);
+          const { anchor, shape } = geometry(final, input.snap === true);
           const options = state.options as ZoneToolOptions;
           return {
             state: { ...state, phase: { drag: null } },
@@ -456,7 +472,7 @@ export function createZonePolygonTool(): Tool<PolygonPhase, "zone-polygon"> {
       switch (event.type) {
         case "pointer_down": {
           if (event.button !== PRIMARY_BUTTON) return { state, effects: [] };
-          const point = event.board;
+          const point = snapPoint(event.board, input.snap === true);
           if (draft === null) {
             const stamp = captureStamp(input);
             if (stamp === null) return { state, effects: [] };
@@ -490,7 +506,7 @@ export function createZonePolygonTool(): Tool<PolygonPhase, "zone-polygon"> {
         }
         case "pointer_move": {
           if (draft === null) return { state, effects: [] };
-          const next = { ...draft, cursor: event.board };
+          const next = { ...draft, cursor: snapPoint(event.board, input.snap === true) };
           return {
             state: { ...state, phase: { draft: next } },
             effects: [draftOverlay(next, input)],
@@ -642,7 +658,7 @@ export function createImageTool(): Tool<ImagePhase, "image"> {
           const entry: PendingImage = {
             stamp: press.stamp,
             shift: press.shift,
-            at: press.at,
+            at: snapPoint(press.at, input.snap === true),
             step: "picking",
             name: "Image",
             cancelled: false,
@@ -674,7 +690,7 @@ export function createImageTool(): Tool<ImagePhase, "image"> {
           const entry: PendingImage = {
             stamp,
             shift: false,
-            at: event.board,
+            at: snapPoint(event.board, input.snap === true),
             step: "uploading",
             name: fileStem(file.name),
             cancelled: false,
