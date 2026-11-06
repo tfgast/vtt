@@ -628,6 +628,11 @@ by setting its `pattern` cell to `"hatch"`.
 The inspector's row for a cell named `image` offers Upload…: it imports a
 PNG, JPEG, WebP or GIF through `POST /assets` and writes the returned path
 into the cell (one `set_value`, the revision captured at the click).
+An image file of those types dropped from the operating system onto an
+object on the canvas does the same for that object's `image` cell, the
+revision captured at the drop; a formula there is never replaced (a notice
+says so). Dropped onto empty board space, it becomes an image object, as the
+image tool imports one, anchored at the drop point.
 
 An appearance cell the viewer cannot read, or whose value is of the wrong
 kind (an error, a `color` that is not text), is simply not drawn. Drawing

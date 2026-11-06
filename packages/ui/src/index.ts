@@ -6,6 +6,7 @@ export * from "./app/keybindings";
 export * from "./app/Notices";
 export * from "./app/StatusBar";
 export * from "./app/Toolbar";
+export * from "./assets/file-drop";
 export * from "./assets/image-cell";
 export * from "./assets/upload";
 export * from "./binder/binder-policy";
