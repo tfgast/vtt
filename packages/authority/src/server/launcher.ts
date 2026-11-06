@@ -1,9 +1,10 @@
 /**
  * The `pnpm start <file>` launcher (DESIGN.md §7 Platform; PROTOCOL.md §2;
- * M6-D5): build the UI only when its build is missing or stale, then run
- * `vtt-serve <file> … --open` and wait for it. `bin/start.ts` wires this to
- * real processes; everything here takes its paths from a `repoRoot` argument
- * and its processes as functions, so it is testable on a temp tree.
+ * M6-D5, M6-D23): build the UI only when its build is missing or stale, then
+ * run `vtt-serve <file> … --open` (`--open` left off given `--no-open`) and
+ * wait for it. `bin/start.ts` wires this to real processes; everything here
+ * takes its paths from a `repoRoot` argument and its processes as functions,
+ * so it is testable on a temp tree.
  *
  * Build freshness: `packages/ui/dist/.inputs.json` records the sha256 of every
  * build input, taken before the build started, and every file the build wrote.
@@ -154,7 +155,7 @@ export async function uiBuildIsStale(repoRoot: string): Promise<boolean> {
 
 // --------------------------------------------------------------- arguments
 
-export const START_USAGE = "usage: pnpm start <file> [--no-build] [vtt-serve flags…]";
+export const START_USAGE = "usage: pnpm start <file> [--no-build] [--no-open] [vtt-serve flags…]";
 
 export class StartUsageError extends Error {
   constructor(message = START_USAGE) {
@@ -170,16 +171,19 @@ export interface StartArgs {
   forward: string[];
   /** False with `--no-build` or a forwarded `--ui-dir` (a custom UI is served as given). */
   build: boolean;
+  /** False with `--no-open`: vtt-serve runs without `--open`, so no browser tab opens (M6-D23). */
+  open: boolean;
 }
 
 /** Parses `pnpm start`'s arguments; throws `StartUsageError` with `START_USAGE`. */
 export function parseStartArgs(argv: readonly string[]): StartArgs {
-  const rest = argv.filter((a) => a !== "--no-build");
-  const noBuild = rest.length !== argv.length;
+  const noBuild = argv.includes("--no-build");
+  const noOpen = argv.includes("--no-open");
+  const rest = argv.filter((a) => a !== "--no-build" && a !== "--no-open");
   const [file, ...forward] = rest;
   if (file === undefined || file.startsWith("-")) throw new StartUsageError();
   const customUi = forward.some((a) => a === "--ui-dir" || a.startsWith("--ui-dir="));
-  return { file, forward, build: !noBuild && !customUi };
+  return { file, forward, build: !noBuild && !customUi, open: !noOpen };
 }
 
 // ------------------------------------------------------------------ runStart
@@ -212,7 +216,8 @@ export interface RunStartOptions {
 
 /**
  * `pnpm start`: parse, `mkdir -p` the table file's parent, build the UI when
- * stale (unless skipped), then run `vtt-serve <file> … --open` and resolve
+ * stale (unless skipped), then run `vtt-serve <file> … --open` (`--open`
+ * left off with `--no-open`) and resolve
  * with its exit code. While the child runs the launcher ignores SIGINT (the
  * terminal sends Ctrl+C to the child too) and forwards SIGTERM to it; it
  * never resolves before the child has exited.
@@ -242,7 +247,7 @@ export async function runStart(options: RunStartOptions): Promise<number> {
   }
 
   const signals = options.signals ?? process;
-  const child = options.serve([args.file, ...args.forward, "--open"]);
+  const child = options.serve([args.file, ...args.forward, ...(args.open ? ["--open"] : [])]);
   const onInt = (): void => undefined;
   const onTerm = (): void => child.kill("SIGTERM");
   signals.on("SIGINT", onInt);

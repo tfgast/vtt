@@ -204,11 +204,50 @@ test(
 );
 
 test(
+  "--no-open starts and serves the table without running the browser",
+  async () => {
+    const p = launch([
+      "tables/crypt.table.json",
+      "--no-open",
+      "--port",
+      "0",
+      "--ui-dir",
+      uiDir,
+      "--print-session",
+    ]);
+    await Promise.race([
+      until(() => p.stdout.includes("\n"), "the --print-session line"),
+      p.exited.then(({ code }) => {
+        throw new Error(`the launcher exited (${code}) before listening:\n${p.stderr}`);
+      }),
+    ]);
+    const s = JSON.parse(p.stdout.split("\n")[0] as string) as { url: string; http: string };
+    const res = await fetch(s.http);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<title>quick start</title>");
+    // With --open, vtt-serve spawns $BROWSER before it prints the session
+    // line, so by now any opener has been started; a negative can only be
+    // observed after a grace, so give a stray stub a second to land its record.
+    await new Promise((r) => setTimeout(r, 1_000));
+    expect(record(opened)).toBe("");
+    expect(existsSync(opened)).toBe(false);
+
+    p.child.kill("SIGTERM");
+    expect(await bounded(p.exited, "the launcher's exit")).toEqual({ code: 0, signal: null });
+    expect(existsSync(opened)).toBe(false);
+    expect(p.stderr).not.toMatch(/could not open a browser/);
+  },
+  TEST_MS,
+);
+
+test(
   "a usage error exits 1 with the launcher's usage line",
   async () => {
     const p = launch(["--port", "0"]);
     expect(await bounded(p.exited, "the launcher's exit")).toEqual({ code: 1, signal: null });
-    expect(p.stderr).toContain("usage: pnpm start <file> [--no-build] [vtt-serve flags…]");
+    expect(p.stderr).toContain(
+      "usage: pnpm start <file> [--no-build] [--no-open] [vtt-serve flags…]",
+    );
     expect(existsSync(join(cwd, "tables"))).toBe(false);
   },
   TEST_MS,
