@@ -168,9 +168,10 @@ export type HistoricalInverse =
 function swapped(e: Effect): Effect {
   switch (e.type) {
     case "cell": {
-      // The reversal of an add is a plain write back, not an add (M6-D22).
+      // The reversal of an add or a roll is a plain write back: no `added`
+      // (M6-D22) and cause `edit`, so the log reads it as a set (vtt-qf5.68).
       const { added: _, ...rest } = e;
-      return { ...rest, before: e.after, after: e.before };
+      return { ...rest, before: e.after, after: e.before, cause: "edit" };
     }
     case "cell_visibility":
     case "field":

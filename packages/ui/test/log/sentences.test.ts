@@ -156,6 +156,17 @@ describe("cell effects", () => {
     ).toEqual(["Rolled hidden into Attack.roll"]);
   });
 
+  test("an undo of a roll write reads as a write back (vtt-qf5.68)", () => {
+    // The authority's reversal of a roll write carries cause `edit`.
+    const roll = lit({ type: "roll", expr: "1d20", dice: [14], dropped: [], total: 14 });
+    expect(
+      one(
+        { type: "cell", object: "card", cell: "roll", before: roll, after: n(3), cause: "edit" },
+        { kind: "undo", label: "Undo", undoes: 6 },
+      ),
+    ).toEqual(["Set Attack.roll to 3 (was 14)"]);
+  });
+
   test("a roll value set by an edit reads its total", () => {
     const roll = lit({
       type: "roll",
