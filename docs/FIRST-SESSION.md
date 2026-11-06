@@ -333,7 +333,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 2. With the note selected, press "Move selection to board…" and choose GM.
    The GM board opens with the note on it.
 3. Press D (the ink tool). Write "trap on the third stair" over the note.
-   The walkthrough draws three strokes.
+   The walkthrough draws three strokes. (The pen group beside the tools
+   picks a colour and width; E erases a stroke.)
 4. Press V to go back to the select tool.
 5. Press Ctrl+S (Cmd+S on a Mac).
 6. Open the table file you chose in setup

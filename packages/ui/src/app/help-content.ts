@@ -35,6 +35,7 @@ export const HELP_GESTURES: readonly HelpGesture[] = [
     effect: "expand or collapse it (a template entry makes a working copy)",
   },
   { gesture: "Gear", effect: "edit a template" },
+  { gesture: "Drag with the ink eraser (E)", effect: "erase the whole strokes it crosses" },
   {
     gesture: "Tab or Shift+Tab, one object selected",
     effect: "ring its next or previous face button, field or chevron; Enter or Space presses it",

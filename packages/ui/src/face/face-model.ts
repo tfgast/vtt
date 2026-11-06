@@ -15,8 +15,8 @@ import {
   COLLAPSED_FRAME,
   defaultFaceFrame,
   type ObjectId,
-  type Point,
   type Rect,
+  type Stroke,
 } from "@vtt/schema";
 import { readAppearance } from "../scene/appearance";
 import { type DrawItem, drawItemFor } from "../scene/scene";
@@ -98,10 +98,14 @@ export interface ImagePrimitive extends PrimitiveCommon {
   target: ValueTarget;
 }
 
-/** An ink value, strokes in the object's local units (DESIGN.md §4.6 Ink and text). */
+/**
+ * An ink value, strokes in the object's local units, each a bare point list
+ * or a pen stroke with its colour and width (DESIGN.md §4.6 Ink and text;
+ * M6-D28).
+ */
 export interface InkPrimitive extends PrimitiveCommon {
   kind: "ink";
-  strokes: Point[][];
+  strokes: Stroke[];
   target: ValueTarget | BodyTarget;
 }
 

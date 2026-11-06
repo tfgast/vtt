@@ -12,6 +12,7 @@ import type { Scene } from "../scene/scene";
 import type { InteractionStamp, Viewport } from "./contracts";
 import type { Effect } from "./effects";
 import type { InteractionEvent } from "./events";
+import { DEFAULT_INK_COLOR, DEFAULT_INK_WIDTH } from "./ink-pen";
 
 /** Tool ids: M4's tools, then M5's `layout`, `ink` and `text` (M5 Q1 A1). */
 export const TOOL_IDS = [
@@ -37,6 +38,17 @@ export interface ZoneToolOptions {
   fog: boolean;
 }
 
+/**
+ * The ink tool's pen (M6-D28): `color` from `INK_PALETTE`, `width` (board
+ * units) from `INK_WIDTHS`, and `eraser`, which makes a drag erase the whole
+ * strokes it crosses instead of drawing.
+ */
+export interface InkToolOptions {
+  color: string;
+  width: number;
+  eraser: boolean;
+}
+
 /** Each tool's options, by id. */
 export interface ToolOptionsMap {
   select: NoToolOptions;
@@ -48,7 +60,7 @@ export interface ToolOptionsMap {
   "zone-polygon": ZoneToolOptions;
   image: NoToolOptions;
   layout: NoToolOptions;
-  ink: NoToolOptions;
+  ink: InkToolOptions;
   text: NoToolOptions;
 }
 
@@ -65,7 +77,7 @@ export const DEFAULT_TOOL_OPTIONS: { readonly [K in ToolId]: ToolOptionsMap[K] }
   "zone-polygon": { fog: false },
   image: {},
   layout: {},
-  ink: {},
+  ink: { color: DEFAULT_INK_COLOR, width: DEFAULT_INK_WIDTH, eraser: false },
   text: {},
 };
 

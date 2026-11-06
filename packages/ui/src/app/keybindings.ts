@@ -2,7 +2,8 @@
  * The app's keybindings (vtt-3l6.17; DESIGN.md §7 Undo, §8.1): Ctrl/Cmd+Z
  * undoes the GM's own latest group and Ctrl/Cmd+S saves (its default
  * prevented), both through vtt-3l6.21's `undo` and `save`; the tool keys
- * activate tools (M5, vtt-1xv.23: D ink, W text, L layout); `?` (Shift+/)
+ * activate tools (M5, vtt-1xv.23: D ink, W text, L layout; E the ink
+ * eraser, M6-D28); `?` (Shift+/)
  * toggles the keyboard and gesture help (vtt-nb8.8); `+` (or `=`) and `-`
  * zoom in and out about the viewport centre (M6-D11), so zoom stays on the
  * keyboard now that a plain wheel pans. `KEY_BINDINGS` is the
@@ -17,14 +18,15 @@ import { type Camera, zoomAt } from "../scene/camera";
 import type { TableSession } from "../session/table-session";
 import { save, undo } from "../session/writes";
 import type { UiStore } from "../state/ui-state";
-import { activateTool } from "./Toolbar";
+import { activateInkEraser, activateTool } from "./Toolbar";
 
 export type KeyCommand =
   | { type: "undo" }
   | { type: "save" }
   | { type: "help" }
   | { type: "zoom"; direction: ZoomDirection }
-  | { type: "tool"; tool: ToolId };
+  | { type: "tool"; tool: ToolId }
+  | { type: "eraser" };
 
 export type ZoomDirection = "in" | "out";
 
@@ -79,6 +81,7 @@ export const KEY_BINDINGS: readonly KeyBinding[] = [
   toolBinding("d", "ink", "Ink tool"),
   toolBinding("w", "text", "Text tool"),
   toolBinding("l", "layout", "Layout tool"),
+  { keys: "E", label: "Ink eraser", key: "e", mod: false, command: { type: "eraser" } },
   { keys: "Ctrl/Cmd+Z", label: "Undo", key: "z", mod: true, command: { type: "undo" } },
   { keys: "Ctrl/Cmd+S", label: "Save", key: "s", mod: true, command: { type: "save" } },
   zoomBinding("+", "in", "Zoom in"),
@@ -121,6 +124,8 @@ export interface KeyActions {
   save(): void;
   help(): void;
   tool(id: ToolId): void;
+  /** Activates the ink tool as the eraser; a binder without it leaves E alone. */
+  eraser?(): void;
   /** Zooms the camera; a binder without it leaves the zoom keys alone. */
   zoom?(direction: ZoomDirection): void;
 }
@@ -185,6 +190,8 @@ export function bindKeybindings(
       if (actions.zoom === undefined) return;
       e.preventDefault();
       actions.zoom(command.direction);
+    } else if (command.type === "eraser") {
+      actions.eraser?.();
     } else {
       actions.tool(command.tool);
     }
@@ -207,6 +214,7 @@ export function appKeyActions(
     save: () => void save(session),
     help: toggleHelp,
     tool: (id) => activateTool(ui, id),
+    eraser: () => activateInkEraser(ui),
     zoom: (direction) => {
       const { camera, viewport } = ui.getState();
       ui.setCamera(zoomStep(camera, viewport, direction));

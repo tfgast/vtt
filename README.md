@@ -88,6 +88,7 @@ fires while you are typing in a text field.
 | `D` | Ink tool |
 | `W` | Text tool |
 | `L` | Layout tool |
+| `E` | Ink eraser |
 | `Ctrl/Cmd+Z` | Undo |
 | `Ctrl/Cmd+S` | Save |
 | `+` | Zoom in |
@@ -116,6 +117,7 @@ viewing as a character; it never reverses the agent's work.
 | Click an editor field | edit it |
 | Chevron on a list entry | expand or collapse it (a template entry makes a working copy) |
 | Gear | edit a template |
+| Drag with the ink eraser (E) | erase the whole strokes it crosses |
 | Tab or Shift+Tab, one object selected | ring its next or previous face button, field or chevron; Enter or Space presses it |
 | Drag a cell row from the inspector onto an object (layout mode) | show the cell on the face |
 | Delete | remove the selection |

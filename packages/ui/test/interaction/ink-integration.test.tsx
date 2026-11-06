@@ -10,7 +10,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { WireOp } from "@vtt/protocol";
-import type { Point, TableObject } from "@vtt/schema";
+import type { Point, Stroke, TableObject } from "@vtt/schema";
 import {
   BoardCanvas,
   buildFaceScene,
@@ -38,6 +38,7 @@ import {
   type TableSession,
   ToolRegistry,
   type UiStore,
+  undo,
   useInteraction,
 } from "@vtt/ui";
 import { useMemo, useSyncExternalStore } from "react";
@@ -373,6 +374,119 @@ describe("ink tool", () => {
       ((transacts[0] as unknown[])[1] as { base_revision: number }).base_revision,
     ).toBeLessThan(revision);
     expect(c.content("note", "ink")).toEqual(theirs);
+  });
+});
+
+describe("ink pen and eraser (vtt-qf5.27, M6-D28)", () => {
+  /** The note, unrotated at (-2, -1), with three strokes: two horizontal (one red, wide) and one far. */
+  async function seedStrokes(c: Awaited<ReturnType<typeof setup>>) {
+    const strokes: Stroke[] = [
+      [
+        [-0.5, 0],
+        [0.5, 0],
+      ],
+      {
+        points: [
+          [-0.5, 0.4],
+          [0.5, 0.4],
+        ],
+        color: "#d32f2f",
+        width: 0.16,
+      },
+      [
+        [-0.5, -0.8],
+        [0.5, -0.8],
+      ],
+    ];
+    await c.gm.transact(
+      [
+        {
+          type: "create_object",
+          id: "pad",
+          to: { type: "board", board: BOARD, position: [-2, -1] },
+          init: {
+            shape: { type: "rect", width: 2, height: 2 },
+            cells: { name: text("Pad"), ink: { type: "ink", strokes } },
+          },
+        },
+      ],
+      { label: "Pad" },
+    );
+    await c.session.whenRevision(c.authority.host.table.store.revision);
+    await until(
+      () => c.session.objectView("pad")?.cells.ink?.value.type === "ink",
+      "the session's view of the pad's ink",
+    );
+    return strokes;
+  }
+
+  test("a stroke drawn with a colour and width reaches the cell with them", async () => {
+    const c = await setup();
+    act(() => c.ui.setTool("ink", { color: "#1e63d6", width: 0.08, eraser: false }));
+    drawStroke(c.canvas, [
+      [2, 1.5],
+      [2, 1.75],
+    ]);
+    await until(() => c.content("note", "ink")?.type === "ink", "the note's ink");
+    const [s] = (c.content("note", "ink") as { strokes: unknown[] }).strokes;
+    expect(s).toMatchObject({ color: "#1e63d6", width: 0.08 });
+    await waitFor(() => {
+      const blue = c.ctx.paints.filter(
+        (p) => p.name === "stroke" && p.style?.strokeStyle === "#1e63d6",
+      );
+      expect(blue.length).toBeGreaterThanOrEqual(1);
+      expect(blue.at(-1)?.style?.lineWidth).toBeCloseTo(0.08);
+    });
+  });
+
+  test("an eraser drag removes the two strokes it crosses in one group; one undo restores both", async () => {
+    const c = await setup();
+    const strokes = await seedStrokes(c);
+    const before = c.authority.host.table.store.revision;
+    act(() => c.ui.setTool("ink", { color: "#202020", width: 0.04, eraser: true }));
+    // Down the pad's middle at x = -2, from local y = -0.3 to 0.6: crosses strokes 0 and 1.
+    drawStroke(c.canvas, [
+      [-2, -1.3],
+      [-2, -0.8],
+      [-2, -0.4],
+    ]);
+    await until(
+      () => (c.content("pad", "ink") as { strokes?: unknown[] } | undefined)?.strokes?.length === 1,
+      "the erase",
+    );
+    expect(c.content("pad", "ink")).toEqual({ type: "ink", strokes: [strokes[2]] });
+    const store = c.authority.host.table.store;
+    expect(store.revision).toBe(before + 1);
+    const groups = store.history.groups();
+    expect(groups.at(-1)?.label).toBe("Erase ink on Pad");
+    expect(c.created("ink")).toEqual([]);
+
+    await c.session.whenRevision(store.revision);
+    await act(async () => {
+      await undo(c.session);
+    });
+    await until(
+      () => (c.content("pad", "ink") as { strokes?: unknown[] } | undefined)?.strokes?.length === 3,
+      "the undo",
+    );
+    expect(c.content("pad", "ink")).toEqual({ type: "ink", strokes });
+  });
+
+  test("an eraser drag crossing nothing writes nothing", async () => {
+    const c = await setup();
+    await seedStrokes(c);
+    const revision = c.authority.host.table.store.revision;
+    act(() => c.ui.setTool("ink", { color: "#202020", width: 0.04, eraser: true }));
+    const request = vi.spyOn(c.session.client, "request");
+    drawStroke(c.canvas, [
+      [-4, 3],
+      [-3, 3.5],
+      [-2, 3],
+    ]);
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(request.mock.calls.filter(([m]) => m === "transact")).toEqual([]);
+    expect(c.authority.host.table.store.revision).toBe(revision);
+    expect(c.created("ink")).toEqual([]);
   });
 });
 

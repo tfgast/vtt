@@ -15,6 +15,8 @@ import {
   type ErrorCode,
   type FormulaContent,
   ID_PATTERN,
+  INK_COLOR_PATTERN,
+  INK_MAX_WIDTH,
   type InkValue,
   type NumberValue,
   type ObjectId,
@@ -90,8 +92,21 @@ export const looseObject = <S extends z.core.$ZodLooseShape>(shape: S) =>
 
 const NonBlank = z.string().regex(/\S/);
 const Point = z.tuple([z.number(), z.number()]);
-const Stroke = z.array(Point).min(1);
-const Strokes = z.array(Stroke).min(1);
+const StrokePoints = z.array(Point).min(1);
+const InkColor = z.string().regex(INK_COLOR_PATTERN);
+const InkWidth = z.number().positive().max(INK_MAX_WIDTH);
+/** An input stroke (M6-D28): a bare point list or a strict pen stroke. */
+const InputStroke = z.union([
+  StrokePoints,
+  z.strictObject({ points: StrokePoints, color: InkColor.optional(), width: InkWidth.optional() }),
+]);
+const InputStrokes = z.array(InputStroke).min(1);
+/** A wire stroke: as input, but a pen stroke's unknown keys are stripped. */
+const WireStroke = z.union([
+  StrokePoints,
+  looseObject({ points: StrokePoints, color: InkColor.optional(), width: InkWidth.optional() }),
+]);
+const WireStrokes = z.array(WireStroke).min(1);
 const ViewerWord = z.enum(["all", "gm", "owner"]);
 
 /** A shape in server-to-client data: unknown keys stripped. */
@@ -156,7 +171,7 @@ const inputScalars = [
     dropped: z.array(z.int()),
     total: z.number(),
   }),
-  z.strictObject({ type: z.literal("ink"), strokes: Strokes }),
+  z.strictObject({ type: z.literal("ink"), strokes: InputStrokes }),
   z.strictObject({ type: z.literal("shape"), shape: ShapeSchema }),
 ] as const;
 
@@ -266,7 +281,7 @@ const wireVariants = [
     dropped: z.array(z.int()),
     total: z.number(),
   }),
-  z.object({ type: z.literal("ink"), strokes: Strokes }),
+  z.object({ type: z.literal("ink"), strokes: WireStrokes }),
   z.object({ type: z.literal("shape"), shape: WireShapeSchema }),
   z.object({
     type: z.literal("list"),
