@@ -165,6 +165,7 @@ describe("events", () => {
       | "file_drop"
       | "data_drop"
       | "settled"
+      | "long_press"
     >();
   });
 
@@ -183,6 +184,8 @@ describe("events", () => {
       button: number;
       buttons: number;
       modifiers: Modifiers;
+      /** The DOM pointerType when known (M6-D40). */
+      pointerType?: string;
       /** Set on a release over a board tab only (vtt-qf5.35). */
       boardTab?: BoardTabDrop;
     }>();
@@ -204,6 +207,8 @@ describe("events", () => {
       screen: Point;
       board: Point;
       modifiers: Modifiers;
+      /** A touch long press (M6-D40). */
+      longPress?: true;
     }>();
     expectTypeOf<Variant<InteractionEvent, "wheel">>().toEqualTypeOf<{
       type: "wheel";
@@ -243,8 +248,18 @@ describe("events", () => {
   });
 
   test("every positional event carries screen and board points", () => {
-    type Positional = Exclude<InteractionEvent, { type: "key_down" | "key_up" | "settled" }>;
+    type Positional = Exclude<
+      InteractionEvent,
+      { type: "key_down" | "key_up" | "settled" | "long_press" }
+    >;
     expectTypeOf<Positional>().toExtend<{ screen: Point; board: Point }>();
+  });
+
+  test("long_press (M6-D40)", () => {
+    expectTypeOf<Variant<InteractionEvent, "long_press">>().toEqualTypeOf<{
+      type: "long_press";
+      pointerId: number;
+    }>();
   });
 
   test("settled and its outcomes", () => {

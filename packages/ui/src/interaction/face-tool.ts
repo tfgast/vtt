@@ -25,6 +25,9 @@
  * - a double-click near the wrapped tool's open Alt+click cycle
  *   (`Tool.doubleClickTarget`) whose target is not the hit's board object →
  *   the wrapped tool, before anything below (vtt-qf5.50, M6-D21);
+ * - a long press (a `double_click` with `longPress`, M6-D40) on an editable
+ *   editor element opens its editor as a click does, since no click
+ *   preceded it; anywhere else it is a double-click;
  * - a double-click on a button, chevron, gear or entry row does nothing more
  *   (each click of a button was one press);
  * - a chevron click → `policy.onToggle`, else the entry toggles and, when it
@@ -500,8 +503,9 @@ export function withFaces<TPhase, K extends ToolId>(
     event: Extract<InteractionEvent, { type: "double_click" }>,
     input: ToolInput,
   ): Result {
-    // The stamp of the double click's first pointer down, else one taken now.
-    const stamp = phaseOf(state).recentDowns[0] ?? captureStamp(input);
+    // The stamp of the double click's first pointer down (a long press's own), else one taken now.
+    const downs = phaseOf(state).recentDowns;
+    const stamp = (event.longPress === true ? downs.at(-1) : downs[0]) ?? captureStamp(input);
     const hit = stamp === null ? null : faceHitAt(facesOf(input), event.board, input.camera);
     if (stamp === null || hit === null) return delegate(state, event, input);
     // An Alt+click cycle near the point picked another board object: it is the wrapped tool's.
@@ -527,8 +531,9 @@ export function withFaces<TPhase, K extends ToolId>(
           { type: "open_editor", stamp, object: hit.object, cell: t.cell, rect: hit.rect },
         ]);
       case "editor":
-        // Its click opened the editor already.
-        return editable(input, view, t.cell) ? done([]) : delegate(state, event, input);
+        if (!editable(input, view, t.cell)) return delegate(state, event, input);
+        // Its click opened the editor already; a long press had no click (M6-D40).
+        return done(event.longPress === true ? clicked(hit, stamp, input) : []);
       case "button":
       // Each click was one press; the double-click adds nothing (M6-D9).
       case "chevron":

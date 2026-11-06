@@ -94,6 +94,10 @@ describe("the tables", () => {
         effect: "pan (over a list that scrolls: scroll it)",
       },
       { gesture: "Ctrl/Cmd+wheel or pinch", effect: "zoom about the pointer" },
+      {
+        gesture: "Two-finger touch drag",
+        effect: "pan; pinching or spreading the fingers zooms about them",
+      },
       { gesture: "Click", effect: "select" },
       { gesture: "Alt+click", effect: "cycle through the objects under the pointer" },
       { gesture: "Drag one template", effect: "drop a copy" },
@@ -107,6 +111,7 @@ describe("the tables", () => {
       { gesture: "Drop on a list", effect: "insert there" },
       { gesture: "Drop a template on a binder", effect: "give that binder a template" },
       { gesture: "Double-click", effect: "run the object's default action, else edit in place" },
+      { gesture: "Long press (touch)", effect: "as a double-click at that point" },
       { gesture: "Click an editor field", effect: "edit it" },
       {
         gesture: "Chevron on a list entry",

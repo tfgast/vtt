@@ -12,6 +12,22 @@
  * - Middle-button drag, or a primary drag started while Space is held →
  *   `camera` effects from `panBy` (the grabbed board point follows the
  *   pointer) until that pointer is up; none of its events reach the tool.
+ * - Touch (`pointerType` "touch", M6-D40; mouse and pen are unaffected): a
+ *   lone touch reaches the tool as any pointer does, and is the long-press
+ *   candidate until it moves more than `LONG_PRESS_SLOP_PX` from where it
+ *   went down; its moves until then do not reach the tool. A second touch cancels the tool as Escape does and starts a
+ *   two-finger gesture: each move of either finger is a `camera` effect from
+ *   `pinchCamera` (the midpoint's movement pans, the distance's change zooms
+ *   about the midpoint, clamped like any zoom). When one lifts, the other
+ *   does nothing until it lifts too (or a finger joins it, resuming the
+ *   gesture). A `long_press` for the candidate (the runtime's timer, after
+ *   `LONG_PRESS_MS`) cancels the tool as Escape does and delivers a
+ *   `double_click` with `longPress` at the press's point (a face field opens
+ *   its editor); the rest of that touch does nothing. A selection the
+ *   touch's press changed is put back when it becomes a two-finger gesture
+ *   or a long press. Escape during a lone touch also ends it: no long press,
+ *   its moves and release consumed.
+ *   A result that cancelled the tool this way says `cancelled`.
  * - Escape → the active tool's `cancel(state, "escape")`. Space and Escape
  *   keys are the machine's, except that a Space key_down with focus on the
  *   canvas (`canvasFocused`) that starts a held Space also reaches the
@@ -29,10 +45,10 @@
  * `setTool`.
  */
 import type { Viewer } from "@vtt/protocol";
-import type { BoardId, Point } from "@vtt/schema";
-import { panBy, zoomAt } from "../scene/camera";
+import type { BoardId, ObjectId, Point } from "@vtt/schema";
+import { type Camera, panBy, type ViewportSize, zoomAt } from "../scene/camera";
 import { type Effect, settlingInteraction } from "./effects";
-import type { InteractionEvent } from "./events";
+import type { InteractionEvent, Modifiers, PointerInteractionEvent } from "./events";
 import type { ToolRegistry } from "./registry";
 import {
   type CancelReason,
@@ -54,6 +70,56 @@ export const MIDDLE_BUTTON = 1;
 /** The zoom factor of one wheel event: `1.1` per 100 px of `deltaY`, up is in. */
 export function wheelZoomFactor(deltaY: number): number {
   return 1.1 ** (-deltaY / 100);
+}
+
+/** How long a still touch is held before it is a long press (M6-D40). */
+export const LONG_PRESS_MS = 500;
+
+/** How far, in screen pixels, a long-press candidate may move and stay one. */
+export const LONG_PRESS_SLOP_PX = 8;
+
+/** A touch pointer down and its last screen point. */
+export interface TouchPoint {
+  pointerId: number;
+  screen: Point;
+}
+
+/** A lone touch that may become a long press: where it went down. */
+export interface LongPressCandidate {
+  pointerId: number;
+  screen: Point;
+  board: Point;
+  modifiers: Modifiers;
+}
+
+/**
+ * The touch pointers down (M6-D40). `mode` is "tool" while one touch
+ * reaches the tool, "pinch" while the first two of `points` drive the
+ * camera, "spent" while the touches left after a pinch or a long press do
+ * nothing, and "none" with no touch down.
+ */
+export interface TouchState {
+  readonly points: readonly TouchPoint[];
+  readonly mode: "none" | "tool" | "pinch" | "spent";
+  readonly press: LongPressCandidate | null;
+  /**
+   * The selection when the first touch went down, restored if the touch's
+   * press changed it and then became a two-finger gesture or a long press.
+   */
+  readonly selectionBefore: readonly ObjectId[] | null;
+}
+
+const NO_TOUCH: TouchState = { points: [], mode: "none", press: null, selectionBefore: null };
+
+function sameIds(a: readonly ObjectId[], b: readonly ObjectId[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
+/** A `select` effect putting back `touch.selectionBefore` when `input`'s selection differs. */
+function restoreSelection(touch: TouchState, input: ReducerInput): Effect[] {
+  const before = touch.selectionBefore;
+  if (before === null || sameIds(before, input.selection)) return [];
+  return [{ type: "select", ids: [...before] }];
 }
 
 /** A pan in progress: the pointer driving it and its last screen point. */
@@ -79,6 +145,8 @@ export interface MachineState {
   /** Space is held (outside text fields). */
   readonly space: boolean;
   readonly pan: PanGesture | null;
+  /** Touch pointers and their gesture (M6-D40). */
+  readonly touch: TouchState;
   /**
    * Per interaction id with stamped effects not yet settled: the tool that
    * emitted them and how many are outstanding. Each `settled` result
@@ -94,6 +162,12 @@ export interface MachineState {
 export interface MachineResult {
   state: MachineState;
   effects: Effect[];
+  /**
+   * The event cancelled the active tool as Escape does (a second touch or a
+   * long press, M6-D40), so the runtime treats the tool's started
+   * interactions as it does on Escape.
+   */
+  cancelled?: true;
 }
 
 function toolOf(registry: ToolRegistry, id: ToolId): Tool {
@@ -150,6 +224,7 @@ export function initMachine(
     viewer: init.viewer,
     space: false,
     pan: null,
+    touch: NO_TOUCH,
     pending: {},
     nextInteraction: 1,
   };
@@ -180,9 +255,21 @@ export function syncInput(
   if (!boardChanged && sameViewer(input.viewer, state.viewer)) return { state, effects: [] };
   const out = cancelActive(state, boardChanged ? "board_change" : "viewer_change", registry);
   return {
-    state: { ...out.state, board: input.activeBoard, viewer: input.viewer, pan: null },
+    state: {
+      ...out.state,
+      board: input.activeBoard,
+      viewer: input.viewer,
+      pan: null,
+      touch: detachedTouch(out.state.touch),
+    },
     effects: out.effects,
   };
+}
+
+/** After a cancel from outside: a touch reaching the tool does nothing more. */
+function detachedTouch(touch: TouchState): TouchState {
+  if (touch.mode !== "tool") return touch;
+  return { ...touch, mode: "spent", press: null };
 }
 
 /**
@@ -207,7 +294,11 @@ export function setTool(
       effects: [],
     };
   }
-  const out = cancelActive(state, "tool_switch", registry);
+  const cancelled = cancelActive(state, "tool_switch", registry);
+  const out = {
+    ...cancelled,
+    state: { ...cancelled.state, touch: detachedTouch(cancelled.state.touch) },
+  };
   const kept = out.state.tools[request.tool];
   const next =
     kept === undefined
@@ -261,6 +352,197 @@ function wheelCamera(event: WheelInteractionEvent, input: ReducerInput): Effect[
   return [{ type: "camera", camera: panBy(input.camera, [-event.deltaX, -event.deltaY]) }];
 }
 
+function distance(a: Point, b: Point): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
+function midpoint(a: Point, b: Point): Point {
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+}
+
+/**
+ * The camera after two fingers move from `before` to `after` (M6-D40): the
+ * board point under the old midpoint follows the midpoint, and the zoom
+ * changes by the ratio of the distances, about the new midpoint (clamped by
+ * `zoomAt`). Fingers on one spot leave the zoom alone.
+ */
+export function pinchCamera(
+  camera: Camera,
+  before: readonly [Point, Point],
+  after: readonly [Point, Point],
+  viewport: ViewportSize,
+): Camera {
+  const m0 = midpoint(before[0], before[1]);
+  const m1 = midpoint(after[0], after[1]);
+  const panned = panBy(camera, [m1[0] - m0[0], m1[1] - m0[1]]);
+  const d0 = distance(before[0], before[1]);
+  const d1 = distance(after[0], after[1]);
+  if (d0 === 0 || d1 === 0 || d0 === d1) return panned;
+  return zoomAt(panned, m1, d1 / d0, viewport);
+}
+
+function isTouch(event: PointerInteractionEvent): boolean {
+  return event.pointerType === "touch";
+}
+
+/** `touch` with pointer `id` at `screen` (added when new). */
+function withPoint(touch: TouchState, id: number, screen: Point): TouchState {
+  const known = touch.points.some((p) => p.pointerId === id);
+  const points = known
+    ? touch.points.map((p) => (p.pointerId === id ? { pointerId: id, screen } : p))
+    : [...touch.points, { pointerId: id, screen }];
+  return { ...touch, points };
+}
+
+/** `touch` without pointer `id`; its mode follows how many touches are left. */
+function withoutPoint(touch: TouchState, id: number): TouchState {
+  const points = touch.points.filter((p) => p.pointerId !== id);
+  const press = touch.press?.pointerId === id ? null : touch.press;
+  if (points.length === 0) return NO_TOUCH;
+  if (touch.mode === "pinch" && points.length === 1)
+    return { ...touch, points, mode: "spent", press };
+  return { ...touch, points, press };
+}
+
+/** The touch branch of `route`, for a pointer event with `pointerType` "touch". */
+function routeTouch(
+  state: MachineState,
+  event: PointerInteractionEvent,
+  input: ReducerInput,
+  registry: ToolRegistry,
+): MachineResult {
+  const touch = state.touch;
+  const id = event.pointerId;
+  const tracked = touch.points.some((p) => p.pointerId === id);
+  const swallow = (next: TouchState): MachineResult => ({
+    state: { ...state, touch: next },
+    effects: [],
+  });
+  switch (event.type) {
+    case "pointer_down": {
+      if (tracked) return { state, effects: [] };
+      if (touch.mode === "none") {
+        const press: LongPressCandidate = {
+          pointerId: id,
+          screen: event.screen,
+          board: event.board,
+          modifiers: event.modifiers,
+        };
+        const next: TouchState = {
+          selectionBefore: [...input.selection],
+          points: [{ pointerId: id, screen: event.screen }],
+          mode: "tool",
+          press,
+        };
+        return deliver({ ...state, touch: next }, state.tool, event, input, registry);
+      }
+      const added = withPoint(touch, id, event.screen);
+      if (touch.mode === "tool") {
+        // A second finger: the first touch's gesture ends with no write, as on Escape,
+        // and a selection its press made is undone.
+        const out = cancelActive(state, "escape", registry);
+        return {
+          state: { ...out.state, touch: { ...added, mode: "pinch", press: null } },
+          effects: [...out.effects, ...restoreSelection(touch, input)],
+          cancelled: true,
+        };
+      }
+      // A finger joining a pinch is tracked; one joining a spent touch resumes the pinch.
+      return swallow(added.points.length >= 2 ? { ...added, mode: "pinch" } : added);
+    }
+    case "pointer_move": {
+      if (!tracked) return deliver(state, state.tool, event, input, registry);
+      const moved = withPoint(touch, id, event.screen);
+      if (touch.mode === "tool") {
+        const press =
+          touch.press !== null && distance(touch.press.screen, event.screen) > LONG_PRESS_SLOP_PX
+            ? null
+            : touch.press;
+        // Jitter within the slop stays off the tool, so a long press never starts a drag.
+        if (press !== null) return swallow({ ...moved, press });
+        return deliver(
+          { ...state, touch: { ...moved, press } },
+          state.tool,
+          event,
+          input,
+          registry,
+        );
+      }
+      if (touch.mode === "pinch") {
+        const [a0, b0] = touch.points;
+        const [a1, b1] = moved.points;
+        if (a0 === undefined || b0 === undefined || a1 === undefined || b1 === undefined) {
+          return swallow(moved);
+        }
+        if (a0.pointerId !== id && b0.pointerId !== id) return swallow(moved);
+        const camera = pinchCamera(
+          input.camera,
+          [a0.screen, b0.screen],
+          [a1.screen, b1.screen],
+          input.viewport,
+        );
+        const same =
+          camera.x === input.camera.x &&
+          camera.y === input.camera.y &&
+          camera.zoom === input.camera.zoom;
+        return {
+          state: { ...state, touch: moved },
+          effects: same ? [] : [{ type: "camera", camera }],
+        };
+      }
+      return swallow(moved);
+    }
+    case "pointer_up":
+    case "pointer_cancel": {
+      if (!tracked) return deliver(state, state.tool, event, input, registry);
+      const next = withoutPoint(touch, id);
+      if (touch.mode === "tool") {
+        return deliver({ ...state, touch: next }, state.tool, event, input, registry);
+      }
+      return swallow(next);
+    }
+  }
+}
+
+/** A `long_press` from the runtime's timer (M6-D40). */
+function longPress(
+  state: MachineState,
+  pointerId: number,
+  input: ReducerInput,
+  registry: ToolRegistry,
+): MachineResult {
+  const press = state.touch.press;
+  if (state.touch.mode !== "tool" || press === null || press.pointerId !== pointerId) {
+    return { state, effects: [] };
+  }
+  const cancelled = cancelActive(state, "escape", registry);
+  const spent: MachineState = {
+    ...cancelled.state,
+    touch: { ...state.touch, mode: "spent", press: null },
+  };
+  const restore = restoreSelection(state.touch, input);
+  const out = deliver(
+    spent,
+    state.tool,
+    {
+      type: "double_click",
+      screen: press.screen,
+      board: press.board,
+      modifiers: press.modifiers,
+      longPress: true,
+    },
+    restore.length === 0
+      ? input
+      : { ...input, selection: [...(state.touch.selectionBefore ?? [])] },
+    registry,
+  );
+  return {
+    state: out.state,
+    effects: [...cancelled.effects, ...restore, ...out.effects],
+    cancelled: true,
+  };
+}
+
 function route(
   state: MachineState,
   event: InteractionEvent,
@@ -297,13 +579,17 @@ function route(
         return { state: held, effects: [] };
       }
       if (event.key === "Escape") {
-        return event.type === "key_down"
-          ? cancelActive(state, "escape", registry)
-          : { state, effects: [] };
+        if (event.type !== "key_down") return { state, effects: [] };
+        // A touch reaching the tool stops there: no long press, its moves and release consumed.
+        const out = cancelActive(state, "escape", registry);
+        return { ...out, state: { ...out.state, touch: detachedTouch(out.state.touch) } };
       }
       return deliver(state, state.tool, event, input, registry);
+    case "long_press":
+      return longPress(state, event.pointerId, input, registry);
     case "pointer_down":
       if (pan !== null && event.pointerId === pan.pointerId) return { state, effects: [] };
+      if (isTouch(event)) return routeTouch(state, event, input, registry);
       if (
         pan === null &&
         (event.button === MIDDLE_BUTTON || (state.space && event.button === PRIMARY_BUTTON))
@@ -322,11 +608,13 @@ function route(
           event.type === "pointer_up" ? null : { pointerId: pan.pointerId, last: event.screen };
         return { state: { ...state, pan: next }, effects };
       }
+      if (isTouch(event)) return routeTouch(state, event, input, registry);
       return deliver(state, state.tool, event, input, registry);
     case "pointer_cancel":
       if (pan !== null && event.pointerId === pan.pointerId) {
         return { state: { ...state, pan: null }, effects: [] };
       }
+      if (isTouch(event)) return routeTouch(state, event, input, registry);
       return deliver(state, state.tool, event, input, registry);
     case "settled": {
       const entry = state.pending[event.interactionId];
@@ -362,7 +650,11 @@ export function reduce(
   const synced = syncInput(state, input, registry);
   if (isKey(event) && event.inTextField) return synced;
   const out = route(synced.state, event, input, registry);
-  return { state: out.state, effects: [...synced.effects, ...out.effects] };
+  return {
+    state: out.state,
+    effects: [...synced.effects, ...out.effects],
+    ...(out.cancelled === true ? { cancelled: true as const } : {}),
+  };
 }
 
 /** The canvas cursor: grabbing while panning, grab while Space is held, else the active tool's. */

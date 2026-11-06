@@ -1259,3 +1259,54 @@ describe("machine wheel routing", () => {
     expect(out.effects.filter((e) => e.type === "camera")).toHaveLength(1);
   });
 });
+
+describe("touch long press over the app's composition (M6-D40)", () => {
+  /** A machine over faces over handles over the select tool, as App.tsx registers it. */
+  function touchRig() {
+    const registry = new ToolRegistry();
+    registry.register(
+      withFaces(withHandles(createSelectTool()), {
+        faceState: createFaceStateStore(),
+        policy: defaultFacePolicy,
+      }),
+    );
+    let state = initMachine(registry, { tool: "select", board: BOARD, viewer: GM });
+    let selection: ObjectId[] = [];
+    let n = 0;
+    const send = (e: InteractionEvent) => {
+      n++;
+      const out = reduce(state, e, { ...input({ selection, revision: 5 + n }) }, registry);
+      state = out.state;
+      for (const x of out.effects) if (x.type === "select") selection = [...x.ids];
+      return out.effects;
+    };
+    const touch = (type: "pointer_down" | "pointer_up", at: Point) =>
+      send({ ...ptr(type, at, 9), pointerType: "touch" } as InteractionEvent);
+    return { send, touch };
+  }
+
+  test("on an editable face field: the field's editor opens, stamped at the touch", () => {
+    const r = touchRig();
+    r.touch("pointer_down", TARGET);
+    const effects = r.send({ type: "long_press", pointerId: 9 });
+    expect(editorsIn(effects)).toEqual([
+      expect.objectContaining({
+        type: "open_editor",
+        object: "card",
+        cell: "target",
+        stamp: expect.objectContaining({ baseRevision: 6 }),
+      }),
+    ]);
+    expect(effects.some((e) => e.type === "select")).toBe(false);
+    expect(r.touch("pointer_up", TARGET)).toEqual([]);
+  });
+
+  test("on an object's body: its default action runs", () => {
+    const r = touchRig();
+    r.touch("pointer_down", BODY);
+    const effects = r.send({ type: "long_press", pointerId: 9 });
+    expect(invokesIn(effects)).toHaveLength(1);
+    expect(editorsIn(effects)).toEqual([]);
+    expect(r.touch("pointer_up", BODY)).toEqual([]);
+  });
+});

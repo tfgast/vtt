@@ -21,6 +21,8 @@ import {
   type Effect,
   type InteractionEvent,
   type InteractionStamp,
+  LONG_PRESS_MS,
+  LONG_PRESS_SLOP_PX,
   type Modifiers,
   type NoticeLevel,
   type Previews,
@@ -38,7 +40,7 @@ import {
   type WriteOptions,
   type WriteOutcome,
 } from "@vtt/ui";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -1173,5 +1175,109 @@ describe("key_handled (vtt-qf5.26)", () => {
     expect(h.runtime.dispatch(pointer("pointer_down", [1, 2]))).toBe(false);
     expect(h.writes).toEqual([]);
     expect(h.notices).toEqual([]);
+  });
+});
+
+describe("long press (M6-D40)", () => {
+  const touch = (
+    type: "pointer_down" | "pointer_move" | "pointer_up",
+    screen: Point,
+    pointerId = 1,
+  ): InteractionEvent => ({
+    type,
+    pointerId,
+    pointerType: "touch",
+    screen,
+    board: [(screen[0] - 400) / 64, (screen[1] - 300) / 64],
+    button: type === "pointer_move" ? -1 : 0,
+    buttons: type === "pointer_up" ? 0 : 1,
+    modifiers: NO_MODS,
+  });
+  const doubleClicks = (h: ReturnType<typeof setup>) =>
+    h.log.flatMap((e) =>
+      e.kind === "event" && e.event.type === "double_click" ? [e.event.screen] : [],
+    );
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("a touch held LONG_PRESS_MS cancels the tool and double-clicks at its point", () => {
+    vi.useFakeTimers();
+    const h = setup();
+    h.runtime.dispatch(touch("pointer_down", [464, 364]));
+    h.runtime.dispatch(touch("pointer_move", [467, 360]));
+    vi.advanceTimersByTime(LONG_PRESS_MS - 1);
+    expect(doubleClicks(h)).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(h.cancelsOf("token")).toEqual(["escape"]);
+    expect(doubleClicks(h)).toEqual([[464, 364]]);
+    // The release is consumed: no write.
+    h.runtime.dispatch(touch("pointer_up", [467, 360]));
+    expect(h.writes).toEqual([]);
+  });
+
+  test("a release before the timer is a plain tap; the timer then does nothing", () => {
+    vi.useFakeTimers();
+    const h = setup();
+    h.runtime.dispatch(touch("pointer_down", [464, 364]));
+    h.runtime.dispatch(touch("pointer_up", [464, 364]));
+    vi.advanceTimersByTime(LONG_PRESS_MS * 2);
+    expect(doubleClicks(h)).toEqual([]);
+    expect(h.cancelsOf("token")).toEqual([]);
+    expect(h.writes).toHaveLength(1);
+  });
+
+  test("moving past the slop stops the timer", () => {
+    vi.useFakeTimers();
+    const h = setup();
+    h.runtime.dispatch(touch("pointer_down", [464, 364]));
+    h.runtime.dispatch(touch("pointer_move", [464 + LONG_PRESS_SLOP_PX + 1, 364]));
+    vi.advanceTimersByTime(LONG_PRESS_MS * 2);
+    expect(doubleClicks(h)).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("a second touch cancels the tool's started interactions as Escape does", async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    // A tap that writes, then a two-finger touch before the write commits.
+    h.runtime.dispatch(touch("pointer_down", [464, 364]));
+    h.runtime.dispatch(touch("pointer_up", [464, 364]));
+    h.runtime.dispatch(touch("pointer_down", [464, 364], 2));
+    h.runtime.dispatch(touch("pointer_down", [564, 364], 3));
+    expect(h.cancelsOf("token")).toEqual(["escape"]);
+    vi.useRealTimers();
+    h.lastWrite().result.resolve(committed({ created: [{ op_index: 0, id: "token_1" }] }));
+    await flush();
+    // The cancelled interaction runs no continuations.
+    expect(h.ui.getState().selection).toEqual([]);
+  });
+
+  test("Escape during a held touch stops the long press and consumes the release", () => {
+    vi.useFakeTimers();
+    const h = setup();
+    h.runtime.dispatch(touch("pointer_down", [464, 364]));
+    h.runtime.dispatch(keyDown("Escape"));
+    expect(h.cancelsOf("token")).toEqual(["escape"]);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(LONG_PRESS_MS * 2);
+    expect(doubleClicks(h)).toEqual([]);
+    h.runtime.dispatch(touch("pointer_up", [464, 364]));
+    expect(h.writes).toEqual([]);
+    expect(h.opened).toEqual([]);
+  });
+
+  test("dispose stops a running timer", () => {
+    vi.useFakeTimers();
+    const h = setup();
+    h.runtime.dispatch(touch("pointer_down", [464, 364]));
+    h.runtime.dispatch(touch("pointer_down", [564, 364], 2));
+    h.runtime.dispatch(touch("pointer_up", [564, 364], 2));
+    h.runtime.dispatch(touch("pointer_up", [464, 364]));
+    h.runtime.dispatch(touch("pointer_down", [464, 364], 4));
+    expect(vi.getTimerCount()).toBe(1);
+    h.runtime.dispose();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

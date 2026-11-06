@@ -34,6 +34,11 @@
  * cancelled like the active tool's own)
  * and the event goes no further.
  *
+ * Long press (M6-D40): while the machine has a long-press candidate (a lone
+ * touch held still), a `LONG_PRESS_MS` timer runs; when it runs out with the
+ * same candidate it dispatches `long_press`. A result that says `cancelled`
+ * cancels the tool's started interactions as Escape does.
+ *
  * File drops: every `file_drop` is offered to `fileDropHandlers` the same
  * way. A handler may also start asynchronous work (an upload) and later run
  * effects through its context's `execute`, as `InteractionRuntime.execute`
@@ -53,7 +58,15 @@ import type {
 } from "./contracts";
 import { type Continuation, createdIdAt, type Effect, settlingInteraction } from "./effects";
 import type { InteractionEvent, SettledOutcome } from "./events";
-import { initMachine, type MachineState, reduce, setTool, syncInput } from "./machine";
+import {
+  initMachine,
+  LONG_PRESS_MS,
+  type LongPressCandidate,
+  type MachineState,
+  reduce,
+  setTool,
+  syncInput,
+} from "./machine";
 import type { ToolOverlay } from "./overlays";
 import type { ToolRegistry } from "./registry";
 import type { ReducerInput, SetToolRequest, ToolId } from "./tool";
@@ -378,10 +391,39 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
       }
     }
     if (isEscapeDown(event)) markCancelled(state.tool);
+    const tool = state.tool;
     const out = reduce(state, event, input, registry);
+    // A second touch or a long press cancelled the tool as Escape does (M6-D40).
+    if (out.cancelled === true) markCancelled(tool);
     state = out.state;
     run(out.effects, "machine");
+    armLongPress();
     return out.effects.some((e) => e.type === "key_handled");
+  };
+
+  // -------------------------------------------------------------------------
+  // Long press (M6-D40): a timer per long-press candidate of the machine
+
+  let longPressFor: LongPressCandidate | null = null;
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Starts the timer for a new candidate; a gone or replaced one stops it. */
+  const armLongPress = () => {
+    const candidate = disposed ? null : state.touch.press;
+    if (candidate === longPressFor) return;
+    if (longPressTimer !== null) clearTimeout(longPressTimer);
+    longPressTimer = null;
+    longPressFor = candidate;
+    if (candidate === null) return;
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      if (disposed || state.touch.press !== candidate) return;
+      try {
+        dispatch({ type: "long_press", pointerId: candidate.pointerId });
+      } catch (e) {
+        toolContext.notify("error", `The interaction failed: ${messageOf(e)}`);
+      }
+    }, LONG_PRESS_MS);
   };
 
   /** Dispatches an async result back to the tool that started it (machine-owned interactions only). */
@@ -655,6 +697,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
     dispose() {
       if (disposed) return;
       disposed = true;
+      armLongPress();
       offInputs();
       offUi();
       listeners.clear();
