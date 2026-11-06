@@ -857,6 +857,22 @@ describe("recovery seam", () => {
     expect(server.peer.url).toBe("ws://127.0.0.1:4748/ws");
   });
 
+  test("credentials reports the pair in use, updated by a reopen with new credentials", async () => {
+    const { server, client } = await connected();
+    const before = client.credentials;
+    expect(before).toEqual({ url: URL_, token: "tok" });
+    server.peer.drop();
+    server.token = "tok2";
+    await client.reopen({ url: "ws://127.0.0.1:4748/ws", token: "tok2" });
+    expect(client.credentials).toEqual({ url: "ws://127.0.0.1:4748/ws", token: "tok2" });
+    // A snapshot: the earlier value is unchanged and not shared.
+    expect(before).toEqual({ url: URL_, token: "tok" });
+    // A reopen without credentials keeps the pair.
+    server.peer.drop();
+    await client.reopen();
+    expect(client.credentials).toEqual({ url: "ws://127.0.0.1:4748/ws", token: "tok2" });
+  });
+
   test("reopen rejects with the close code's error", async () => {
     const { server, client } = await connected();
     server.peer.drop();

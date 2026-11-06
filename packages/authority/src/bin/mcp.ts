@@ -30,7 +30,6 @@ import { parseArgs } from "node:util";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { type ClientState, enableRecovery, ProtocolClient } from "@vtt/protocol";
 import {
-  ConnectionCredentials,
   createMcpServer,
   importAssetTool,
   readSessionFile,
@@ -173,14 +172,11 @@ async function main(argv: string[]): Promise<void> {
   });
 
   // (2) The MCP server on stdio. `import_asset` (vtt-3l6.20) uploads with
-  // the connection's current credentials, tracked through discovery.
-  const credentialsInUse = new ConnectionCredentials(initial);
+  // the connection's current credentials (`client.credentials`, which
+  // follows discovery refreshes).
   const server = createMcpServer({
     client,
-    extensions: [
-      subscriptionTools(),
-      importAssetTool({ credentials: () => credentialsInUse.current() }),
-    ],
+    extensions: [subscriptionTools(), importAssetTool()],
   });
   mcpClientName = () => agentNameOf(server.server.getClientVersion()?.name);
 
@@ -200,10 +196,7 @@ async function main(argv: string[]): Promise<void> {
   server.server.oninitialized = () => {
     if (stopRecovery !== null || closing) return;
     log(discovery ? "connecting through the session file" : `connecting to ${initial.url}`);
-    stopRecovery = enableRecovery(
-      client,
-      discovery ? { credentials: credentialsInUse.track(sessionCredentials()) } : {},
-    );
+    stopRecovery = enableRecovery(client, discovery ? { credentials: sessionCredentials() } : {});
   };
   // stdin reached end-of-file (the transport closes itself) or the server was closed.
   server.server.onclose = () => {

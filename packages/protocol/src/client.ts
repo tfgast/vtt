@@ -150,6 +150,9 @@ export type Timers = {
   clearTimeout(handle: unknown): void;
 };
 
+/** A WebSocket URL and the session token a connection is opened with. */
+export type ClientCredentials = { url: string; token: string };
+
 export type ProtocolClientOptions = {
   url: string;
   token: string;
@@ -473,6 +476,18 @@ export class ProtocolClient {
    */
   connectionError(): ConnectionError | null {
     return this.#connectionError;
+  }
+
+  /**
+   * The url and token the current socket was opened with, or the next one
+   * will be: the constructor's pair, then the pair of every `reopen(creds)`
+   * that kept it (recovery passes each discovery read there, so this follows
+   * discovery refreshes). Never null; before a session file exists a
+   * discovery client holds whatever pair it was constructed with. A fresh
+   * copy on every read.
+   */
+  get credentials(): ClientCredentials {
+    return { url: this.#url, token: this.#token };
   }
 
   /** From the latest `welcome`; null before the first. */
