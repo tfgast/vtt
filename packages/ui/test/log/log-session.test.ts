@@ -11,6 +11,8 @@ import {
   type LogParams,
   type ProtocolClient,
   ProtocolFailure,
+  type WebSocketConstructor,
+  type WebSocketLike,
   type WireOp,
 } from "@vtt/protocol";
 import {
@@ -22,7 +24,7 @@ import {
   type TableSession,
 } from "@vtt/ui";
 import { afterEach, describe, expect, test } from "vitest";
-import { whenReady } from "../support/authority";
+import { NodeWebSocket, whenReady } from "../support/authority";
 import {
   ALDRIC,
   ALL,
@@ -93,8 +95,11 @@ async function settle(log: LogSession): Promise<void> {
   throw new Error("the log did not settle");
 }
 
-async function setup(seed: WireOp[] = PARTY_SEED) {
-  const authority = await startLogAuthority();
+async function setup(
+  seed: WireOp[] = PARTY_SEED,
+  options: Parameters<typeof startLogAuthority>[1] = {},
+) {
+  const authority = await startLogAuthority([], options);
   const pool = await writers(authority);
   const gm = pool[0] as ProtocolClient;
   await commit(gm, seed, "Seed");
@@ -189,6 +194,106 @@ describe("older pages", () => {
     const after = indices(log.getSnapshot());
     expect(after).toHaveLength(264);
     expect(after).toEqual(Array.from({ length: 264 }, (_, k) => 263 - k));
+  });
+
+  test("a save that compacts below the loaded pages drops the cached groups under the new first index, with no commit (vtt-qf5.71)", async () => {
+    const { gm, pool, session } = await setup(PARTY_SEED, { compaction: { keepLast: 230 } });
+    await commitMany(pool, 260, "note", "n", "Step");
+    await caughtUp(session, gm);
+    const log = open(session);
+    await live(log);
+    await until(() => log.getSnapshot().entries.length === 200, "the window");
+    await log.loadOlder();
+    await log.loadOlder();
+    expect(log.getSnapshot().entries).toHaveLength(261);
+    expect(log.getSnapshot().pages).toHaveLength(2);
+    const revision = session.client.revision;
+
+    expect(await gm.request("save", {})).toMatchObject({ status: "saved" });
+    // 261 groups, the last 230 kept: the first retained index is 31.
+    await until(() => indices(log.getSnapshot()).at(-1) === 31, "the cached pages to shrink");
+    const snap = log.getSnapshot();
+    expect(session.client.revision).toBe(revision);
+    expect(indices(snap)).toEqual(Array.from({ length: 230 }, (_, k) => 260 - k));
+    expect(snap.pages).toEqual([{ page: 1, refreshing: false }]);
+    expect(snap.canLoadOlder).toBe(false);
+    expect(indices(snap)).toEqual((await allVisible(gm, GM)).map((g) => g.index));
+    // Loading older does nothing more.
+    await log.loadOlder();
+    expect(indices(log.getSnapshot())).toEqual(indices(snap));
+  });
+
+  test("an older-page response held across a compacting save brings back nothing below the floor (vtt-qf5.71)", async () => {
+    const { authority, gm, pool } = await setup(PARTY_SEED, { compaction: { keepLast: 50 } });
+    await commitMany(pool, 260, "note", "n", "Step");
+    const gate = holdingSocket();
+    const session = authority.session({ WebSocket: gate.WebSocket });
+    await whenReady(session);
+    await caughtUp(session, gm);
+    const log = open(session);
+    await live(log);
+    await until(() => log.getSnapshot().entries.length === 200, "the window");
+
+    // Page 1 (indices 11..60) is answered before the save but delivered after it.
+    gate.holding = true;
+    const loading = log.loadOlder();
+    await until(() => gate.held.length === 1, "the page response to be held");
+    gate.holding = false;
+    await gm.request("save", {});
+    await until(() => log.getSnapshot().entries.length === 50, "the window to shrink");
+    gate.release();
+    await loading;
+    await log.idle();
+    const snap = log.getSnapshot();
+    expect(indices(snap)).toEqual(Array.from({ length: 50 }, (_, k) => 260 - k));
+    expect(snap.pages).toEqual([]);
+    expect(snap.canLoadOlder).toBe(false);
+  });
+
+  test("an autosave with keepLast shrinks the open log's window with no further commit (vtt-qf5.71)", async () => {
+    const { gm, session } = await setup(PARTY_SEED, {
+      compaction: { keepLast: 3 },
+      autosave: { debounceMs: 20, maxDelayMs: 200, retryMs: [] },
+    });
+    await commitMany(gm, 5, "note", "n", "Step");
+    await caughtUp(session, gm);
+    const log = open(session);
+    await live(log);
+    // The setup's own autosave compacts to the last 3 groups first.
+    await until(() => log.getSnapshot().entries.length === 3, "the setup's autosave");
+    let commits = 0;
+    session.client.on("commit", () => commits++);
+
+    const last = await commit(
+      gm,
+      [{ type: "set_value", object: "note", cell: "n", value: num(99) }],
+      "Last",
+    );
+    await until(() => log.getSnapshot().entries.length === 4, "the new group");
+    expect(commits).toBe(1);
+    // The autosave fires and compacts: the window shrinks, with no further commit.
+    await until(() => log.getSnapshot().entries.length === 3, "the autosave to compact");
+    expect(commits).toBe(1);
+    expect(indices(log.getSnapshot())).toEqual([last.index, last.index - 1, last.index - 2]);
+  });
+
+  test("a save that compacts into the window shrinks it and drops every cached page (vtt-qf5.71)", async () => {
+    const { gm, pool, session } = await setup(PARTY_SEED, { compaction: { keepLast: 50 } });
+    await commitMany(pool, 260, "note", "n", "Step");
+    await caughtUp(session, gm);
+    const log = open(session);
+    await live(log);
+    await until(() => log.getSnapshot().entries.length === 200, "the window");
+    await log.loadOlder();
+    expect(log.getSnapshot().entries).toHaveLength(250);
+
+    await gm.request("save", {});
+    await until(() => log.getSnapshot().entries.length === 50, "the window to shrink");
+    const snap = log.getSnapshot();
+    expect(indices(snap)).toEqual(Array.from({ length: 50 }, (_, k) => 260 - k));
+    expect(snap.entries.every((e) => e.page === null)).toBe(true);
+    expect(snap.pages).toEqual([]);
+    expect(snap.canLoadOlder).toBe(false);
   });
 
   test("as the GM, undoing a group in a loaded page from a second client strikes it through after the rebuild", async () => {
@@ -581,3 +686,55 @@ describe("viewers and subscriptions", () => {
     );
   });
 });
+
+/**
+ * A `ws` socket that, while `holding`, keeps back the responses to `log`
+ * requests with `before` until `release()`; every other frame passes.
+ */
+function holdingSocket(): {
+  WebSocket: WebSocketConstructor;
+  holding: boolean;
+  held: (() => void)[];
+  release(): void;
+} {
+  const gate = {
+    holding: false,
+    held: [] as (() => void)[],
+    ids: new Set<string>(),
+    release() {
+      for (const deliver of gate.held.splice(0)) deliver();
+    },
+    WebSocket: class implements WebSocketLike {
+      readonly #inner: WebSocketLike;
+      constructor(url: string) {
+        this.#inner = new NodeWebSocket(url);
+      }
+      send(data: string): void {
+        const msg = JSON.parse(data);
+        if (gate.holding && msg.method === "log" && msg.params?.before !== undefined) {
+          gate.ids.add(msg.id);
+        }
+        this.#inner.send(data);
+      }
+      close(code?: number, reason?: string): void {
+        this.#inner.close(code, reason);
+      }
+      // biome-ignore lint/suspicious/noExplicitAny: matches WebSocketLike
+      addEventListener(type: string, listener: (event: any) => void): void {
+        if (type !== "message") {
+          this.#inner.addEventListener(type, listener);
+          return;
+        }
+        this.#inner.addEventListener(type, (event: { data: unknown }) => {
+          const msg = JSON.parse(String(event.data));
+          if (msg.type === "response" && gate.ids.delete(msg.id)) {
+            gate.held.push(() => listener(event));
+            return;
+          }
+          listener(event);
+        });
+      }
+    } as WebSocketConstructor,
+  };
+  return gate;
+}

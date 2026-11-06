@@ -3,27 +3,39 @@
  * helper's, vtt-qf5.45) whose host rolls from a FIXTURES §5 dice script, seed
  * records for the Attack card, Aldric and the goblin, and small write helpers.
  */
-import { type RunningServer, type ScriptedDiceEntry, ScriptedDiceSource } from "@vtt/authority";
+import {
+  type AutosaveOptions,
+  type CompactionPolicy,
+  type RunningServer,
+  type ScriptedDiceEntry,
+  ScriptedDiceSource,
+  type TableHost,
+} from "@vtt/authority";
 import type { GroupView, ProtocolClient, TransactResult, Viewer, WireOp } from "@vtt/protocol";
 import type { TableSession } from "@vtt/ui";
-import { startAuthority, until } from "../support/authority";
+import { type SessionOptions, startAuthority, until } from "../support/authority";
 
 export interface LogAuthority {
   readonly server: RunningServer;
+  readonly host: TableHost;
   /** A connected client; `agent` acts as `{type: "agent", name}`. */
   client(name: string, kind?: "test" | "agent"): Promise<ProtocolClient>;
-  session(): TableSession;
+  session(options?: SessionOptions): TableSession;
   cleanup(): Promise<void>;
 }
 
 const running = new Set<LogAuthority>();
 
-export async function startLogAuthority(dice: ScriptedDiceEntry[] = []): Promise<LogAuthority> {
-  const inner = await startAuthority({ dice: new ScriptedDiceSource(dice) });
+export async function startLogAuthority(
+  dice: ScriptedDiceEntry[] = [],
+  options: { compaction?: CompactionPolicy; autosave?: Partial<AutosaveOptions> } = {},
+): Promise<LogAuthority> {
+  const inner = await startAuthority({ dice: new ScriptedDiceSource(dice), ...options });
   const authority: LogAuthority = {
     server: inner.server,
+    host: inner.host,
     client: (name, kind = "test") => inner.client(name, { kind }),
-    session: () => inner.session(),
+    session: (options) => inner.session(options),
     async cleanup() {
       running.delete(authority);
       await inner.cleanup();

@@ -108,6 +108,11 @@ export interface ProviderDelta {
 export interface ScopeProvider {
   subscribe(sub: ScopeSubscription): { groups: GroupView[] };
   onCommit(sub: ScopeSubscription, commit: CommitInfo): ProviderDelta | null;
+  /**
+   * Recomputes the subscription after its source changed without a commit
+   * (save-time compaction, vtt-qf5.71); called by `refreshProvided`.
+   */
+  refresh?(sub: ScopeSubscription): ProviderDelta | null;
   drop(sub: ScopeSubscription): void;
 }
 
@@ -343,6 +348,27 @@ export class SubscriptionHub {
       const i = this.#listeners.indexOf(fn);
       if (i >= 0) this.#listeners.splice(i, 1);
     };
+  }
+
+  /**
+   * Recomputes every provided subscription (the `log` windows) after the
+   * history changed without a commit: save-time compaction (M6-D33,
+   * vtt-qf5.71). Returns, for every connection, its subscriptions' deltas in
+   * the commit-event shape (`[]` when none changed); the caller sends them.
+   */
+  refreshProvided(): Map<string, SubscriptionDelta[]> {
+    const out = new Map<string, SubscriptionDelta[]>();
+    for (const [conn, ids] of this.#conns) {
+      const deltas: SubscriptionDelta[] = [];
+      for (const id of ids) {
+        const sub = this.#subs.get(id);
+        if (sub === undefined || sub.kind !== "provided") continue;
+        const delta = this.#asDelta(sub, sub.provider.refresh?.(sub.info) ?? null);
+        if (delta !== null) deltas.push(delta);
+      }
+      out.set(conn, deltas);
+    }
+    return out;
   }
 
   /**
@@ -712,7 +738,10 @@ export class SubscriptionHub {
   }
 
   #providedDelta(sub: ProvidedSub, commit: CommitInfo): SubscriptionDelta | null {
-    const result = sub.provider.onCommit(sub.info, commit);
+    return this.#asDelta(sub, sub.provider.onCommit(sub.info, commit));
+  }
+
+  #asDelta(sub: ProvidedSub, result: ProviderDelta | null): SubscriptionDelta | null {
     if (result === null) return null;
     const upserted = result.groups_upserted ?? [];
     const removed = result.groups_removed ?? [];
