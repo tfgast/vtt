@@ -14,7 +14,7 @@
  */
 /// <reference types="node" />
 import { basename, dirname, resolve } from "node:path";
-import type { Snapshot } from "@vtt/schema";
+import { isAbsoluteAssetPath, type Snapshot } from "@vtt/schema";
 import { type DiceSource, RandomDiceSource } from "../engine/dice";
 import { Table } from "../engine/table";
 import { compactLog } from "../persist/compact";
@@ -143,9 +143,6 @@ const describe = (err: unknown): string => (err instanceof Error ? err.message :
 
 const randomDice = (): DiceSource =>
   new RandomDiceSource(globalThis.crypto.getRandomValues(new Uint32Array(1))[0] ?? 0);
-
-/** Absolute POSIX, Windows drive and UNC paths, as `serializeTable` refuses them. */
-const ABSOLUTE_PATH = /^(?:[/\\]|[A-Za-z]:)/;
 
 type SaveListener = (event: SaveEvent) => void;
 
@@ -331,7 +328,7 @@ export class TableHost {
    * the caller's job.
    */
   addAsset(path: string): void {
-    if (typeof path !== "string" || path === "" || ABSOLUTE_PATH.test(path)) {
+    if (typeof path !== "string" || path === "" || isAbsoluteAssetPath(path)) {
       throw new InvalidAssetPathError([path]);
     }
     if (this.#assets.includes(path)) return;
