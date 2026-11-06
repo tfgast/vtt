@@ -770,8 +770,10 @@ hand would create an override and stop the formula; the inspector says so.
   `style.format = {sign?: "always" | "auto"; decimals?: number}` (DESIGN.md
   §4.6). It applies only to a cell whose value is a number (a roll, text or
   any other value shows as before). `decimals`, an integer 0–10, writes
-  exactly that many places, rounded half away from zero as `round` is
-  (`2.5` at 2 shows `2.50`); absent, the face's compact text stands.
+  exactly that many places in fixed point, rounded half away from zero as
+  `round` is (`2.5` at 2 shows `2.50`; `1e21` at 2 shows
+  `1000000000000000000000.00`, never exponent notation); absent, the face's
+  compact text stands.
   `sign: "always"` prefixes `+` to a number shown positive (`+3`); negatives
   keep their minus (`-1`) and zero, including a value that rounds to zero,
   shows unsigned (`0`, `0.00`). `"auto"`, the default, writes only the
