@@ -19,6 +19,7 @@ import {
   type ScriptedDiceEntry,
   ScriptedDiceSource,
   startServer,
+  stockedTableSnapshot,
   TableHost,
 } from "@vtt/authority";
 import {
@@ -478,11 +479,18 @@ function Board(props: {
 interface Options {
   dice?: ScriptedDiceEntry[];
   gestures?: FaceGesture<unknown>[];
+  /**
+   * Start from the stocked table (the GM binder of example templates,
+   * DESIGN.md §4.7) instead of the empty one; SEED's own `tpl_d20` is left
+   * out, since the stocked binder holds one.
+   */
+  stocked?: boolean;
 }
 
 async function world(options: Options = {}) {
   const dice = new ScriptedDiceSource(options.dice ?? []);
-  const host = TableHost.inMemory(DocumentStore.fromSnapshot(newTableSnapshot()), { dice });
+  const snapshot = options.stocked === true ? stockedTableSnapshot() : newTableSnapshot();
+  const host = TableHost.inMemory(DocumentStore.fromSnapshot(snapshot), { dice });
   const server: RunningServer = await startServer({ host, port: 0, allowOrigins: [JSDOM_ORIGIN] });
   cleanups.push(async () => {
     await server.close();
@@ -501,7 +509,11 @@ async function world(options: Options = {}) {
     return c;
   };
   const gm = await client("seed");
-  const seeded = await gm.transact(SEED, { label: "Seed" });
+  const seed =
+    options.stocked === true
+      ? SEED.filter((op) => !(op.type === "create_object" && op.id === "tpl_d20"))
+      : SEED;
+  const seeded = await gm.transact(seed, { label: "Seed" });
   if (seeded.status !== "committed") throw new Error(JSON.stringify(seeded));
   const spawned = await gm.transact(
     [
@@ -594,7 +606,7 @@ async function world(options: Options = {}) {
       .list()
       .map((n) => n.text);
 
-  /** The scene the runtime sees, with faces, for locating targets. */
+  /** The scene the runtime sees, with faces and the selection (M6-D12), for locating targets. */
   const faces = (): FaceScene => {
     const view = session.boardView();
     if (view === null) throw new Error("no board view");
@@ -604,20 +616,21 @@ async function world(options: Options = {}) {
         covers: [...view.covers.values()],
         board: view.board,
         viewer: session.getSnapshot().viewer,
+        selection: ui.getState().selection,
       },
       { faceState },
     );
   };
   const screenOf = (board: Point): Point => toScreen(ui.getState().camera, board, VIEWPORT);
-  const pointer = (type: "pointerDown" | "pointerUp", board: Point) => {
+  const pointer = (type: "pointerDown" | "pointerMove" | "pointerUp", board: Point) => {
     const [x, y] = screenOf(board);
     act(() => {
       fireEvent[type](canvas, {
         pointerId: 1,
         clientX: x,
         clientY: y,
-        button: 0,
-        buttons: type === "pointerDown" ? 1 : 0,
+        button: type === "pointerMove" ? -1 : 0,
+        buttons: type === "pointerUp" ? 0 : 1,
       });
     });
   };
@@ -662,6 +675,7 @@ async function world(options: Options = {}) {
     click,
     dblClick,
     wheel,
+    pointer,
     opens,
   };
 }
@@ -1051,6 +1065,9 @@ describe("double-click by element kind (M6-D9)", () => {
 describe("contents: the wheel and chevrons", () => {
   test("14 entries in an 8-row list: the wheel scrolls it, the last entry expands into view, and its button presses", async () => {
     const w = await world();
+    // The faceless binder's default list shows only while it is selected (M6-D12).
+    act(() => w.ui.select(["bnd"]));
+    await settle();
     const zoom = w.ui.getState().camera.zoom;
     // The default face's list sits below the 6 × 1 frame: [-3, 0.65, 6, 4.8] at [0, -20].
     const list: Point = [0, -20 + 0.65 + 2];
@@ -1120,14 +1137,122 @@ describe("contents: the wheel and chevrons", () => {
       overlays: () => [],
     };
     const w = await world({ gestures: [gesture as FaceGesture<unknown>] });
+    // The faceless binder's default list shows only while it is selected (M6-D12).
+    act(() => w.ui.select(["bnd"]));
+    await settle();
     const row = located(w, "e2").chevron as Point;
     const onRow: Point = [row[0] + 2, row[1]];
     w.click(onRow);
     expect(log).toEqual(["pointer_down e2", "pointer_up"]);
-    expect(w.ui.getState().selection).toEqual([]);
+    // The select tool did not see the click: the selection is unchanged.
+    expect(w.ui.getState().selection).toEqual(["bnd"]);
     // The binder's frame is still the select tool's.
+    act(() => w.ui.select([]));
     w.click([0, -20]);
     expect(w.ui.getState().selection).toEqual(["bnd"]);
     expect(log).toHaveLength(2);
+  });
+});
+
+describe("stocked tokens show their lists only when selected (M6-D12, vtt-nb8.36)", () => {
+  /** The scene as the board draws it: with the UI's selection. */
+  const drawn = (w: World): FaceScene => {
+    const view = w.session.boardView();
+    if (view === null) throw new Error("no board view");
+    return buildFaceScene(
+      {
+        views: view.objects.values(),
+        covers: [...view.covers.values()],
+        board: view.board,
+        viewer: w.session.getSnapshot().viewer,
+        selection: w.ui.getState().selection,
+      },
+      { faceState: w.faceState },
+    );
+  };
+  const listOf = (w: World, id: ObjectId) =>
+    drawn(w)
+      .faces.get(id)
+      ?.primitives.find((p) => p.kind === "contents");
+  /** The text drawn in the place of `id`'s contents element: the count badge. */
+  const badgeOf = (w: World, id: ObjectId) => {
+    const index = w.session.objectView(id)?.face?.elements.findIndex((e) => e.type === "contents");
+    return drawn(w)
+      .faces.get(id)
+      ?.primitives.find((p) => p.kind === "text" && p.element === index);
+  };
+
+  test("an unselected goblin or character shows a count badge and no list; a selected one its list; a zone released over an unselected goblin's list lands on the board", async () => {
+    const w = await world({ stocked: true });
+    const made = await w.gm.transact(
+      [
+        { type: "spawn", template: "tpl_character", to: at(-3, 8), as: "$aldric" },
+        { type: "spawn", template: "tpl_token", to: at(0, 8), as: "$g1" },
+        { type: "spawn", template: "tpl_token", to: at(3, 8), as: "$g2" },
+        { type: "spawn", template: "tpl_d20", to: into("$g1"), as: "$die1" },
+        { type: "spawn", template: "tpl_d20", to: into("$g2"), as: "$die2" },
+        {
+          type: "create_object",
+          id: "zone",
+          to: at(0, 14),
+          init: {
+            is_zone: true,
+            shape: rectShape(2, 2),
+            cells: { name: text("Zone"), visible_to: ALL, face_up: bool(true) },
+          },
+        },
+      ],
+      { label: "Stocked tokens" },
+    );
+    if (made.status !== "committed") throw new Error(JSON.stringify(made));
+    const aldric = made.bindings.$aldric as ObjectId;
+    const g1 = made.bindings.$g1 as ObjectId;
+    const g2 = made.bindings.$g2 as ObjectId;
+    await until(() => w.session.boardView()?.objects.has("zone") === true, "the zone's view");
+    await settle();
+
+    // Unselected: badges ("2": the sheet and the binder; "1": the die), no lists.
+    expect(w.ui.getState().selection).toEqual([]);
+    for (const [id, count] of [
+      [aldric, "2"],
+      [g1, "1"],
+      [g2, "1"],
+    ] as const) {
+      expect(listOf(w, id), id).toBeUndefined();
+      expect(badgeOf(w, id), id).toMatchObject({ kind: "text", text: count, minSize: 0 });
+    }
+    // The badge sits at the lower right of the token's list rect [-0.8, 0.9, 1.6, 0.8].
+    const badge = badgeOf(w, g1);
+    if (badge === undefined) throw new Error("no badge");
+    expect(badge.rect[0] + badge.rect[2]).toBeCloseTo(0.8);
+    expect(badge.rect[1] + badge.rect[3]).toBeCloseTo(1.7);
+
+    // A click on G1's body selects it: its list shows, the others keep their badges.
+    w.click([0, 8]);
+    await until(() => w.ui.getState().selection.join() === g1, "G1 selected");
+    await settle();
+    expect(listOf(w, g1)).toBeDefined();
+    expect(badgeOf(w, g1)).toBeUndefined();
+    expect(listOf(w, g2)).toBeUndefined();
+    expect(listOf(w, aldric)).toBeUndefined();
+    w.click([-3, 8]);
+    await until(() => w.ui.getState().selection.join() === aldric, "Aldric selected");
+    await settle();
+    expect(listOf(w, aldric)).toBeDefined();
+    expect(listOf(w, g1)).toBeUndefined();
+
+    // The zone, pressed at its centre and released over G2's hidden list
+    // (board [3, 9.3], inside G2's list rect, clear of its body and name).
+    const overList: Point = [3, 9.3];
+    const before = w.host.revision;
+    w.pointer("pointerDown", [0, 14]);
+    w.pointer("pointerMove", [1, 12]);
+    w.pointer("pointerMove", overList);
+    w.pointer("pointerUp", overList);
+    await until(() => w.host.revision > before, "the zone's move");
+    const zone = w.host.table.store.getObject("zone");
+    expect(zone?.board).toBe(BOARD);
+    expect(w.stored("zone", "position")).toEqual({ type: "list", items: [num(3), num(9.3)] });
+    expect(w.host.table.store.getObject(g2)?.contents).toHaveLength(1);
   });
 });

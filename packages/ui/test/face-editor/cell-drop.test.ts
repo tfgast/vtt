@@ -220,13 +220,14 @@ describe("a drop on a board object", () => {
   });
 });
 
+// The faceless binder's default list shows only while it is selected (M6-D12).
 describe("a drop on a contained object drawn expanded in a binder row", () => {
   test("converts with the hit's accumulated transform", () => {
     const faceState = createFaceStateStore();
     faceState.expand("card");
     const { input, handler } = setup(VIEWS, faceState);
     const scene = buildFaceScene(
-      { views: VIEWS, covers: [], board: BOARD, viewer: GM },
+      { views: VIEWS, covers: [], board: BOARD, viewer: GM, selection: ["binder"] },
       { faceState },
     );
     const c = scene.faces
@@ -241,7 +242,9 @@ describe("a drop on a contained object drawn expanded in a binder row", () => {
     const local: Point = [-1, -1.5];
     const board = apply(cardToBoard, local);
     const face = setFace(
-      onlyWrite(handler(drop(board, cellDragData("card", "atk")), input())),
+      onlyWrite(
+        handler(drop(board, cellDragData("card", "atk")), input({ selection: ["binder"] })),
+      ),
       "card",
     );
     const added = face.elements.at(-1);
@@ -252,7 +255,7 @@ describe("a drop on a contained object drawn expanded in a binder row", () => {
   test("a collapsed row is not a face to drop on", () => {
     const { input, handler } = setup();
     const scene = buildFaceScene(
-      { views: VIEWS, covers: [], board: BOARD, viewer: GM },
+      { views: VIEWS, covers: [], board: BOARD, viewer: GM, selection: ["binder"] },
       { faceState: createFaceStateStore() },
     );
     const c = scene.faces
@@ -262,7 +265,9 @@ describe("a drop on a contained object drawn expanded in a binder row", () => {
     const binderToBoard = scene.transforms.get("binder");
     if (c === undefined || entry === undefined || binderToBoard === undefined) throw new Error();
     const board = apply(compose(binderToBoard, entryTransform(c, entry)), [3, 0.3]);
-    expect(handler(drop(board, cellDragData("card", "atk")), input())).toBeNull();
+    expect(
+      handler(drop(board, cellDragData("card", "atk")), input({ selection: ["binder"] })),
+    ).toBeNull();
   });
 });
 
@@ -306,7 +311,7 @@ describe("not handled", () => {
     const { input, handler } = setup(VIEWS, createFaceStateStore());
     // The handler's own face state has nothing expanded, but the scene given is a face scene.
     const scene = buildFaceScene(
-      { views: VIEWS, covers: [], board: BOARD, viewer: GM },
+      { views: VIEWS, covers: [], board: BOARD, viewer: GM, selection: ["binder"] },
       { faceState },
     );
     const c = scene.faces

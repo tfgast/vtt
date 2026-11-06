@@ -22,6 +22,7 @@ import {
   runPlayB,
   TRAP_DIE_AT,
   ZONE_DROP,
+  ZONE_GRAB,
   ZONE_NUDGE,
 } from "./play-b";
 import { PREP_DICE, runPrep } from "./prep";
@@ -136,6 +137,12 @@ describe(`play B: ${WALKTHROUGH_STEPS.slice(11, 15)
     }
     expect(value(zone, "board")).toEqual(ref(prep.crypt));
     expect(value(zone, "container")).toEqual({ type: "empty" });
+    // The nudge was released over G1's contents list [-0.8, 0.9, 1.6, 0.8], hidden
+    // while G1 is unselected (M6-D12), and the zone still landed on the board.
+    const [g1x, g1y] = position(await view(c, g1)) as [number, number];
+    const [nx, ny] = at(ZONE_NUDGE) as [number, number];
+    const release = [nx + ZONE_GRAB[0], ny + ZONE_GRAB[1]];
+    expect(inRect(release, [g1x - 0.8, g1y + 0.9, 1.6, 0.8])).toBe(true);
     expect([...o.targetsDropped].sort()).toEqual([g1, g2, pc.Brenna.token].sort());
     expect(o.targetsNudged).toEqual([g1, g2, g3]);
     expect(refs(card, "targets")).toEqual([g1, g2, g3]);

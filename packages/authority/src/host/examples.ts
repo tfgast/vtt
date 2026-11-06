@@ -84,12 +84,17 @@ const button = (action: string, rect: Rect, o: Opts = {}): FaceElement => ({
   rect,
   ...common(o),
 });
-/** A contents element; every one in §4.7 has its entries collapsed. */
-const contentsList = (rect: Rect, o: Opts = {}): FaceElement => ({
+/**
+ * A contents element; every one in §4.7 has its entries collapsed.
+ * `whenSelected` sets `when_selected` (M6-D12: the list shows only while
+ * its object is selected).
+ */
+const contentsList = (rect: Rect, o: Opts & { whenSelected?: true } = {}): FaceElement => ({
   type: "contents",
   rect,
   entries: "collapsed",
   ...common(o),
+  ...(o.whenSelected ? { when_selected: true } : {}),
 });
 
 const action = (name: string, when: string | null, ...steps: string[]): ActionDef =>
@@ -291,7 +296,7 @@ function records(): TableObject[] {
           value("image", [-0.5, -0.5, 1, 1]),
           value("name", [-0.8, 0.55, 1.6, 0.3], { m: 8 }),
           value("hp", [0.2, -0.6, 0.5, 0.3], { m: 8 }),
-          contentsList([-1.5, 0.9, 3, 1.2], { m: 24 }),
+          contentsList([-1.5, 0.9, 3, 1.2], { m: 24, whenSelected: true }),
         ],
       },
     }),
@@ -468,7 +473,7 @@ function records(): TableObject[] {
           value("name", [-0.8, 0.55, 1.6, 0.3], { m: 8 }),
           value("hp", [0.2, -0.6, 0.5, 0.3], { m: 8 }),
           value("hit", [-0.7, -0.6, 0.5, 0.3], { sw: "hit" }),
-          contentsList([-0.8, 0.9, 1.6, 0.8], { m: 24 }),
+          contentsList([-0.8, 0.9, 1.6, 0.8], { m: 24, whenSelected: true }),
         ],
       },
     }),

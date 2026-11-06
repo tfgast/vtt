@@ -221,6 +221,44 @@ describe("the HIT badge and token labels draw at map zoom (M6-D16)", () => {
   });
 });
 
+describe("token lists show only when selected (M6-D12)", () => {
+  test("tpl_token and tpl_character set when_selected on their contents element; no other example does", () => {
+    const objects = exampleObjects();
+    for (const [id, object] of Object.entries(objects)) {
+      for (const e of object.face?.elements ?? []) {
+        if (e.type !== "contents") continue;
+        const want = id === "tpl_token" || id === "tpl_character" ? true : undefined;
+        expect(e.when_selected, id).toBe(want);
+      }
+    }
+    const list = (id: string) => objects[id]?.face?.elements.find((e) => e.type === "contents");
+    expect(list("tpl_character")).toEqual({
+      type: "contents",
+      rect: [-1.5, 0.9, 3, 1.2],
+      entries: "collapsed",
+      min_size: 24,
+      when_selected: true,
+    });
+    expect(list("tpl_token")).toEqual({
+      type: "contents",
+      rect: [-0.8, 0.9, 1.6, 0.8],
+      entries: "collapsed",
+      min_size: 24,
+      when_selected: true,
+    });
+  });
+
+  test("a spawned character and token copy keep the field", () => {
+    const s = session();
+    const character = s.onBoard("tpl_character", 0, 0).root;
+    const token = s.onBoard("tpl_token", 10, 0).root;
+    for (const id of [character, token]) {
+      const list = s.table.store.getObject(id)?.face?.elements.find((e) => e.type === "contents");
+      expect(list?.type === "contents" && list.when_selected, id).toBe(true);
+    }
+  });
+});
+
 describe("tpl_attack: Apply stays drawn, disabled with a reason; Discard is always drawn", () => {
   test("the Attack flow from the character's binder against a token copy", () => {
     const s = session([rolled("1d20", [12]), rolled("1d8", [6])]);

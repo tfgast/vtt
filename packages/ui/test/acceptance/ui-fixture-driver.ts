@@ -440,7 +440,12 @@ async function navigate(w: World, viewer: string, board: BoardId): Promise<void>
   await onBoard(w, board);
 }
 
-/** The face scene the app draws now (its board view, viewer and face state). */
+/**
+ * The face scene the app draws now (its board view, viewer, selection and
+ * face state): a faceless object's default list, like any `when_selected`
+ * list, is in it only while the object or something in it is selected
+ * (M6-D12).
+ */
 function faces(w: World): FaceScene {
   const view = w.session.boardView();
   if (view === null) throw new Error("no board view");
@@ -450,6 +455,7 @@ function faces(w: World): FaceScene {
       covers: [...view.covers.values()],
       board: view.board,
       viewer: w.session.getSnapshot().viewer,
+      selection: w.ui.getState().selection,
     },
     { faceState: w.faceState },
   );
@@ -728,12 +734,39 @@ async function reveal(
 }
 
 /**
+ * Makes the last object of `path` (a board item, then the objects nested in
+ * it, outermost first) drawn in its container's list, when that list shows
+ * only while selected (M6-D12): its container is clicked, its body on the
+ * board or its row in its own list. Nothing when it is already drawn.
+ */
+async function ensureShown(w: World, path: readonly ObjectId[]): Promise<void> {
+  const x = path.at(-1);
+  const parent = path.at(-2);
+  if (x === undefined || parent === undefined) return;
+  if (locate(faces(w), x) !== null) return;
+  if (path.length === 2) {
+    setCamera(w, cameraFor([await anchorOf(w, parent)]));
+    click(w, bodyPoint(w, faces(w), parent));
+  } else {
+    await ensureShown(w, path.slice(0, -1));
+    const p = await rowPoint(w, parent);
+    setCamera(w, { x: p[0], y: p[1], zoom: 1 });
+    click(w, p);
+  }
+  await until(() => locate(faces(w), x) !== null, `${x} shown in ${parent}'s list`);
+  await settle(20);
+}
+
+/**
  * Expands the default-face entries along `path` (a board item, then the
  * objects nested in it, outermost first): the board item is not an entry,
- * every object below it is.
+ * every object below it is. A list that shows only while selected is shown
+ * first (`ensureShown`).
  */
 async function expandDown(w: World, path: readonly ObjectId[]): Promise<void> {
-  for (const x of path.slice(1)) {
+  for (const [i, x] of path.entries()) {
+    if (i === 0) continue;
+    await ensureShown(w, path.slice(0, i + 1));
     const loc = mustLocate(faces(w), x);
     if (loc.entry === null) throw new UiScenarioFailure(`${x} is not an entry`);
     if (loc.entry.entry.expanded) continue;
@@ -1109,7 +1142,9 @@ async function suppressedStep(w: World, step: Step, row: MatrixRow): Promise<Out
 /**
  * Clears the selection with Escape on the canvas (the select tool, no
  * gesture in progress): a press on an object under a selected one (an
- * object inside a selected zone) would otherwise drag the selection.
+ * object inside a selected zone) would otherwise drag the selection. Only
+ * before a board object's drag: an entry drag leaves the selection alone,
+ * which keeps the list it starts in shown (M6-D12).
  */
 async function clearSelection(w: World): Promise<void> {
   if (w.ui.getState().selection.length === 0) return;
@@ -1134,7 +1169,11 @@ async function dragStep(w: World, step: Step, row: MatrixRow): Promise<Outcome> 
   checkBoard(row, dest);
   await navigate(w, "gm", dest);
   const to: Point = [d.to.position[0], d.to.position[1]];
-  await clearSelection(w);
+  if (chain.length === 0) await clearSelection(w);
+  else {
+    await expandDown(w, chain);
+    await ensureShown(w, [...chain, id]);
+  }
   const before = w.commits();
   if (chain.length === 0) {
     const anchor = await anchorOf(w, id);
@@ -1150,7 +1189,6 @@ async function dragStep(w: World, step: Step, row: MatrixRow): Promise<Outcome> 
     wholePixel(w, release);
     drag(w, from, release);
   } else {
-    await expandDown(w, chain);
     const from = await rowPoint(w, id);
     setCamera(w, cameraFor([from, to]));
     const scene = faces(w);
@@ -1174,6 +1212,7 @@ async function selectByClick(w: World, id: ObjectId, chain: readonly ObjectId[])
     click(w, bodyPoint(w, faces(w), id));
   } else {
     await expandDown(w, chain);
+    await ensureShown(w, [...chain, id]);
     const p = await rowPoint(w, id);
     setCamera(w, { x: p[0], y: p[1], zoom: 1 });
     click(w, p);
@@ -1222,6 +1261,11 @@ async function editStep(w: World, step: Step, row: MatrixRow): Promise<Outcome> 
   checkBoard(row, board);
   await navigate(w, "gm", board);
   await inspectorTab(w, "Inspector");
+  // A contained target is drawn only once its lists are shown (M6-D12).
+  if (chain.length > 0) {
+    await expandDown(w, chain);
+    await ensureShown(w, [...chain, id]);
+  }
   const located = mustLocate(faces(w), id);
   if (located.drawing?.primitives.some((p) => p.kind === "editor" && p.cell === d.cell)) {
     throw new UiScenarioFailure(

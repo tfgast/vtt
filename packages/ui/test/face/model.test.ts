@@ -115,6 +115,10 @@ function lookup(...views: ObjectView[]) {
   return (id: string) => map.get(id) ?? null;
 }
 
+/**
+ * `view`'s face with every object revealed, as if selected: a faceless
+ * object's default list shows only then (M6-D12).
+ */
 function resolve(
   view: ObjectView,
   others: ObjectView[] = [],
@@ -122,7 +126,13 @@ function resolve(
   list: "full" | "collapsed" = "full",
   gm = true,
 ): FaceDrawing {
-  return resolveFace(view, { views: lookup(view, ...others), faceState, list, gm });
+  return resolveFace(view, {
+    views: lookup(view, ...others),
+    faceState,
+    list,
+    gm,
+    revealed: () => true,
+  });
 }
 
 const kinds = (d: FaceDrawing) => d.primitives.map((p) => p.kind);

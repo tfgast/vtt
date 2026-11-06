@@ -6,7 +6,8 @@
  * The expected records below are transcribed from DESIGN.md §4.7 in the
  * document's own notation (cells `name: literal` / `name = formula`,
  * actions `Name [when]: step ; step`, face elements `kind cell|action [x, y,
- * w, h]` with `L`, `H`, `C`, `m=N`, `sw="…"`, `full`/`collapsed`), and
+ * w, h]` with `L`, `H`, `C`, `m=N`, `sw="…"`, `full`/`collapsed`, and
+ * `when_selected` on a contents element, M6-D12), and
  * parsed by the small reader in this file, so a reviewer can compare them
  * with the document line by line.
  */
@@ -125,7 +126,8 @@ function elements(src: string): FaceElement[] {
       }
       if (kind === "contents") {
         const entries = flags.includes("full") ? "full" : "collapsed";
-        return { type: "contents", rect, entries, ...common };
+        const whenSelected = flags.includes("when_selected") ? { when_selected: true } : {};
+        return { type: "contents", rect, entries, ...common, ...whenSelected };
       }
       const style: { size?: "large" | "huge"; caption?: boolean } = {};
       if (size !== undefined) style.size = size;
@@ -268,7 +270,7 @@ const EXPECTED: Record<string, Expected> = {
       value name [-0.8, 0.55, 1.6, 0.3] m=8
       value hp [0.2, -0.6, 0.5, 0.3] m=8
       value hit [-0.7, -0.6, 0.5, 0.3] sw="hit"
-      contents [-0.8, 0.9, 1.6, 0.8] m=24 collapsed`,
+      contents [-0.8, 0.9, 1.6, 0.8] m=24 collapsed when_selected`,
   },
   tpl_zone: { shape: rect(4, 4), is_zone: true, cells: `name: "Zone"` },
   tpl_card: {
@@ -321,7 +323,7 @@ const EXPECTED: Record<string, Expected> = {
       value image [-0.5, -0.5, 1, 1]
       value name [-0.8, 0.55, 1.6, 0.3] m=8
       value hp [0.2, -0.6, 0.5, 0.3] m=8
-      contents [-1.5, 0.9, 3, 1.2] m=24 collapsed`,
+      contents [-1.5, 0.9, 3, 1.2] m=24 collapsed when_selected`,
   },
   tpl_character_sheet: {
     shape: rect(6, 8),

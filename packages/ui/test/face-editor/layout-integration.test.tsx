@@ -469,6 +469,8 @@ describe("cell drops", () => {
   test("dropping a contained card's row on that card drawn expanded in the binder adds it at its local point", async () => {
     const c = await setup();
     act(() => c.faceState.expand("card"));
+    // The faceless binder's default list shows only while it is selected (M6-D12).
+    act(() => c.ui.select(["binder"]));
     // The binder's default contents list, from the drawn face scene.
     let scene: FaceScene | undefined;
     await waitFor(() => {

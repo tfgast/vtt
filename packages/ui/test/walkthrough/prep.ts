@@ -18,6 +18,10 @@
  * Gesture choices the bead leaves open, or where the merged UI decides:
  * - the map is imported with a click at `[12, 8]` on Crypt, so M is `[0, 0]`;
  * - the characters are made right to left (Dara first), each at its point;
+ * - a token's contents list shows only while the token is selected (M6-D12),
+ *   so the token is clicked before its list is used: a character's sheet
+ *   entry (step 2), the goblin's list as a drop target (step 4) and
+ *   Aldric's binder entry (step 5);
  * - each room is named, and rooms 2 and 4 given the re-hiding formula, in
  *   the inspector right after it is drawn (still selected), not in place;
  * - the goblin's die's `owner` is a structural cell, so it is set with the
@@ -483,9 +487,8 @@ export async function runPrep(ctx: DriverContext): Promise<PrepRun> {
     showWhen: "hit",
   });
 
-  // Made right to left (Dara first, Aldric last): each token's contents list is 3
-  // units wide at 2 units apart, so neighbours' lists overlap and the later one is
-  // drawn (and hit) on top. Aldric last keeps his expanded binder reachable (step 5).
+  // Made right to left (Dara first, Aldric last), 2 units apart: each token's list
+  // shows only while it is selected, so neighbours' lists never overlap.
   const characters = {} as PrepResult["characters"];
   for (const c of [...CHARACTERS].reverse()) {
     const token = await spawnEntry(ctx, g, GM_BINDER, "tpl_character", c.at);
@@ -498,6 +501,7 @@ export async function runPrep(ctx: DriverContext): Promise<PrepRun> {
     }
     const [attackTemplate] = refsOf(ctx, binder, "contents");
     if (attackTemplate === undefined) throw new Error(`prep: ${c.name}'s binder is empty`);
+    await g.click(token);
     await g.expandEntry(token, sheet);
     for (const cell of ["ac", "max_hp", "attack_bonus", "dex_save"] as const) {
       await g.editInPlace(sheet, cell, String(c[cell]));
@@ -584,7 +588,8 @@ export async function runPrep(ctx: DriverContext): Promise<PrepRun> {
   await ctx.frame();
   const badgeHiddenAfterDelete = !g.elementShown(goblinTemplate, { cell: "hit" });
 
-  // The goblin's own attack die, in its contents list.
+  // The goblin's own attack die, in its contents list (shown while the goblin is selected).
+  await g.click(goblinTemplate);
   await g.dragEntry(GM_BINDER, "tpl_d20", { object: goblinTemplate, contents: true });
   const [goblinDie] = refsOf(ctx, goblinTemplate, "contents");
   if (goblinDie === undefined) throw new Error("prep: no die in the goblin's contents");
@@ -614,6 +619,7 @@ export async function runPrep(ctx: DriverContext): Promise<PrepRun> {
   );
   if (fireballTemplate === undefined) throw new Error("prep: no Fireball in Aldric's binder");
   await g.showBoard("GM");
+  await g.click(aldric.token);
   await g.expandEntry(aldric.token, aldric.binder);
   await g.gear(fireballTemplate);
   await inspectorTab(ctx, user);

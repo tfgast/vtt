@@ -17,10 +17,9 @@
  * - the Fireball zone is dragged out of the card's list with `dragObject`
  *   (an entry drag out). Once on Crypt it lies under the map image (zones
  *   are hit after objects), so `dragObject` cannot press it: the nudge
- *   selects it with `click` (Alt+click cycling) and drags the selection
- *   with a plain `drag` grabbed one unit up and left of its anchor, so the
- *   pointer is released on bare map rather than on G1's contents list,
- *   which a release at the anchor's own target point would drop it into;
+ *   is a plain `drag` from no selection, grabbed inside the zone clear of
+ *   the tokens in it and released over G1's contents list, which is hidden
+ *   while G1 is unselected (M6-D12), so the zone lands on the board;
  * - each save row is expanded in the card's list with `expandEntry` before
  *   its Roll save is pressed;
  * - G4 is selected with `click` before Delete;
@@ -75,13 +74,13 @@ export const FIREBALL_AT: Point = [27, 22];
 export const ZONE_DROP: Point = [15.5, 11.5];
 export const ZONE_NUDGE: Point = [14.8, 12];
 /**
- * Where the nudge grabs the zone, from its anchor: pressed at M + [14.5,
- * 12.5], inside the zone clear of G1 and of Brenna's expanded sheet, so a
- * plain press picks the zone (M6-D10); released at M + [13.8, 13], clear of
- * G1's body and of every contents list (which the anchor's own point
- * M + [14.8, 12] lies on).
+ * Where the nudge grabs the zone, from its anchor: pressed at M + [15.3,
+ * 11], inside the zone clear of the tokens, so a plain press picks the zone
+ * (M6-D10); released at M + [14.6, 11.5], clear of G1's body and over G1's
+ * contents list, which an unselected G1 hides (M6-D12), so the release
+ * point is the board.
  */
-export const ZONE_GRAB: Point = [-1, 1];
+export const ZONE_GRAB: Point = [-0.2, -0.5];
 /** The trap note and its die in the tray (§8.4 step 13), relative to M. */
 export const NOTE_AT: Point = [7, 19];
 export const NOTE_TEXT = "DC 12";
@@ -322,9 +321,9 @@ async function reads(
  * `grab` (board units from its anchor, inside the zone) and released at
  * `grab` from `to`. A zone is hit before the map it lies on (DESIGN §4.6,
  * M6-D10), so the press picks the zone itself; before M6-D10 this needed an
- * Alt+click cycle first. The grab offset matters: the release point decides
- * the drop, and a release over a token's contents list puts the zone into
- * that token.
+ * Alt+click cycle first. The release point decides the drop; a token's
+ * contents list there is hidden while the token is unselected (M6-D12), so
+ * a release over it lands on the board.
  */
 async function nudgeZone(
   ctx: DriverContext,
