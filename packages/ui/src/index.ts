@@ -71,6 +71,8 @@ export * from "./nav/board-ids";
 export * from "./nav/board-memory";
 export * from "./nav/board-tab-drop";
 export * from "./nav/first-visit-fit";
+export * from "./nav/Minimap";
+export * from "./nav/minimap-layout";
 export * from "./nav/ViewAsMenu";
 export * from "./render/canvas2d";
 export * from "./render/face-draw";

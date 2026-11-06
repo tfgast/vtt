@@ -23,6 +23,27 @@ export const FIT_MARGIN_PX = 48;
 const CENTER: Camera = { x: 0, y: 0, zoom: 1 };
 
 /**
+ * The union of the items' `bounds`, or null with none (the first-visit fit's
+ * and the minimap's extent, vtt-qf5.19).
+ */
+export function unionBounds(items: Iterable<{ readonly bounds: Bounds }>): Bounds | null {
+  let bounds: Bounds | null = null;
+  for (const item of items) {
+    const b = item.bounds;
+    bounds =
+      bounds === null
+        ? { ...b }
+        : {
+            minX: Math.min(bounds.minX, b.minX),
+            minY: Math.min(bounds.minY, b.minY),
+            maxX: Math.max(bounds.maxX, b.maxX),
+            maxY: Math.max(bounds.maxY, b.maxY),
+          };
+  }
+  return bounds;
+}
+
+/**
  * The camera of a first visit: `fitBounds` of the union of the bounds of the
  * items drawn on `view.board` for `viewer`, or 0,0 at zoom 1 with none.
  */
@@ -37,19 +58,7 @@ export function firstVisitCamera(
     board: view.board,
     viewer,
   });
-  let bounds: Bounds | null = null;
-  for (const item of scene.items) {
-    const b = item.bounds;
-    bounds =
-      bounds === null
-        ? { ...b }
-        : {
-            minX: Math.min(bounds.minX, b.minX),
-            minY: Math.min(bounds.minY, b.minY),
-            maxX: Math.max(bounds.maxX, b.maxX),
-            maxY: Math.max(bounds.maxY, b.maxY),
-          };
-  }
+  const bounds = unionBounds(scene.items);
   return bounds === null ? { ...CENTER } : fitBounds(bounds, viewport, FIT_MARGIN_PX);
 }
 
