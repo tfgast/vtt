@@ -20,6 +20,7 @@ import {
   startServer,
   TableHost,
 } from "@vtt/authority";
+import { CRYPT_MAP, exampleAssetPath, GOBLIN_IMAGE } from "@vtt/fixtures";
 import { ProtocolClient, type WireResult } from "@vtt/protocol";
 import type { ObjectId, Point } from "@vtt/schema";
 import {
@@ -48,13 +49,11 @@ export const VIEWPORT = { width: RECT.width, height: RECT.height };
 export const GM_BOARD = "gm_board";
 
 /**
- * The example images of `@vtt/fixtures` (vtt-nb8.6). `@vtt/ui` does not
- * depend on `@vtt/fixtures`, so the files are read by path; their pixel
- * sizes are measured from the PNG header, as a browser would measure them.
+ * The example images of `@vtt/fixtures` (vtt-nb8.6); their pixel sizes are
+ * measured from the PNG header, as a browser would measure them.
  */
-const FIXTURE_ASSETS = join(import.meta.dirname, "..", "..", "..", "fixtures", "assets");
-export const CRYPT_MAP_FILE = join(FIXTURE_ASSETS, "crypt-map.png");
-export const GOBLIN_FILE = join(FIXTURE_ASSETS, "goblin.png");
+export const CRYPT_MAP_FILE = exampleAssetPath(CRYPT_MAP.file);
+export const GOBLIN_FILE = exampleAssetPath(GOBLIN_IMAGE.file);
 
 /** A PNG's pixel size from its IHDR chunk. */
 export async function measurePng(file: Blob): Promise<{ width: number; height: number }> {

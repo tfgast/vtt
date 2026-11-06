@@ -30,7 +30,7 @@
 import { readFile } from "node:fs/promises";
 import { act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CRYPT_MAP, exampleAssetPath } from "@vtt/fixtures";
+import { CRYPT_MAP, exampleAssetPath, GOBLIN_IMAGE } from "@vtt/fixtures";
 import type { WireOp, WireValue } from "@vtt/protocol";
 import type { BoardId, ObjectId } from "@vtt/schema";
 import { until } from "../support/authority";
@@ -566,13 +566,13 @@ export async function runPrep(ctx: DriverContext): Promise<PrepRun> {
   // -- 4. The goblin template, its badge checked with a rolled die, eight copies.
   const goblinTemplate = await spawnEntry(ctx, g, GM_BINDER, "tpl_token", at([-4, 8]));
   await g.editInPlace(goblinTemplate, "name", "Goblin");
-  const goblinBytes = await readFile(exampleAssetPath("goblin.png"));
+  const goblinBytes = await readFile(exampleAssetPath(GOBLIN_IMAGE.file));
   await g.click(goblinTemplate);
   await uploadImage(
     ctx,
     user,
     goblinTemplate,
-    new File([goblinBytes], "goblin.png", { type: "image/png" }),
+    new File([goblinBytes], GOBLIN_IMAGE.file, { type: "image/png" }),
   );
   await g.inspectorSet(goblinTemplate, "ac", "13");
   await g.inspectorCellVisibility(goblinTemplate, "ac", "gm");
