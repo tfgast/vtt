@@ -8,6 +8,7 @@
  */
 import type { ObjectView, WireValue } from "@vtt/protocol";
 import type { Bounds, ObjectId, Point, Rect } from "@vtt/schema";
+import { persistentTextBounds } from "../render/face-draw";
 import type { Camera } from "../scene/camera";
 import { hitsAt } from "../scene/hit-test";
 import { buildScene, type DrawItem, type Scene, type SceneInput } from "../scene/scene";
@@ -149,9 +150,23 @@ export function buildFaceScene(input: SceneInput, opts: BuildFaceSceneOptions): 
 /**
  * The board bounds vtt-3l6.6's renderer culls `item` by (its `cullBounds`
  * option): the presentation bounds, or the item's own bounds without them.
+ * Given the `camera`, they also hold its persistent text as magnified to
+ * the legibility floor at that zoom (`persistentTextBounds`, M6-D17,
+ * vtt-qf5.66). Draw culling only: hit testing keeps the presentation bounds.
  */
-export function faceCullBounds(item: DrawItem, scene: FaceScene): Bounds {
-  return scene.presentation.get(item.id) ?? item.bounds;
+export function faceCullBounds(item: DrawItem, scene: FaceScene, camera?: Camera): Bounds {
+  const b = scene.presentation.get(item.id) ?? item.bounds;
+  const drawing = camera === undefined ? undefined : scene.faces.get(item.id);
+  if (camera === undefined || drawing === undefined) return b;
+  const transform = scene.transforms.get(item.id) ?? itemTransform(item);
+  const t = persistentTextBounds(drawing, transform, camera);
+  if (t === null) return b;
+  return {
+    minX: Math.min(b.minX, t.minX),
+    minY: Math.min(b.minY, t.minY),
+    maxX: Math.max(b.maxX, t.maxX),
+    maxY: Math.max(b.maxY, t.maxY),
+  };
 }
 
 /**

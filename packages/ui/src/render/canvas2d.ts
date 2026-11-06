@@ -98,8 +98,9 @@ export interface Canvas2DRendererOptions<S extends Scene = Scene> {
    * padding). Without it, an item is culled by its bounds padded for what
    * `paintItem` draws at a fixed screen size outside the footprint: the
    * shapeless marker, the hidden badge and, when visible, the label strip.
+   * Gets the camera, for what grows on screen as it zooms out (vtt-qf5.66).
    */
-  cullBounds?: (item: DrawItem, scene: S) => Bounds;
+  cullBounds?: (item: DrawItem, scene: S, camera: Camera) => Bounds;
 }
 
 const radians = (deg: number) => (deg * Math.PI) / 180;
@@ -580,7 +581,9 @@ export function createCanvas2DRenderer<S extends Scene = Scene>(
 
       // 1. Scene items, back to front.
       for (const item of scene.items) {
-        const bounds = cullBounds ? cullBounds(item, scene) : decorated(item.bounds, item, camera);
+        const bounds = cullBounds
+          ? cullBounds(item, scene, camera)
+          : decorated(item.bounds, item, camera);
         if (!boundsIntersect(bounds, view)) continue;
         ctx.save();
         ctx.translate(item.anchor[0], item.anchor[1]);
