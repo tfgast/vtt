@@ -430,7 +430,12 @@ Decisions: D7, D8; M5-D1; M6-D2.
 **Floor.** The `base_revision` of the oldest group in the contiguous run of
 retained groups that ends at the current revision. When there is no such run
 (no retained groups, or the newest group's revision differs from the current
-one after a hand edit), the floor is the current revision.
+one after a hand edit), the floor is the current revision. The floor rises
+when the log is compacted: `vtt-serve --keep-last <n>` (DESIGN.md §7, M6-D33)
+keeps only the last n groups at every save, so a revision older than the
+oldest kept group's base is answered `truncated: true` by `changes_since` and
+a `stale_write`, and undo of a group below them is `nothing_to_undo`. Without
+the flag the log is never compacted.
 
 **Processing order of a `transact`**, with precedence from top to bottom:
 

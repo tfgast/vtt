@@ -16,6 +16,7 @@
 import type { Snapshot } from "@vtt/schema";
 import { type DiceSource, RandomDiceSource } from "../engine/dice";
 import { Table } from "../engine/table";
+import { compactLog } from "../persist/compact";
 import { type LoadedTable, loadTable, nodeFs, type PersistFs, saveTable } from "../persist/io";
 import { InvalidAssetPathError } from "../persist/serialize";
 import { DocumentStore } from "../store/document-store";
@@ -74,6 +75,28 @@ export const systemClock: HostClock = {
   },
 };
 
+// --- Save-time compaction policy (vtt-qf5.6; DESIGN.md §7, M6-D33) ---
+
+/**
+ * When a save compacts the log: `"never"` (the default), or keep the last
+ * `keepLast` groups, compacted through `compactLog` at every save before the
+ * file is written (absolute indices kept, barrier raised to at least
+ * `first_index`).
+ */
+export type CompactionPolicy = { readonly keepLast: number } | "never";
+
+/** Validates and freezes a policy; throws on a bad `keepLast`. */
+function compactionPolicy(policy: CompactionPolicy | undefined): CompactionPolicy {
+  if (policy === undefined || policy === "never") return "never";
+  const { keepLast } = policy;
+  if (!Number.isSafeInteger(keepLast) || keepLast < 0) {
+    throw new Error(`compaction keepLast must be a non-negative integer, got ${keepLast}`);
+  }
+  return Object.freeze({ keepLast });
+}
+
+// --- end compaction policy ---
+
 export interface OpenTableOptions {
   /** Create a new table (`newTable`) when the file is missing, and save it at once. */
   createIfMissing?: boolean;
@@ -90,6 +113,8 @@ export interface OpenTableOptions {
   clock?: HostClock;
   /** The filesystem seam passed to `loadTable` and `saveTable`. */
   fs?: PersistFs;
+  /** Save-time log compaction (M6-D33). Default `"never"`. */
+  compaction?: CompactionPolicy;
 }
 
 /** What `close` reports. */
@@ -134,6 +159,7 @@ interface HostInit {
   fs: PersistFs;
   autosave: AutosaveOptions | null;
   clock: HostClock;
+  compaction: CompactionPolicy;
 }
 
 export class TableHost {
@@ -145,6 +171,8 @@ export class TableHost {
   readonly tableId: string | null;
   /** What the load noticed: missing assets, a hand edit, a migration. */
   readonly warnings: readonly string[];
+  /** The save-time compaction policy (M6-D33); `"never"` unless opened with one. */
+  readonly compaction: CompactionPolicy;
 
   readonly #lock: TableLock | null;
   readonly #fs: PersistFs;
@@ -173,6 +201,7 @@ export class TableHost {
     this.#fs = init.fs;
     this.#autosave = init.autosave;
     this.#clock = init.clock;
+    this.compaction = init.compaction;
     this.#lastSaved =
       init.path === null ? null : { revision: init.table.store.revision, assetsGeneration: 0 };
     this.#unsubscribe =
@@ -189,6 +218,7 @@ export class TableHost {
    */
   static async open(path: string, options: OpenTableOptions = {}): Promise<TableHost> {
     const fs = options.fs ?? nodeFs;
+    const compaction = compactionPolicy(options.compaction);
     const canonical = canonicalTablePath(path);
     const lock = await acquireTableLock(canonical);
     try {
@@ -231,6 +261,7 @@ export class TableHost {
         fs,
         autosave,
         clock: options.clock ?? systemClock,
+        compaction,
       });
     } catch (err) {
       await lock.release().catch(() => undefined);
@@ -251,6 +282,7 @@ export class TableHost {
       fs: nodeFs,
       autosave: null,
       clock: systemClock,
+      compaction: "never",
     });
   }
 
@@ -377,9 +409,20 @@ export class TableHost {
     return error === undefined ? { saved, revision } : { saved, revision, error };
   }
 
-  /** Whether the current (revision, assets generation) differs from the saved pair. */
+  /**
+   * Whether the current (revision, assets generation) differs from the saved
+   * pair, or the compaction policy has groups to drop (M6-D33).
+   */
   #dirty(): boolean {
-    return !this.#isCurrent(this.#lastSaved);
+    return !this.#isCurrent(this.#lastSaved) || this.#compactionPending();
+  }
+
+  /** Whether the log holds more groups than the compaction policy keeps (M6-D33). */
+  #compactionPending(): boolean {
+    return (
+      this.compaction !== "never" &&
+      this.table.store.history.groups().length > this.compaction.keepLast
+    );
   }
 
   /** Whether `point` is the current (revision, assets generation). */
@@ -431,7 +474,8 @@ export class TableHost {
   /**
    * Starts a save of the current revision and asset list. Both, and the
    * asset generation, are captured and `saveTable` is called in this tick,
-   * so later commits and assets never reach the file. Every pending timer is cancelled: this save covers what they were
+   * so later commits and assets never reach the file. The compaction policy,
+   * if any, compacts the log first, in the same tick. Every pending timer is cancelled: this save covers what they were
    * for.
    */
   #start(): Promise<SaveEvent> {
@@ -440,6 +484,8 @@ export class TableHost {
     this.#clearAll();
     const revision = this.revision;
     const assetsGeneration = this.#assetsGeneration;
+    // Compaction policy (M6-D33): compact before the snapshot is serialized.
+    if (this.compaction !== "never") compactLog(this.table.store, this.compaction.keepLast);
     const promise = saveTable(path, this.table.store, this.#assets, this.#fs)
       .then(
         (result): SaveEvent => {

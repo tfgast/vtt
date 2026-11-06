@@ -27,6 +27,9 @@ pnpm start tables/crypt.table.json
 - A missing table file is created holding the GM board and the GM binder,
   stocked with the example templates. Add `--empty` for a table with no
   objects; it has no effect on an existing file.
+- The table's history (the log panel, undo) is kept in full by default. Add
+  `--keep-last <n>` to keep only the last n groups, trimmed at every save;
+  older groups can no longer be undone.
 - The UI is built first only when its build is missing or older than its
   sources; `--no-build` skips that check.
 - Once the server is listening, the table opens in your browser (`$BROWSER`
