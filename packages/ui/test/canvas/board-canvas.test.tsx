@@ -169,6 +169,22 @@ describe("BoardCanvas", () => {
     ]);
   });
 
+  test("a touch pointer carries its pointerType; the canvas takes touch gestures (M6-D40)", () => {
+    const { canvas, events } = setup();
+    expect(canvas.style.touchAction).toBe("none");
+    fireEvent.pointerDown(canvas, {
+      pointerId: 3,
+      pointerType: "touch",
+      clientX: 410,
+      clientY: 320,
+      button: 0,
+      buttons: 1,
+    });
+    expect(events).toEqual([
+      expect.objectContaining({ type: "pointer_down", pointerType: "touch" }),
+    ]);
+  });
+
   test("the pointer is captured during a drag", () => {
     const { canvas } = setup();
     const set = vi.fn();

@@ -107,6 +107,7 @@ viewing as a character; it never reverses the agent's work.
 | Space-drag or middle-drag | pan |
 | Wheel or two-finger scroll | pan (over a list that scrolls: scroll it) |
 | Ctrl/Cmd+wheel or pinch | zoom about the pointer |
+| Two-finger touch drag | pan; pinching or spreading the fingers zooms about them |
 | Click | select |
 | Alt+click | cycle through the objects under the pointer |
 | Drag one template | drop a copy |
@@ -117,6 +118,7 @@ viewing as a character; it never reverses the agent's work.
 | Drop on a list | insert there |
 | Drop a template on a binder | give that binder a template |
 | Double-click | run the object's default action, else edit in place |
+| Long press (touch) | as a double-click at that point |
 | Click an editor field | edit it |
 | Chevron on a list entry | expand or collapse it (a template entry makes a working copy) |
 | Gear | edit a template |

@@ -27,6 +27,11 @@ export interface PointerFields {
   button: number;
   buttons: number;
   modifiers: Modifiers;
+  /**
+   * The DOM `PointerEvent.pointerType` ("mouse", "pen" or "touch"), when
+   * known; only "touch" changes what the machine does (M6-D40).
+   */
+  pointerType?: string;
 }
 
 export type PointerEventType = "pointer_down" | "pointer_move" | "pointer_up" | "pointer_cancel";
@@ -82,7 +87,17 @@ export type SettledOutcome =
 
 export type InteractionEvent =
   | PointerInteractionEvent
-  | { type: "double_click"; screen: Point; board: Point; modifiers: Modifiers }
+  | {
+      type: "double_click";
+      screen: Point;
+      board: Point;
+      modifiers: Modifiers;
+      /**
+       * Set by the machine on a touch long press (M6-D40), which no click
+       * preceded: a face editor field opens its editor at once.
+       */
+      longPress?: true;
+    }
   /** Deltas in CSS pixels (line and page deltas are converted by `BoardCanvas`). */
   | {
       type: "wheel";
@@ -97,4 +112,10 @@ export type InteractionEvent =
   | { type: "file_drop"; files: File[]; screen: Point; board: Point }
   /** A drop carrying an `application/x-vtt-*` type: the first such type and its data (M5 Q1 A1). */
   | { type: "data_drop"; mime: string; data: string; screen: Point; board: Point }
-  | { type: "settled"; interactionId: string; outcome: SettledOutcome };
+  | { type: "settled"; interactionId: string; outcome: SettledOutcome }
+  /**
+   * The runtime's long-press timer for touch pointer `pointerId` ran out
+   * (M6-D40); the machine acts on it only while that pointer is still its
+   * long-press candidate, and never passes it to a tool.
+   */
+  | { type: "long_press"; pointerId: number };

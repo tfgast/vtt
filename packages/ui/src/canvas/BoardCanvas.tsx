@@ -13,6 +13,9 @@
  * prevented, so it types), and a Space released anywhere ends a held Space.
  * A Space pressed with focus inside the container carries `canvasFocused`.
  * A key_down `onEvent` answers with `true` is prevented (vtt-qf5.26).
+ * Pointer events carry the DOM `pointerType`, and the canvas has
+ * `touch-action: none`, so a pinch on it reaches the machine as two touch
+ * pointers instead of zooming the page (M6-D40).
  */
 import type { Point } from "@vtt/schema";
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
@@ -222,6 +225,7 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
           button: type === "pointer_move" ? -1 : e.button,
           buttons: e.buttons,
           modifiers: modifiers(e),
+          ...(e.pointerType ? { pointerType: e.pointerType } : {}),
           ...(boardTab === null ? {} : { boardTab }),
         });
       };
