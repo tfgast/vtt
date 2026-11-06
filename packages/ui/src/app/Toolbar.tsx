@@ -12,10 +12,16 @@
  * active zone tool's typed options through `UiStore.setTool`, and activating
  * a zone tool (button or key) passes it along, so the zone tools never
  * disagree.
+ *
+ * While the ink tool is active, its pen group shows (M6-D28): a swatch per
+ * `INK_PALETTE` colour, a width menu of `INK_WIDTHS`, and the Eraser
+ * toggle. The pen is remembered per store like fog; activating the ink tool
+ * (button or D) picks the pen, E picks the eraser (`activateInkEraser`).
  */
 import { type CSSProperties, useState } from "react";
+import { INK_PALETTE, INK_WIDTHS } from "../interaction/ink-pen";
 import type { ToolRegistry } from "../interaction/registry";
-import type { ToolId } from "../interaction/tool";
+import { DEFAULT_TOOL_OPTIONS, type InkToolOptions, type ToolId } from "../interaction/tool";
 import { ViewAsMenu } from "../nav/ViewAsMenu";
 import { useTableSession, useUi, useUiStore } from "../session/hooks";
 import { save, undo } from "../session/writes";
@@ -61,9 +67,32 @@ export function setZoneFog(ui: UiStore, fog: boolean): void {
   if (isZoneTool(tool.id)) ui.setTool(tool.id, { fog });
 }
 
-/** Activates tool `id`; a zone tool gets the zone tools' fog. */
+const inkPreference = new WeakMap<UiStore, InkToolOptions>();
+
+/** The ink tool's pen of `ui`: the active ink tool's options, else the last set, else the default. */
+export function inkPen(ui: UiStore): InkToolOptions {
+  const tool = ui.getState().tool;
+  if (tool.id === "ink") return tool.options;
+  return inkPreference.get(ui) ?? DEFAULT_TOOL_OPTIONS.ink;
+}
+
+/** Changes the ink tool's pen by `patch` and activates the ink tool with it. */
+export function setInkPen(ui: UiStore, patch: Partial<InkToolOptions>): void {
+  const next = { ...inkPen(ui), ...patch };
+  inkPreference.set(ui, next);
+  ui.setTool("ink", next);
+}
+
+/** Activates the ink tool as the eraser (the E key), keeping its colour and width. */
+export function activateInkEraser(ui: UiStore): void {
+  setInkPen(ui, { eraser: true });
+}
+
+/** Activates tool `id`; a zone tool gets the zone tools' fog, the ink tool its pen (not the eraser). */
 export function activateTool(ui: UiStore, id: ToolId): void {
-  if (isZoneTool(id)) {
+  if (id === "ink") {
+    setInkPen(ui, { eraser: false });
+  } else if (isZoneTool(id)) {
     const fog = zoneFog(ui);
     fogPreference.set(ui, fog);
     ui.setTool(id, { fog });
@@ -136,6 +165,7 @@ export function Toolbar({ registry, onHelp }: ToolbarProps) {
           Snap
         </label>
       </div>
+      {tool.id === "ink" ? <InkPenGroup ui={ui} pen={tool.options} /> : null}
       <ViewAsMenu />
       <div style={GROUP_STYLE}>
         <button
@@ -164,5 +194,57 @@ export function Toolbar({ registry, onHelp }: ToolbarProps) {
         )}
       </div>
     </header>
+  );
+}
+
+const PEN_STYLE: CSSProperties = { ...GROUP_STYLE, border: "none", margin: 0, padding: 0 };
+
+const SWATCH_STYLE: CSSProperties = {
+  width: "1.4em",
+  height: "1.4em",
+  padding: 0,
+  border: "1px solid #888",
+  borderRadius: "3px",
+};
+
+/** The ink tool's pen: colour swatches, the width menu and the Eraser toggle (M6-D28). */
+function InkPenGroup({ ui, pen }: { ui: UiStore; pen: InkToolOptions }) {
+  return (
+    <fieldset aria-label="Pen" style={PEN_STYLE}>
+      {INK_PALETTE.map((c) => (
+        <button
+          key={c.color}
+          type="button"
+          aria-label={`${c.label} ink`}
+          aria-pressed={!pen.eraser && pen.color === c.color}
+          title={`${c.label} ink`}
+          style={{
+            ...SWATCH_STYLE,
+            background: c.color,
+            outline: pen.color === c.color ? "2px solid #4a7bd0" : undefined,
+          }}
+          onClick={() => setInkPen(ui, { color: c.color, eraser: false })}
+        />
+      ))}
+      <select
+        aria-label="Pen width"
+        value={String(pen.width)}
+        onChange={(e) => setInkPen(ui, { width: Number(e.currentTarget.value) })}
+      >
+        {INK_WIDTHS.map((w) => (
+          <option key={w.width} value={String(w.width)}>
+            {w.label}
+          </option>
+        ))}
+      </select>
+      <label title={withKeys("Erase whole strokes by dragging across them", keysOf("eraser"))}>
+        <input
+          type="checkbox"
+          checked={pen.eraser}
+          onChange={(e) => setInkPen(ui, { eraser: e.currentTarget.checked })}
+        />
+        Eraser
+      </label>
+    </fieldset>
   );
 }

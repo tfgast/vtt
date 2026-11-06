@@ -97,6 +97,47 @@ describe("canonicalJson", () => {
       `"value": {\n${" ".repeat(10)}"content": {\n${" ".repeat(12)}"type": "number",\n${" ".repeat(12)}"value": 1\n`,
     );
   });
+  test("orders a pen stroke's keys points, color, width; bare strokes stay arrays (M6-D28)", () => {
+    const s = scene();
+    const coin = s.objects.coin;
+    if (coin === undefined) throw new Error("no coin");
+    coin.cells.ink = {
+      content: {
+        strokes: [
+          [[0, 0]],
+          { width: 0.08, color: "#d32f2f", points: [[1, 1]] },
+          { width: 0.16, points: [[2, 2]] },
+        ],
+        type: "ink",
+      } as never,
+    };
+    const text = canonicalJson(s);
+    const ink = text.slice(text.indexOf('"ink": {'));
+    const at = (k: string, from = 0) => ink.indexOf(k, from);
+    expect(at('"type": "ink"')).toBeLessThan(at('"strokes"'));
+    const pen = at('"points"');
+    expect(pen).toBeLessThan(at('"color"'));
+    expect(at('"color"')).toBeLessThan(at('"width"'));
+    const second = at('"points"', pen + 1);
+    expect(second).toBeLessThan(at('"width"', at('"width"') + 1));
+    // The bare stroke is an array of points, as before.
+    expect(ink).toMatch(/"strokes": \[\n\s+\[\n\s+\[\n\s+0,/);
+    // Same bytes whatever the insertion order.
+    const again = scene();
+    const coin2 = again.objects.coin;
+    if (coin2 === undefined) throw new Error("no coin");
+    coin2.cells.ink = {
+      content: {
+        type: "ink",
+        strokes: [
+          [[0, 0]],
+          { points: [[1, 1]], color: "#d32f2f", width: 0.08 },
+          { points: [[2, 2]], width: 0.16 },
+        ],
+      } as never,
+    };
+    expect(canonicalJson(again)).toBe(text);
+  });
 });
 
 describe("sha256Hex", () => {

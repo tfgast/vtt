@@ -123,6 +123,7 @@ describe("values", () => {
             [0, 0],
             [1, 1],
           ],
+          { points: [[2, 2]], color: "#d32f2f", width: 0.08 },
         ],
       },
     ];
@@ -132,6 +133,13 @@ describe("values", () => {
     expect(issues(s)).toEqual([]);
   });
 
+  test("a pen stroke's colour is #rrggbb (M6-D28)", () =>
+    rejects(
+      (s) => setCell(s, { type: "ink", strokes: [{ points: [[0, 0]], color: "red" }] }),
+      /./,
+    ));
+  test("a pen stroke's width is positive", () =>
+    rejects((s) => setCell(s, { type: "ink", strokes: [{ points: [[0, 0]], width: 0 }] }), /./));
   test("an untagged literal is rejected", () => rejects((s) => setCell(s, 3), /./));
   test("an error is not a storable value", () =>
     rejects((s) => setCell(s, { type: "error", code: "#REF" }), /./));

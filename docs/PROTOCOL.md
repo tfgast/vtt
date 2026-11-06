@@ -15,7 +15,8 @@ additions cite their rows in full, `M4-D<n>` and `M5-D<n>`.
 `OpGroup`, `Rejection`, `FaceLayout`, `FaceElement` and the scalar value types (`NumberValue`,
 `TextValue`, `BooleanValue`, `EmptyValue`, `DiceValue`, `RollValue`,
 `InkValue`, `ShapeValue`) are those of `@vtt/schema` (DESIGN.md §4, §7;
-FORMULAS.md §2). Client-to-server messages are parsed strictly: unknown keys
+FORMULAS.md §2); an `InkValue` stroke is a point list or `{points, color?,
+width?}` (M6-D28). Client-to-server messages are parsed strictly: unknown keys
 are rejected. Server-to-client messages are parsed loosely: unknown keys are
 dropped (§12). `__proto__` is rejected as a key anywhere, in either direction
 (as FIXTURES.md §1).

@@ -32,7 +32,7 @@ the language.
 | reference | none | Points at an object. Obtained from reference cells (`target`, `owner`) or queries (`contents(...)`). A reference to a deleted object evaluates to `#REF` (2.4). |
 | dice | `2d6+3`, `1d20kh1`, `4d6dl1`, `1d6!`, `2d20kl1` | A dice *expression*, not a roll. See 2.2. |
 | roll result | none | Produced by the `roll` action step. See 2.2. |
-| ink | none | Freehand strokes. Opaque to formulas; only `ink = empty` is meaningful. |
+| ink | none | Freehand strokes, each a point list or a point list with its own colour and width (DESIGN.md §4.6, M6-D28). Opaque to formulas; only `ink = empty` is meaningful. |
 | shape | none | The value the structural `shape` cell reads as. Opaque to formulas: `=` and `!=` compare structurally, every other operation is `#TYPE`. Always truthy. |
 | viewers | `all`, `gm`, `owner`, a character reference, or a list of these | The value type of `visible_to`. In a formula, `all` and `gm` are reserved viewer literals and `owner` is the `owner` cell (3.2). |
 | record | `{target: it, modifier: 2}` | A set of named values. Used only as the initial-cells argument to `spawn`. Not storable in a cell. A duplicate field name is a syntax error. |

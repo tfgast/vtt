@@ -57,10 +57,41 @@ export interface ViewersValue {
   viewers: ViewerEntry[];
 }
 
+/**
+ * A stroke with its own pen (DESIGN.md §4.6 Ink and text; M6-D28): its
+ * points plus an optional `color` (`#rrggbb`, `INK_COLOR_PATTERN`) and an
+ * optional `width` in board units (`0 < width <= INK_MAX_WIDTH`). An absent
+ * field is the default pen's.
+ */
+export interface PenStroke {
+  points: Point[];
+  color?: string;
+  width?: number;
+}
+
+/** One ink stroke: a bare point list (the default pen) or a `PenStroke`. */
+export type Stroke = Point[] | PenStroke;
+
 export interface InkValue {
   type: "ink";
-  strokes: Point[][];
+  strokes: Stroke[];
 }
+
+/** A stroke's `color`: `#` and six hex digits (M6-D28). */
+export const INK_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+/** The widest stroke `width`, in board units (M6-D28). */
+export const INK_MAX_WIDTH = 1;
+
+/** Whether `x` is a valid stroke `color`. */
+export const isInkColor = (x: unknown): x is string =>
+  typeof x === "string" && INK_COLOR_PATTERN.test(x);
+
+/** Whether `x` is a valid stroke `width`: finite, positive, at most INK_MAX_WIDTH. */
+export const isInkWidth = (x: unknown): x is number =>
+  typeof x === "number" && Number.isFinite(x) && x > 0 && x <= INK_MAX_WIDTH;
+
+/** The points of a stroke of either form. */
+export const strokePoints = (s: Stroke): Point[] => (Array.isArray(s) ? s : s.points);
 
 export interface ShapeValue {
   type: "shape";

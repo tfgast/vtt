@@ -35,6 +35,10 @@ const SHAPE = by("type", {
   polygon: tagged("points"),
 });
 
+// A stroke is a bare point list (an array, emitted as is) or a pen stroke
+// (M6-D28).
+const STROKE = fields("points", "color", "width");
+
 const valueCases: Record<string, Layout> = {
   number: tagged("value"),
   text: tagged("value"),
@@ -43,7 +47,7 @@ const valueCases: Record<string, Layout> = {
   ref: tagged("object"),
   dice: tagged("expr"),
   roll: tagged("expr", "dice", "dropped", "total"),
-  ink: tagged("strokes"),
+  ink: tagged(["strokes", arr(STROKE)]),
   shape: tagged(["shape", SHAPE]),
 };
 const VALUE = by("type", valueCases);
