@@ -12,7 +12,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { MCP_INSTRUCTIONS, stockedTableSnapshot, UndoInputSchema } from "@vtt/authority";
+import {
+  GetObjectsInputSchema,
+  getObjects,
+  ListObjectsInputSchema,
+  listObjects,
+  MCP_INSTRUCTIONS,
+  stockedTableSnapshot,
+  Table,
+  UndoInputSchema,
+} from "@vtt/authority";
 import {
   BINDING_NAME_PATTERN,
   ProtocolRejectionSchema,
@@ -33,6 +42,7 @@ type Category =
   | "appearance"
   | "field"
   | "rejection"
+  | "argument"
   | "exception";
 
 /** Every backticked identifier in `MCP_INSTRUCTIONS`, with its one category. */
@@ -77,6 +87,7 @@ const IDENTIFIERS: Record<string, Category> = {
   as: "field",
   base_revision: "field",
   stale_write: "rejection",
+  'cells: "all"': "argument",
   mine: "exception",
   $copy: "exception",
 };
@@ -198,6 +209,34 @@ describe("MCP_INSTRUCTIONS", () => {
       "always set its `owner` to the binder's `owner` (the character), so the card's buttons pressed in the UI act as that character",
     );
     expect(give).toContain("for `tpl_area_save` also set `name`, `caster` and `damage_dice`");
+  });
+
+  test('argument `cells: "all"` is accepted by list_objects and get_objects', () => {
+    expect(IDENTIFIERS['cells: "all"']).toBe("argument");
+    expect(ListObjectsInputSchema.safeParse({ cells: "all" }).success).toBe(true);
+    expect(GetObjectsInputSchema.safeParse({ ids: ["tpl_sheet"], cells: "all" }).success).toBe(
+      true,
+    );
+  });
+
+  test('reading user cells needs `cells: "all"` (vtt-qf5.53)', () => {
+    const line = MCP_INSTRUCTIONS.split("\n").find((l) => l.startsWith("`list_objects` returns"));
+    expect(line).toContain("`list_objects` returns only structural cells");
+    expect(line).toContain('unless you pass `cells: "all"`');
+    expect(line).toContain(
+      'To read user cells, such as the stats on a character\'s sheet, call `get_objects` with `cells: "all"`',
+    );
+    // The sentence matches the queries: list_objects' default view omits a
+    // stocked sheet's `spell_dc`; with `cells: "all"`, and in get_objects'
+    // default view, it is there.
+    const table = Table.fromSnapshot(stockedTableSnapshot());
+    const listed = (params: { cells?: "all" }) =>
+      listObjects(table, { limit: 200, ...params }).objects.find((o) => o.id === "tpl_sheet");
+    expect(Object.keys(listed({})?.cells ?? {})).toContain("position");
+    expect(Object.keys(listed({})?.cells ?? {})).not.toContain("spell_dc");
+    expect(Object.keys(listed({ cells: "all" })?.cells ?? {})).toContain("spell_dc");
+    const got = getObjects(table, { ids: ["tpl_sheet"] }).objects[0];
+    expect(Object.keys(got?.cells ?? {})).toContain("spell_dc");
   });
 
   test("every vtt:// URI is a registered resource", () => {

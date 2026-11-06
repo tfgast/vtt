@@ -1096,8 +1096,9 @@ invokes an action as a button press does, `undo`, `save`, and
 explain (`explain_cell`, `explain_group`, `explain_action`), and subscribe
 (`subscribe`, `poll_changes`, `unsubscribe`). At `initialize` the MCP server
 sends instructions: a short orientation naming the resources, the first
-queries, the GM binder's templates, how to give a template to a character,
-and the stale-write rule.
+queries, that reading user cells needs `cells: "all"` (`list_objects`
+returns structural cells by default), the GM binder's templates, how to give
+a template to a character, and the stale-write rule.
 
 - **Stale writes.** Every `transact` (the batched write command) carries the
   revision it was based on. It is refused as `stale_write` when a group
