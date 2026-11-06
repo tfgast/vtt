@@ -373,7 +373,7 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
         const effects = handler(event, input, fileDropContext);
         if (effects !== null) {
           run(effects, "handler");
-          return;
+          return false;
         }
       }
     }
