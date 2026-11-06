@@ -22,6 +22,7 @@ export * from "./face-editor/cell-drop";
 export * from "./face-editor/FaceSection";
 export * from "./face-editor/face-ops";
 export * from "./face-editor/layout-tool";
+export * from "./formula-bar/completion";
 export * from "./formula-bar/editor-port";
 export * from "./formula-bar/FormulaBar";
 export * from "./formula-bar/InPlaceEditor";
