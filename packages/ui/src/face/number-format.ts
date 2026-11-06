@@ -18,13 +18,28 @@ function roundHalfAway(n: number, places: number): number {
   return (Math.sign(n) * Math.round(scaled)) / scale;
 }
 
+/** `toFixed` turns exponential (`1e+21`) from this magnitude on. */
+const TO_FIXED_LIMIT = 1e21;
+
+/**
+ * `n` written with exactly `places` decimals in fixed point. At and above
+ * 1e21 a double is an integer, so its exact digits come from BigInt and the
+ * fraction is all zeros; below that `toFixed` is used as is.
+ */
+function toFixedPoint(n: number, places: number): string {
+  if (Math.abs(n) < TO_FIXED_LIMIT) return n.toFixed(places);
+  const digits = BigInt(n).toString();
+  return places === 0 ? digits : `${digits}.${"0".repeat(places)}`;
+}
+
 /**
  * The face text of the number `n` under `format`, given `compact`, its text
  * without one. `decimals` writes exactly that many places, rounded half away
  * from zero (`2.5` at 2 is `2.50`, `-0.004` at 2 is `0.00`); without it the
  * compact text stands. `sign: "always"` prefixes `+` when the written number
  * is positive; zero (including a value that rounds to zero) and negatives
- * are unchanged. A non-finite number is left as `compact`.
+ * are unchanged. Large magnitudes stay in fixed point (no `1e+21`). A
+ * non-finite number is left as `compact`.
  */
 export function formatFaceNumber(
   n: number,
@@ -36,7 +51,7 @@ export function formatFaceNumber(
   if (format.decimals !== undefined) {
     const rounded = roundHalfAway(n, format.decimals);
     // `toFixed` writes -0 as "0", so a negative that rounds to zero has no sign.
-    text = rounded === 0 ? (0).toFixed(format.decimals) : rounded.toFixed(format.decimals);
+    text = rounded === 0 ? (0).toFixed(format.decimals) : toFixedPoint(rounded, format.decimals);
   }
   if (format.sign === "always" && Number(text) > 0) text = `+${text}`;
   return text;
