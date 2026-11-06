@@ -44,7 +44,7 @@ const OP_EXAMPLES: Record<string, Record<string, unknown>> = {
   set_shape: { object: "goblin", shape: { type: "circle", radius: 1 } },
   set_template_flag: { object: "goblin", value: true },
   set_character_flag: { object: "goblin", value: true },
-  set_actions: { object: "goblin", actions: [{ name: "Heal", steps: ["7 -> hp"] }] },
+  set_actions: { object: "goblin", actions: [{ name: "Heal", steps: ["set(hp, 7)"] }] },
   set_face: {
     object: "goblin",
     face: {
@@ -314,7 +314,7 @@ describe("happy paths and errors, one per tool", () => {
           {
             type: "set_actions",
             object: "goblin",
-            actions: [{ name: "Heal", steps: ["7 -> hp"] }],
+            actions: [{ name: "Heal", steps: ["set(hp, 7)"] }],
           },
         ],
       }),
@@ -323,8 +323,8 @@ describe("happy paths and errors, one per tool", () => {
       object: "goblin",
       action: "Heal",
       enabled: true,
-      steps: ["7 -> hp"],
-      step_status: [{ ok: false, message: expect.any(String), offset: expect.any(Number) }],
+      steps: ["set(hp, 7)"],
+      step_status: [{ ok: true }],
     });
     expect(failed(await h.call("explain_action", { object: "goblin", action: "nope" })).code).toBe(
       "not_found",
