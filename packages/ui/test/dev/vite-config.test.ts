@@ -238,6 +238,14 @@ describe("vite.config.ts", () => {
     });
   });
 
+  test("the dev and build scripts load the config with the module runner (M6-D41)", async () => {
+    const pkg = JSON.parse(await readFile(join(UI, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts.dev).toBe("vite --configLoader runner");
+    expect(pkg.scripts.build).toBe("vite build --configLoader runner");
+  });
+
   test("proxies /assets to the default port 4747 without any session", async () => {
     const resolved = await withEnv(
       { XDG_CONFIG_HOME: dir, VTT_URL: undefined, VTT_TOKEN: undefined },
@@ -268,6 +276,7 @@ describe("the real UI build", () => {
         build({
           root: UI,
           configFile: CONFIG_FILE,
+          configLoader: "runner",
           mode: "production",
           logLevel: "silent",
           build: { outDir, emptyOutDir: true },
@@ -429,6 +438,7 @@ describe("the dev server's /assets proxy", () => {
         const server = await createServer({
           root: UI,
           configFile: CONFIG_FILE,
+          configLoader: "runner",
           logLevel: "silent",
           server: { port: 0, host: "127.0.0.1", strictPort: true, hmr: false, ws: false },
         });
