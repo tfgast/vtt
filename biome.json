@@ -7,7 +7,15 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!!.beads", "!!.agents", "!!.claude", "!!.codex", "!!.cursor"]
+    "includes": [
+      "**",
+      "!!.beads",
+      "!!.agents",
+      "!!.claude",
+      "!!.codex",
+      "!!.cursor",
+      "!!packages/fixtures/examples"
+    ]
   },
   "formatter": {
     "enabled": true,

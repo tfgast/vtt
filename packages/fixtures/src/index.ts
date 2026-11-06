@@ -4,6 +4,7 @@ import type { Scenario } from "./types";
 
 export { NON_CELL_STRUCTURAL, RESERVED_NAMES } from "./check";
 export * from "./example-assets";
+export * from "./prepped-table";
 export * from "./schema";
 export type * from "./types";
 
