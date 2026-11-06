@@ -305,7 +305,7 @@ function resolveSpot(scene: FaceScene, aim: Aim): Spot {
       const l = locate(scene, aim.entry);
       if (l?.entry == null) {
         throw new Error(
-          `bringIntoView: ${what} is not drawn (is ${aim.container} on the active board, with every entry around it expanded?)`,
+          `bringIntoView: ${what} is not drawn (is ${aim.container} on the active board, with every entry around it expanded, and selected when its list shows only when selected?)`,
         );
       }
       const { clip, entry } = l.entry;
@@ -383,7 +383,7 @@ function resolveSpot(scene: FaceScene, aim: Aim): Spot {
       if (list === undefined) {
         const collapsed = l.entry !== null && !l.entry.entry.expanded;
         throw new Error(
-          `bringIntoView: ${what} is not drawn${collapsed ? ` (${aim.object} is collapsed: expand it first)` : ""}`,
+          `bringIntoView: ${what} is not drawn${collapsed ? ` (${aim.object} is collapsed: expand it first)` : ` (if its list shows only when selected, select ${aim.object} first)`}`,
         );
       }
       const object = aim.object;
@@ -585,7 +585,11 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
   };
   const viewer = (): Viewer => ctx.session.getSnapshot().viewer;
 
-  /** The face scene the app draws now (its board view, viewer and face state). */
+  /**
+   * The face scene the app draws now (its board view, viewer, selection and
+   * face state): a `when_selected` list (M6-D12) is in it only while its
+   * object, or something inside it, is selected.
+   */
   const faces = (): FaceScene => {
     const view = ctx.session.boardView();
     if (view === null) throw new Error("the app shows no board");
@@ -595,6 +599,7 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
         covers: [...view.covers.values()],
         board: view.board,
         viewer: viewer(),
+        selection: ctx.ui.getState().selection,
       },
       { faceState: ctx.faceState },
     );
@@ -983,6 +988,10 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
    * Drags what `press` aims at (a board object's body or an entry's row) to
    * `drop`. `release` maps the chosen press point to its release point for a
    * board-point drop (an object's grab offset kept). Waits for the commit.
+   * A board object's drag starts from no selection; an entry drag, which
+   * leaves the selection alone until the drop, keeps it, so the list it
+   * starts in or drops on stays shown when that list shows only while its
+   * object is selected (M6-D12): select that object first.
    */
   const dragAims = async (
     press: Aim,
@@ -991,7 +1000,7 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
     options: { alt?: boolean; release?: (p: Point) => Point },
   ): Promise<void> => {
     const alt = options.alt === true;
-    await clearSelection();
+    if (press.kind !== "entry") await clearSelection();
     await reveal(press);
     let dropSpotAim: Aim | null = null;
     if (drop.kind === "editor") {
@@ -1374,7 +1383,8 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
         container === null
           ? { kind: "board", id, use: "body" }
           : { kind: "entry", container, entry: id, part: "row" };
-      await clearSelection();
+      // An entry keeps the selection that shows its list (M6-D12).
+      if (container === null) await clearSelection();
       const p = await reveal(aim);
       const before = ctx.gm.revision;
       doubleTap(p);

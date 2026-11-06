@@ -60,6 +60,10 @@ GM board are plain `[x, y]`; the GM binder's centre is `[0, 0]`.
 - **Entry**: a row in a contents list (a binder's, a token's or a card's).
   Each entry has a chevron that expands or collapses it. A template entry
   also has a gear.
+- **Count badge**: a token's (or character's) contents list shows only
+  while the token is selected. Otherwise a small number below the token,
+  at the lower right, says how many entries the list holds; an empty list
+  shows no badge. Click the token to show its list.
 - **Inspector**: the panel on the right, with the tabs Inspector, Objects
   and Log. To change a cell there, double-click its value, type, and press
   Enter. Each such edit is its own change.
@@ -71,12 +75,6 @@ GM board are plain `[x, y]`; the GM binder's centre is `[0, 0]`.
 The walkthrough found these. Work around them as described in the steps;
 they are not new findings, but say so if they bother you.
 
-- A character's expanded contents list is 3 units wide. Lists of characters
-  closer than that overlap, and the later one hides the earlier. Space the
-  characters more than 3 units apart, or collapse each sheet after filling
-  it in.
-- When you drag a zone, do not release the pointer over a token's contents
-  list: the zone would go inside that token.
 - After reopening the table (step 15), one Ctrl+Z undoes the wrong goblin's
   Roll damage, because the Apply and the Delete before it are already
   undone.
@@ -143,10 +141,10 @@ Then the four characters, one at a time:
 6. Drag the Character entry out of the GM binder onto the GM board, to the
    right of the binder. The walkthrough makes Dara first at `[16, 0]`, then
    Corin at `[14, 0]`, Brenna at `[12, 0]` and Aldric last at `[10, 0]`.
-   Those are 2 units apart; space yours more than 3 units apart, or collapse
-   each sheet once it is filled in (see Known rough edges).
 7. Double-click the new token's name and type the character's name.
-8. In the token's contents list, expand the sheet entry with its chevron.
+8. Click the token to show its contents list, then expand the sheet entry
+   with its chevron. While the token is not selected, its count badge
+   reads 2 (the sheet and the binder) in place of the list.
 9. On the sheet, click each field and type its value from this table:
 
 | Character | AC | Max HP | Attack bonus | Dex save |
@@ -161,8 +159,8 @@ You should see:
 - Each sheet's header shows its character's name.
 - Each token's `hp` reads its Max HP: 24, 30, 18 and 16.
 - No token shows a HIT badge yet.
-- Each character's binder (the other entry in its token's list) holds an
-  Attack template.
+- Each character's binder (the other entry in its token's list, shown
+  while the token is selected) holds an Attack template.
 - Each binder's header on the board shows its character's name; its entry
   in the token's list still reads Binder.
 
@@ -250,8 +248,9 @@ Check the badge with a loose die:
 
 Give the goblin its own attack die:
 
-12. Drag the d20 entry from the GM binder onto the goblin's contents list.
-    A die is inserted into the list.
+12. Click the goblin to show its contents list (empty for now, so no count
+    badge showed), then drag the d20 entry from the GM binder onto that
+    list. A die is inserted into the list.
 13. Click that die's row to select it. In the inspector, set `owner` (in
     the Structural group) to `@` followed by the goblin's id, which the
     goblin's `id` row shows. Set `modifier` to `=owner.attack_bonus`.
@@ -271,7 +270,8 @@ You should see:
 - G1 to G4 in room 3 and G5 to G8 in room 5, each with the goblin picture
   and `hp` 7.
 - No HIT badge on any goblin.
-- Each G has a die in its contents list; the die's `modifier` is 4.
+- Each G shows a count badge reading 1: click it to show its contents
+  list, which holds its die; the die's `modifier` is 4.
 - Each copy is a character but not a template.
 
 Result: ok / friction / broken — game went differently: yes / no — notes:
@@ -294,8 +294,9 @@ terrain, hatched" and "Fireball for Aldric". Yours may label or split them
 differently; note it if it does.
 
 3. Look at room 4 on Crypt: it is hatched.
-4. Go to the GM board. In Aldric's contents list, expand his binder entry.
-   It now holds a Fireball entry after the Attack template.
+4. Go to the GM board. Click Aldric to show his contents list, then
+   expand his binder entry. It now holds a Fireball entry after the Attack
+   template.
 5. Click the gear on the Fireball entry. The inspector shows `dc` 14,
    `caster` Aldric and `damage_dice` 8d6.
 6. Correct the DC: set `dc` to `15` in the inspector.
@@ -357,8 +358,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 
 Do this in GM view; switch to view as Aldric only to check.
 
-1. Go to the GM board. In Aldric's contents list, collapse his binder and
-   his sheet.
+1. Go to the GM board. Click Aldric to show his contents list, then
+   collapse his binder and his sheet.
 2. Drag a selection rectangle around the four character tokens and nothing
    else. The walkthrough drags from `[8, -1]` to `[18, 2.5]`.
 3. Press "Move selection to board…" and choose Crypt. The four keep their
@@ -427,8 +428,9 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 > Roll damage, press Apply. The goblin's `hp` changes on its face and the log
 > says so in a sentence. Apply stays visible but disabled, and says why.
 
-1. In GM view, drag Aldric's binder entry out of his token's contents list
-   onto Crypt, to the right of the map at `M + [27, 15]`.
+1. In GM view, click Aldric to show his contents list, then drag his
+   binder entry out of it onto Crypt, to the right of the map at
+   `M + [27, 15]`.
 2. View as Aldric. Aldric's buttons are pressed as Aldric from here on.
 3. In Aldric's binder, expand the Attack template with its chevron. A
    working copy appears right after it, expanded and selected.
@@ -466,11 +468,13 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 > goblin's bonus; the PC's HIT badge reads it. Fast path, no cards.
 
 1. View as GM.
-2. Drag the die's row out of G2's contents list onto the centre of
-   Aldric's token (in the strip).
+2. Click G2 to show its contents list (its count badge reads 1), then
+   drag the die's row out of the list onto the centre of Aldric's token
+   (in the strip).
 3. Double-click the die to roll it.
 
-You should see: the die leaves G2's list and sits on Aldric. Its `total` is
+You should see: the die leaves G2's list (G2's badge disappears) and sits
+on Aldric. Its `total` is
 the roll plus G2's attack bonus (4). Aldric's HIT badge shows when that
 total is at least Aldric's AC (16). The walkthrough rolled 13, a total of
 17: HIT. A lower total leaves the badge hidden, which is correct too. The
@@ -498,11 +502,13 @@ miss.
 4. Drag the zone's row out of the card's contents list onto room 3, to
    `M + [15.5, 11.5]`. The card's `targets` now holds G1, G2 and Brenna.
 5. Nudge the zone so its centre is at `M + [14.8, 12]`: drag the zone from
-   a point inside it, clear of the tokens and sheets in it. The walkthrough
-   grabs it one unit left of and below its centre, so the pointer is
-   released at `M + [13.8, 13]`, on bare map. Do not release over a token's
-   contents list. `targets` updates as the zone moves: G1, G2 and G3,
-   without Brenna.
+   a point inside it, clear of the tokens in it. The goblins are not
+   selected, so their contents lists are hidden (only their count badges
+   show), and releasing over where a list would be leaves the zone on the
+   board. The walkthrough grabs it just above its centre and releases it
+   at `M + [14.6, 11.5]`, below G1, where G1's list shows when G1 is
+   selected. `targets` updates as the zone moves: G1, G2 and G3, without
+   Brenna.
 6. Press Lock targets. Three save rows appear in the card's list.
 7. Press Roll damage once.
 8. Expand each row in turn and press its Roll save.
@@ -570,7 +576,8 @@ You should see:
 
 - After the first Ctrl+Z: G4's `damage_taken` back to 0 (`hp` 7), and the
   card's Apply enabled again. One undo reversed the whole Apply.
-- After the second Ctrl+Z: G4 is back, with its die in its list.
+- After the second Ctrl+Z: G4 is back, with its die in its list (its
+  count badge reads 1).
 - In the Log tab: the "Apply" entry and the "Delete G4" entry are marked
   undone, and older entries lead back to the agent's (the walkthrough's is
   "Fireball for Aldric").

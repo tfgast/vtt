@@ -852,8 +852,8 @@ in `_<digits>`.
   `value image [-0.5, -0.5, 1, 1]`, `value name [-0.8, 0.55, 1.6, 0.3]
   m=8`, `value hp [0.2, -0.6, 0.5, 0.3] m=8`, `value hit [-0.7, -0.6,
   0.5, 0.3] sw="hit"` (the HIT badge, drawn at any zoom; a copy's GM
-  replaces `hit` with a formula), `contents [-0.8, 0.9, 1.6, 0.8] m=24`
-  (entries collapsed).
+  replaces `hit` with a formula), `contents [-0.8, 0.9, 1.6, 0.8] m=24
+  when_selected` (entries collapsed; shown only while selected, M6-D12).
 - `tpl_zone`: rect 4 × 4, `is_zone`; `name: "Zone"`; no face.
 - `tpl_card`: rect 2.5 × 3.5; `name: "Card"`, `title: ""`, `body: ""`; face
   `editor title [-1.15, -1.65, 2.3, 0.5] L`, `editor body [-1.15, -1.05,
@@ -893,8 +893,8 @@ in `_<digits>`.
   sheet.dex_save`, `spell_dc = sheet.spell_dc`; contents
   `tpl_character_sheet`, `tpl_character_binder`; face `value image [-0.5,
   -0.5, 1, 1]`, `value name [-0.8, 0.55, 1.6, 0.3] m=8`, `value hp [0.2,
-  -0.6, 0.5, 0.3] m=8`, `contents [-1.5, 0.9, 3, 1.2] m=24` (entries
-  collapsed).
+  -0.6, 0.5, 0.3] m=8`, `contents [-1.5, 0.9, 3, 1.2] m=24 when_selected`
+  (entries collapsed; shown only while selected, M6-D12).
   - `tpl_character_sheet` (**not** a template): `tpl_sheet`'s record with
     `owner: @tpl_character`.
   - `tpl_character_binder` (**not** a template): `tpl_binder`'s record with

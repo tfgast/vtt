@@ -115,9 +115,9 @@ describe(`prep: ${WALKTHROUGH_STEPS.slice(0, 6)
       expect(value(sheet, "owner")).toEqual(ref(ids.token));
       expect(value(sheet, "attack_bonus")).toEqual(num(want.attack_bonus));
       expect(value(sheet, "dex_save")).toEqual(num(want.dex_save));
-      // On the canvas for Aldric: the tokens' 3-unit lists are 2 units apart, so each
-      // list's chevron column lies under the list of the token made after it (to its left).
-      await expectOwnerHeader(c, ids.token, ids.sheet, want.name === "Aldric");
+      // On the canvas for each: a token's list shows only while it is selected (M6-D12),
+      // so the neighbours' lists, 2 units apart, never cover it.
+      await expectOwnerHeader(c, ids.token, ids.sheet, true);
 
       const binder = await view(c, ids.binder);
       expect(tags(binder)).toContain("binder");
@@ -332,7 +332,8 @@ describe(`prep: ${WALKTHROUGH_STEPS.slice(0, 6)
 /**
  * A sheet's header shows its owner: `value owner` drawn and `editor name`
  * hidden by `show_when`, in the authority's face view and, `onCanvas`, on
- * the canvas (brought into view inside the token's contents list).
+ * the canvas (the token clicked so its list shows, then brought into view
+ * inside it).
  */
 async function expectOwnerHeader(
   c: DriverContext,
@@ -348,6 +349,7 @@ async function expectOwnerHeader(
   expect(element("editor", "name")).toMatchObject({ shown: false });
   if (!onCanvas) return;
   const g = createGestures(c);
+  await g.click(token);
   await g.bringIntoView({ object: sheet, element: { cell: "owner" } });
   expect(g.elementShown(sheet, { cell: "owner" })).toBe(true);
   expect(g.elementShown(sheet, { cell: "name" })).toBe(false);

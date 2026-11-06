@@ -94,7 +94,7 @@ const refsOf = (v: unknown): ObjectId[] => {
     : [];
 };
 
-/** The face scene the app draws now. */
+/** The face scene the app draws now (with its selection: M6-D12's `when_selected` lists). */
 function faces(c: DriverContext): FaceScene {
   const v = c.session.boardView();
   if (v === null) throw new Error("no board view");
@@ -104,6 +104,7 @@ function faces(c: DriverContext): FaceScene {
       covers: [...v.covers.values()],
       board: v.board,
       viewer: c.session.getSnapshot().viewer,
+      selection: c.ui.getState().selection,
     },
     { faceState: c.faceState },
   );
@@ -619,6 +620,21 @@ describe("createGestures (vtt-nb8.18)", () => {
     await g.key("Escape");
     await g.click(zone);
     expect(c.ui.getState().selection).toEqual([zone]);
+  }, 60_000);
+
+  test("a token's list is reached only while the token is selected (M6-D12); an entry drag onto it keeps that selection", async () => {
+    const { c, g } = await start();
+    const token = await spawnFromBinder(c, g, "tpl_character", [10, 0]);
+    const [sheet] = refsOf(await cellValue(c, token, "contents"));
+    if (sheet === undefined) throw new Error("no sheet");
+    await g.key("Escape");
+    expect(c.ui.getState().selection).toEqual([]);
+    await expect(g.expandEntry(token, sheet)).rejects.toThrow(/selected/);
+    await g.click(token);
+    await g.expandEntry(token, sheet);
+    expect(entryIn(c, token, sheet)?.expanded).toBe(true);
+    await g.dragEntry(BINDER, "tpl_d20", { object: token, contents: true });
+    expect(refsOf(await cellValue(c, token, "contents"))).toHaveLength(3);
   }, 60_000);
 
   test("collapseEntry collapses an expanded sheet and does nothing to a collapsed one (vtt-nb8.19)", async () => {

@@ -14,13 +14,13 @@
  * select tool, Crypt active.
  *
  * Gesture choices the bead leaves open, or where the merged UI decides:
+ * - a token's contents list shows only while the token is selected
+ *   (M6-D12), so the token is clicked before its list is used: Aldric's
+ *   (step 8's collapses, step 10's binder entry) and G2's (step 11's die);
  * - Aldric's sheet and binder are collapsed in his token's list on the GM
  *   board before the marquee, so his binder's row is in view without
- *   scrolling in step 10. The other sheets stay expanded: prep's sheet
- *   edits left their lists scrolled, and `collapseEntry` scrolls a list
- *   only by wheeling over its chevron column, which lies under the list of
- *   the neighbour to the left (drawn on top), so it cannot reach their
- *   chevrons (a harness limit; nothing later needs them collapsed);
+ *   scrolling in step 10. The other sheets stay expanded (nothing later
+ *   needs them collapsed; their lists are hidden while unselected);
  * - the marquee runs from `[8, -1]` to `[18, 2.5]` on the GM board, which
  *   holds the four whole tokens and nothing else;
  * - the characters are dragged into room 1 in the order Aldric, Brenna,
@@ -357,8 +357,9 @@ export async function runPlayA(ctx: DriverContext, prep: PrepResult): Promise<Pl
 
   // -- 8. The party into room 1; room 3 revealed by hand; room 2 reveals itself and re-hides.
   await g.showBoard("GM");
-  // Aldric's list is drawn over his neighbours', so its chevrons can be reached; the
-  // other sheets stay expanded (see the module comment).
+  // Aldric's list shows once he is selected; the other sheets stay expanded (see the
+  // module comment).
+  await g.click(pc.Aldric.token);
   await g.collapseEntry(pc.Aldric.token, pc.Aldric.binder);
   await g.collapseEntry(pc.Aldric.token, pc.Aldric.sheet);
   await g.marquee([8, -1], [18, 2.5]);
@@ -424,6 +425,7 @@ export async function runPlayA(ctx: DriverContext, prep: PrepResult): Promise<Pl
 
   // -- 10. Aldric attacks with a working copy of his Attack card.
   const aldricBinder = pc.Aldric.binder;
+  await g.click(pc.Aldric.token);
   await g.dragObject(aldricBinder, at(ALDRIC_BINDER_AT));
   await g.viewAs("Aldric");
   await g.expandEntry(aldricBinder, pc.Aldric.attackTemplate);
@@ -468,6 +470,7 @@ export async function runPlayA(ctx: DriverContext, prep: PrepResult): Promise<Pl
   const g2 = ctx.byName("G2");
   const goblinDie = prep.goblinDice[1] as ObjectId;
   const aldricAt = positionOf(ctx, pc.Aldric.token) as Point;
+  await g.click(g2);
   await g.dragObject(goblinDie, aldricAt);
   if (refsOf(ctx, g2, "contents").includes(goblinDie)) {
     throw new Error("play A: G2's die is still in G2's contents");
