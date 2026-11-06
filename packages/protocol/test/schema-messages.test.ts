@@ -531,8 +531,8 @@ const rejections: ProtocolRejection[] = [
   { type: "undo_target_changed", expected: 4, actual: 5 },
 ];
 
-/** Every method's results (invoke has none: it always errors until M5). */
-const resultExamples: Record<Exclude<MethodName, "invoke">, unknown[]> = {
+/** Every method's results. */
+const resultExamples: Record<MethodName, unknown[]> = {
   transact: [
     {
       status: "committed",
@@ -548,6 +548,39 @@ const resultExamples: Record<Exclude<MethodName, "invoke">, unknown[]> = {
   undo: [
     { status: "committed", revision: 18, index: 17, created: [], copies: [], bindings: {} },
     { status: "rejected", rejection: { type: "nothing_to_undo" } },
+  ],
+  invoke: [
+    { status: "committed", revision: 18, index: 17, created: ["fb_aldric", "goblin7"] },
+    { status: "committed", revision: 18, index: 17, created: [] },
+    { status: "rejected", rejection: { type: "when_false", object: "goblin1", action: "attack" } },
+    {
+      status: "rejected",
+      rejection: {
+        type: "when_error",
+        object: "goblin1",
+        action: "attack",
+        code: "#REF",
+        message: "no cell ac",
+      },
+    },
+    {
+      status: "rejected",
+      rejection: {
+        type: "step_error",
+        object: "goblin1",
+        action: "attack",
+        step: 1,
+        code: "#SYNTAX",
+        message: "unparsable step",
+      },
+    },
+    {
+      status: "rejected",
+      rejection: { type: "protected_cell", object: "goblin1", cell: "id" },
+      step: 0,
+    },
+    { status: "rejected", rejection: { type: "invalid", message: "no action attack" } },
+    { status: "rejected", rejection: rejections[6] },
   ],
   save: [
     { status: "saved", revision: 17 },
@@ -827,13 +860,13 @@ describe("server messages round-trip", () => {
     });
   });
 
-  test("invoke is answered with an error response", () => {
+  test("invoke: a request, and an error response for a refused request", () => {
     clientRoundTrip(request("invoke", { object: "goblin1", action: "attack", base_revision: 1 }));
     serverRoundTrip({
       type: "response",
       id: "r1",
       ok: false,
-      error: { code: "unsupported", message: "invoke arrives with M5" },
+      error: { code: "bad_request", message: "an agent may not pass actor" },
     });
   });
 
