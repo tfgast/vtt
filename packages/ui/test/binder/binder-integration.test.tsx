@@ -599,6 +599,19 @@ const copiesOf = (w: World, container: ObjectId, template: ObjectId): ObjectId[]
     return t?.type === "ref" && t.object === template && w.object(id)?.is_template === false;
   });
 
+/**
+ * Waits until the gate holds the spawn's transact response, then stops
+ * holding. The authority commits the copy before its response reaches the
+ * session's socket; releasing the gate as soon as the copy exists lets a
+ * response still in flight through, so the continuation would select and
+ * expand the copy before the switch (vtt-qf5.60).
+ */
+async function heldSpawn(w: World) {
+  const isTransact = isResponseOf(w.gate, "transact");
+  await until(() => w.gate.held.some((h) => isTransact(h.data)), "the held spawn response");
+  w.gate.hold = () => false;
+}
+
 const expanded = (w: World, id: ObjectId) => w.faceState.isExpanded(id, "collapsed");
 
 const banner = () => screen.queryByRole("status", { name: "Editing template" });
@@ -713,7 +726,7 @@ describe("working copies", () => {
     w.click(chevronOf(w, "bnd", "tpl_attack"));
     await until(() => copiesOf(w, "bnd", "tpl_attack").length === 1, "the copy");
     const [copy] = copiesOf(w, "bnd", "tpl_attack") as [ObjectId];
-    w.gate.hold = () => false;
+    await heldSpawn(w);
     await act(async () => {
       await w.ui.setActiveBoard("crypt");
     });
@@ -732,7 +745,7 @@ describe("working copies", () => {
     w.click(chevronOf(w, "bnd", "tpl_attack"));
     await until(() => copiesOf(w, "bnd", "tpl_attack").length === 1, "the copy");
     const [copy] = copiesOf(w, "bnd", "tpl_attack") as [ObjectId];
-    w.gate.hold = () => false;
+    await heldSpawn(w);
     await act(async () => {
       await w.ui.setViewer({ type: "character", id: "aldric" });
     });
