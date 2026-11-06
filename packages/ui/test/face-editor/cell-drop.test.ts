@@ -252,23 +252,69 @@ describe("a drop on a contained object drawn expanded in a binder row", () => {
     expect(added).toMatchObject({ type: "value", cell: "atk" });
     expectRect(added?.rect, [-1, -1.5, 2, 0.6]);
   });
+});
 
-  test("a collapsed row is not a face to drop on", () => {
-    const { input, handler } = setup();
-    const scene = buildFaceScene(
-      { views: VIEWS, covers: [], board: BOARD, viewer: GM, selection: ["binder"] },
-      { faceState: createFaceStateStore() },
-    );
-    const c = scene.faces
-      .get("binder")
-      ?.primitives.find((p): p is ContentsPrimitive => p.kind === "contents");
-    const entry = c?.entries.find((e) => e.id === "card");
-    const binderToBoard = scene.transforms.get("binder");
-    if (c === undefined || entry === undefined || binderToBoard === undefined) throw new Error();
-    const board = apply(compose(binderToBoard, entryTransform(c, entry)), [3, 0.3]);
-    expect(
+/** The board point of `local` in `id`'s row of the selected binder's list, with `faceState`. */
+function binderRowPoint(id: string, local: Point, views: ObjectView[], faceState: FaceStateStore) {
+  const scene = buildFaceScene(
+    { views, covers: [], board: BOARD, viewer: GM, selection: ["binder"] },
+    { faceState },
+  );
+  const c = scene.faces
+    .get("binder")
+    ?.primitives.find((p): p is ContentsPrimitive => p.kind === "contents");
+  const entry = c?.entries.find((e) => e.id === id);
+  const binderToBoard = scene.transforms.get("binder");
+  if (c === undefined || entry === undefined || binderToBoard === undefined) throw new Error();
+  expect(entry.list).toBe("collapsed");
+  return apply(compose(binderToBoard, entryTransform(c, entry)), local);
+}
+
+// A collapsed row's frame maps to no point of the full list (vtt-qf5.46).
+describe("a drop on a contained object drawn as a collapsed row", () => {
+  test("a faceless object gets the default layout plus the cell where Add puts a new row", () => {
+    const { input, handler, faceState } = setup();
+    const board = binderRowPoint("card", [3, 0.3], VIEWS, faceState);
+    const w = onlyWrite(
       handler(drop(board, cellDragData("card", "atk")), input({ selection: ["binder"] })),
-    ).toBeNull();
+    );
+    expect(w.stamp).toMatchObject({ board: BOARD, viewer: GM, baseRevision: 12 });
+    expect(w.label).toBe("Add atk to the face of card");
+    expect(w.continuations).toEqual([]);
+    const face = setFace(w, "card");
+    expect(face.elements.map((e) => (e.type === "value" ? e.cell : e.type))).toEqual([
+      "name",
+      "atk",
+      "contents",
+      "atk",
+    ]);
+    // The 2.5 × 3.5 card's full frame starts at (-1.25, -1.75).
+    expect(face.elements.at(-1)).toMatchObject({ type: "value", cell: "atk" });
+    expectRect(face.elements.at(-1)?.rect, [-1.25, -1.75, 2, 0.6]);
+  });
+
+  test("a stored face gains the element at its frame's top-left; the rest is kept", () => {
+    const collapsed: FaceElementView[] = [value("name", [0, 0, 6, 0.6], 0)];
+    const card = mk("card", {
+      container: "binder",
+      shape: rect(2.5, 3.5),
+      cells: { atk: num(4) },
+      face: { elements: [value("name", [-1.25, 1, 2.5, 0.5], 0)], collapsed },
+    });
+    const views = [TOKEN, OTHER, BINDER, card, NOTE];
+    const { input, handler, faceState } = setup(views);
+    const board = binderRowPoint("card", [1, 0.3], views, faceState);
+    const face = setFace(
+      onlyWrite(
+        handler(drop(board, cellDragData("card", "atk")), input({ selection: ["binder"] })),
+      ),
+      "card",
+    );
+    expect(face.elements).toEqual([
+      { type: "value", cell: "name", rect: [-1.25, 1, 2.5, 0.5] },
+      { type: "value", cell: "atk", rect: [-1.25, -1.75, 2, 0.6] },
+    ]);
+    expect(face.collapsed).toEqual([{ type: "value", cell: "name", rect: [0, 0, 6, 0.6] }]);
   });
 });
 

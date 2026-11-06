@@ -9,6 +9,7 @@ import type { FaceElement, FaceLayout, Rect } from "@vtt/schema";
 import {
   addCellElement,
   addElement,
+  appendCellElement,
   blankElement,
   defaultLayoutFor,
   type FaceOpResult,
@@ -291,6 +292,26 @@ describe("addCellElement", () => {
     const base = ok(defaultLayoutFor(view));
     expect(face.elements.slice(0, -1)).toEqual(base.elements);
     expect(face.elements.at(-1)).toEqual(value("hp", [-1, 0, 2, 0.6]));
+  });
+});
+
+describe("appendCellElement (vtt-qf5.46)", () => {
+  test("appends where the inspector's Add puts a new value row", () => {
+    const view = tokenView();
+    const face = ok(appendCellElement(FACE, view, "hp"));
+    expect(face.elements.slice(0, -1)).toEqual(FACE.elements);
+    const added = face.elements.at(-1);
+    expect(added).toEqual(value("hp", [-2, -1.5, 2, 0.6]));
+    expect(added?.rect).toEqual(blankElement("value", view, "full")?.rect);
+    expect(face.collapsed).toEqual(FACE.collapsed);
+    expect(face.default_action).toBe("Roll");
+  });
+
+  test("from a null face it starts from the default layout", () => {
+    const view = tokenView();
+    const face = ok(appendCellElement(null, view, "hp"));
+    expect(face.elements.slice(0, -1)).toEqual(ok(defaultLayoutFor(view)).elements);
+    expect(face.elements.at(-1)).toEqual(value("hp", [-2, -1.5, 2, 0.6]));
   });
 });
 

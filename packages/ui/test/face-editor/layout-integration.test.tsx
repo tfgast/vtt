@@ -496,6 +496,74 @@ describe("cell drops", () => {
     expectRect(added?.rect, [-1, -1.5, 2, 0.6]);
   });
 
+  // A collapsed row's frame maps to no point of the full list (vtt-qf5.46).
+  describe("dropping a contained card's row on its collapsed row in the binder", () => {
+    /** The board point of the card's collapsed row-local `local`, from the drawn scene. */
+    async function collapsedCardPoint(c: Awaited<ReturnType<typeof setup>>, local: Point) {
+      // The faceless binder's default list shows only while it is selected (M6-D12).
+      act(() => c.ui.select(["binder"]));
+      let list: ContentsPrimitive | undefined;
+      let scene: FaceScene | undefined;
+      await waitFor(() => {
+        scene = c.scenes.at(-1);
+        list = scene?.faces
+          .get("binder")
+          ?.primitives.find((p): p is ContentsPrimitive => p.kind === "contents");
+        expect(list?.entries.find((e) => e.id === "card")?.list).toBe("collapsed");
+      });
+      const l = list as ContentsPrimitive;
+      const entry = l.entries.find((e) => e.id === "card");
+      const binderToBoard = scene?.transforms.get("binder");
+      if (entry === undefined || binderToBoard === undefined) throw new Error("no card row");
+      return apply(compose(binderToBoard, entryTransform(l, entry)), local);
+    }
+
+    test("a faceless card gets the default layout plus atk where Add puts a new row", async () => {
+      const c = await setup();
+      const before = c.transactCount();
+      dragRowTo(c.row("card", "atk"), c.canvas, await collapsedCardPoint(c, [3, 0.3]));
+      await until(() => c.face("card") !== undefined, "the card's new layout");
+      expect(c.transactCount() - before).toBe(1);
+      const elements = c.face("card")?.elements ?? [];
+      expect(elements.map((e) => (e.type === "value" ? e.cell : e.type))).toEqual([
+        "name",
+        "atk",
+        "contents",
+        "atk",
+      ]);
+      // The 2.5 × 3.5 card's full frame starts at (-1.25, -1.75).
+      expect(elements.at(-1)).toMatchObject({ type: "value", cell: "atk" });
+      expectRect(elements.at(-1)?.rect, [-1.25, -1.75, 2, 0.6]);
+      // One undo removes the whole layout again.
+      await act(async () => {
+        await undo(c.session);
+      });
+      await until(() => c.face("card") === undefined, "the undone layout");
+    });
+
+    test("a card with a stored face gains atk in its full list", async () => {
+      const c = await setup();
+      const gm = await c.authority.client("gm");
+      await gm.transact(
+        [
+          {
+            type: "set_face",
+            object: "card",
+            face: { elements: [{ type: "value", cell: "name", rect: [-1.25, 1, 2.5, 0.5] }] },
+          },
+        ],
+        { label: "Card face" },
+      );
+      await until(() => c.session.objectView("card")?.face !== undefined, "the card's face");
+      dragRowTo(c.row("card", "atk"), c.canvas, await collapsedCardPoint(c, [1, 0.3]));
+      await until(() => c.face("card")?.elements.length === 2, "the added element");
+      expect(c.face("card")?.elements).toEqual([
+        { type: "value", cell: "name", rect: [-1.25, 1, 2.5, 0.5] },
+        { type: "value", cell: "atk", rect: [-1.25, -1.75, 2, 0.6] },
+      ]);
+    });
+  });
+
   test("a drop on another object or with another mime is not handled", async () => {
     const c = await setup();
     const before = c.transactCount();
