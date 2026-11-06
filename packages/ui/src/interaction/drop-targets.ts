@@ -25,7 +25,10 @@
  * carries faces (a `FaceScene`) and otherwise on faces with every entry in
  * its mode's default and no scroll; `createFaceDropOverride(faceState)`
  * resolves on the session's real expansion and scroll, and is what an app
- * wires. Pure: every result is data for the caller's single write.
+ * wires. Faces it attaches itself carry `input.selection` and, when given,
+ * the Alt-hover, so a `when_selected` list of an unselected object takes no
+ * drop (DESIGN.md §4.6 Only when selected, M6-D12). Pure: every result is
+ * data for the caller's single write.
  */
 import type { ObjectView, WireOp } from "@vtt/protocol";
 import type { ObjectId, Point } from "@vtt/schema";
@@ -34,7 +37,7 @@ import { dropTargetAt } from "../face/face-hit";
 import type { FaceDrawing } from "../face/face-model";
 import { attachFaces, type FaceScene, type FaceSceneState } from "../face/face-scene";
 import type { Continuation } from "./effects";
-import type { DropIntent, DropOverride, DropOverrideResult } from "./select-tool";
+import type { DropContext, DropIntent, DropOverride, DropOverrideResult } from "./select-tool";
 import type { ReducerInput } from "./tool";
 
 /** The tag that makes a container a binder (DESIGN.md §4.7). */
@@ -65,16 +68,37 @@ function isFaceScene(scene: ReducerInput["scene"]): scene is FaceScene {
   return (scene as Partial<FaceScene>).faces instanceof Map;
 }
 
+export interface FaceSceneForOptions {
+  /** The object an Alt-held drag hovers (`altHoverAt`), whose `when_selected` lists show. */
+  altHover?: ObjectId | null;
+}
+
 /**
  * The face scene a drop resolves on: `input.scene` with faces attached under
- * `faceState`; without one, `input.scene` itself when it already carries
- * faces, else faces in their default expansion with no scroll.
+ * `faceState`, `input.selection` and `opts.altHover`; without a face state
+ * or an Alt-hover, `input.scene` itself when it already carries faces, else
+ * faces in their default expansion with no scroll.
  */
-export function faceSceneFor(input: ReducerInput, faceState?: FaceSceneState): FaceScene {
-  if (faceState === undefined && isFaceScene(input.scene)) return input.scene;
+export function faceSceneFor(
+  input: ReducerInput,
+  faceState?: FaceSceneState,
+  opts: FaceSceneForOptions = {},
+): FaceScene {
+  const altHover = opts.altHover ?? null;
+  if (faceState === undefined && altHover === null && isFaceScene(input.scene)) return input.scene;
   return attachFaces(input.scene, input.views, faceState ?? DEFAULT_FACE_STATE, {
     gm: input.viewer.type === "gm",
+    selection: input.selection,
+    ...(altHover !== null ? { altHover } : {}),
   });
+}
+
+export interface FaceDropOverrideOptions {
+  /**
+   * The current Alt-hover of the drag being dropped (`altHoverAt`), read at
+   * the drop when the caller passes no `DropContext` (the select tool does).
+   */
+  altHover?: () => ObjectId | null;
 }
 
 /** The display name of `id`: its non-empty text `name`, else its id. */
@@ -213,15 +237,20 @@ export function resolveFaceDrop(
 
 /**
  * A `dropOverride` (vtt-3l6.7, M5 Q1 A4 as amended) resolving drops on
- * faces under `faceState` (see `faceSceneFor` without one): with exactly one
+ * faces under `faceState` (see `faceSceneFor` without one) and
+ * `options.altHover`: with exactly one
  * dragged object, an editor or contents drop is replaced by its face write;
  * anything else (several objects, the board) is the select tool's own drop.
  */
-export function createFaceDropOverride(faceState?: FaceSceneState): DropOverride {
-  return (input, point, draggedIds, intent) => {
+export function createFaceDropOverride(
+  faceState?: FaceSceneState,
+  options: FaceDropOverrideOptions = {},
+): DropOverride {
+  return (input, point, draggedIds, intent, context) => {
     if (draggedIds.length !== 1) return null;
     const dragged = draggedIds[0] as ObjectId;
-    const faces = faceSceneFor(input, faceState);
+    const altHover = context?.altHover ?? options.altHover?.() ?? null;
+    const faces = faceSceneFor(input, faceState, { altHover });
     const target = dropTargetAt(faces, point, input.camera, [dragged]);
     const from = containerOf(input.views(dragged));
     const out = resolveFaceDrop(input, faces, target, { dragged, intent, from });
@@ -238,4 +267,5 @@ export const faceDropOverride: (
   point: Point,
   draggedIds: ObjectId[],
   intent: DropIntent,
+  context?: DropContext,
 ) => DropOverrideResult | null = createFaceDropOverride();

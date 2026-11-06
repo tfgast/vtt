@@ -446,6 +446,7 @@ function CanvasPane({ runtime, registry, faceState, createRenderer }: CanvasPane
   const hover = useUi((s) => s.hover);
   const highlight = useUi((s) => s.highlight);
   const camera = useUi((s) => s.camera);
+  const altHover = useUi((s) => s.altHover);
   const faceVersion = useFaceStateVersion(faceState);
   // biome-ignore lint/correctness/useExhaustiveDependencies: viewVersion keys the board view's live maps, faceVersion the face state
   const scene = useMemo(() => {
@@ -462,9 +463,20 @@ function CanvasPane({ runtime, registry, faceState, createRenderer }: CanvasPane
         highlight,
         previews,
       },
-      { faceState },
+      { faceState, altHover },
     );
-  }, [session, viewVersion, viewer, selection, hover, highlight, previews, faceState, faceVersion]);
+  }, [
+    session,
+    viewVersion,
+    viewer,
+    selection,
+    hover,
+    highlight,
+    previews,
+    faceState,
+    faceVersion,
+    altHover,
+  ]);
   const setViewport = useCallback((viewport: Viewport) => ui.setViewport(viewport), [ui]);
 
   const machine = runtime.machine();

@@ -453,3 +453,83 @@ describe("a board template drag through the select tool", () => {
     });
   });
 });
+
+describe("a when_selected list (vtt-nb8.35, M6-D12)", () => {
+  /** A token at [0, 40] with a when-selected list below it holding `gem`, and a die to drop. */
+  const TOKEN = mk("token", {
+    shape: { type: "circle", radius: 0.9 },
+    at: [0, 40],
+    contents: ["gem"],
+    face: {
+      elements: [
+        {
+          type: "contents",
+          rect: [-1.5, 0.9, 3, 1.2],
+          index: 0,
+          shown: true,
+          when_selected: true,
+        } as FaceElementView,
+      ],
+    },
+  });
+  const GEM = card("gem", { container: "token" });
+  const DIE = mk("die", { shape: rect(1, 1), at: [10, 40] });
+  const views = [
+    TOKEN,
+    GEM,
+    DIE,
+    BA,
+    ...["a0", "a1", "a2"].map((id) => card(id, { container: "ba" })),
+  ];
+  const byId = new Map(views.map((v) => [v.id, v]));
+  const tokenInput = (selection: string[]): ToolInput =>
+    input({
+      scene: buildScene({ views, covers: [], board: BOARD, viewer: { type: "gm" }, selection }),
+      views: (id) => byId.get(id) ?? null,
+      selection,
+    });
+  // In the list's rect, below the token's footprint (list top at board y 40.9).
+  const IN_LIST: Point = [-1, 41.9];
+  const INTO_TOKEN = {
+    ops: [{ type: "move", object: "die", to: { type: "container", container: "token", index: 1 } }],
+  };
+
+  test("unselected: a drop over the hidden list is the select tool's own (board) drop", () => {
+    expect(
+      createFaceDropOverride(createFaceStateStore())(tokenInput([]), IN_LIST, ["die"], MOVE),
+    ).toBeNull();
+    expect(faceDropOverride(tokenInput([]), IN_LIST, ["die"], MOVE)).toBeNull();
+  });
+
+  test("selected (or with a selected descendant): the list takes the drop", () => {
+    for (const selection of [["token"], ["gem"]]) {
+      const out = createFaceDropOverride(createFaceStateStore())(
+        tokenInput(selection),
+        IN_LIST,
+        ["die"],
+        MOVE,
+      );
+      expect(out, selection.join()).toMatchObject(INTO_TOKEN);
+    }
+  });
+
+  test("an entry dragged out of a binder onto a selected token's list goes inside", () => {
+    const out = createFaceDropOverride(createFaceStateStore())(
+      tokenInput(["token"]),
+      IN_LIST,
+      ["a1"],
+      MOVE,
+    );
+    expect(out?.ops).toEqual([
+      { type: "move", object: "a1", to: { type: "container", container: "token", index: 1 } },
+    ]);
+  });
+
+  test("the Alt-hover reveals the list to the drop override", () => {
+    let hover: string | null = "token";
+    const override = createFaceDropOverride(createFaceStateStore(), { altHover: () => hover });
+    expect(override(tokenInput([]), IN_LIST, ["die"], ALT)).toMatchObject(INTO_TOKEN);
+    hover = null;
+    expect(override(tokenInput([]), IN_LIST, ["die"], ALT)).toBeNull();
+  });
+});

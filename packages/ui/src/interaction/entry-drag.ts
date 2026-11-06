@@ -20,6 +20,11 @@
  *   contents → nothing; another contents element → give a template, spawn
  *   or move there; the board → a spawn (selected) or a move to the pointer
  *   on `stamp.board`.
+ * - Alt-hover (DESIGN.md §4.6 Only when selected, M6-D12), as the select
+ *   tool keeps it: each drag move recomputes `altHoverAt` (an Alt key
+ *   release clears it), emitted as `alt_hover` when it changes; the drop
+ *   recomputes it at the release and resolves with that object's
+ *   `when_selected` lists shown; the drop and any cancel clear it.
  * - Wheel events while active are claimed and ignored; `pointer_cancel`,
  *   Escape, a board or viewer change and a tool switch end it with no write
  *   (`withFaces` calls `cancel`). Late results follow the runtime's policy
@@ -29,7 +34,7 @@ import type { ObjectView, WireResult } from "@vtt/protocol";
 import type { ObjectId, Point, Shape } from "@vtt/schema";
 import type { FaceGesture, FaceHit } from "../face/face-contracts";
 import { dropTargetAt } from "../face/face-hit";
-import type { FaceSceneState } from "../face/face-scene";
+import { altHoverAt, type FaceSceneState } from "../face/face-scene";
 import type { InteractionStamp } from "./contracts";
 import { faceSceneFor, objectName, resolveFaceDrop } from "./drop-targets";
 import type { Effect } from "./effects";
@@ -67,6 +72,28 @@ export interface EntryDragState {
   dragging: boolean;
   shape: Shape | null;
   rotation: number;
+  /** The object an Alt-held drag hovers (M6-D12), or null. */
+  altHover: ObjectId | null;
+}
+
+/** The drag's Alt-hover after a pointer event at `point` with Alt `alt`. */
+function nextAltHover(state: EntryDragState, point: Point, alt: boolean, input: ToolInput) {
+  return altHoverAt({
+    scene: input.scene,
+    views: input.views,
+    previous: state.altHover,
+    point,
+    camera: input.camera,
+    alt,
+    dragged: [state.dragged],
+  });
+}
+
+const CLEAR_ALT_HOVER: Effect = { type: "alt_hover", id: null };
+
+/** The effect clearing `state`'s Alt-hover, when it has one. */
+function clearAltHover(state: EntryDragState): Effect[] {
+  return state.altHover === null ? [] : [CLEAR_ALT_HOVER];
 }
 
 const distance = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -91,8 +118,14 @@ function claimed(hit: FaceHit): { dragged: ObjectId; from: ObjectId } | null {
 }
 
 /** The drop's effects: one write with the pointer-down stamp, or none. */
-function drop(state: EntryDragState, point: Point, input: ToolInput, faceState?: FaceSceneState) {
-  const faces = faceSceneFor(input, faceState);
+function drop(
+  state: EntryDragState,
+  point: Point,
+  input: ToolInput,
+  altHover: ObjectId | null,
+  faceState?: FaceSceneState,
+): Effect[] {
+  const faces = faceSceneFor(input, faceState, { altHover });
   const target = dropTargetAt(faces, point, input.camera, [state.dragged]);
   const request = { dragged: state.dragged, intent: state.intent, from: state.from };
   const out = resolveFaceDrop(input, faces, target, request);
@@ -131,16 +164,21 @@ export function entryDragGesture(options: EntryDragOptions = {}): FaceGesture<un
     switch (event.type) {
       case "pointer_move": {
         if (!state.dragging && !beyond) return keep;
-        return { state: { ...state, dragging: true, board: event.board }, effects: [] };
+        const altHover = nextAltHover(state, event.board, event.modifiers.alt, input);
+        const effects: Effect[] =
+          altHover === state.altHover ? [] : [{ type: "alt_hover", id: altHover }];
+        return { state: { ...state, dragging: true, board: event.board, altHover }, effects };
       }
       case "pointer_up": {
         if (!state.dragging && !beyond) {
           return { state: null, effects: [{ type: "select", ids: [state.dragged] }] } as Step;
         }
-        return { state: null, effects: drop(state, event.board, input, faceState) } as Step;
+        const altHover = nextAltHover(state, event.board, event.modifiers.alt, input);
+        const effects = drop(state, event.board, input, altHover, faceState);
+        return { state: null, effects: [...effects, ...clearAltHover(state)] } as Step;
       }
       case "pointer_cancel":
-        return { state: null, effects: [] } as Step;
+        return { state: null, effects: clearAltHover(state) } as Step;
       default:
         return keep;
     }
@@ -166,6 +204,7 @@ export function entryDragGesture(options: EntryDragOptions = {}): FaceGesture<un
         dragging: false,
         shape: shapeOf(view),
         rotation: rotationOf(view),
+        altHover: null,
       };
     },
     reduce(state, event: InteractionEvent, input) {
@@ -175,12 +214,16 @@ export function entryDragGesture(options: EntryDragOptions = {}): FaceGesture<un
         case "pointer_up":
         case "pointer_cancel":
           return pointerEvent(state, event, input);
+        case "key_up":
+          // Releasing Alt ends the Alt-hover (M6-D12).
+          if (state.altHover === null || event.modifiers.alt) return { state, effects: [] };
+          return { state: { ...state, altHover: null }, effects: [CLEAR_ALT_HOVER] };
         default:
           // Wheels, keys, clicks and settled results change nothing while dragging.
           return { state, effects: [] };
       }
     },
-    cancel: () => [],
+    cancel: (state) => clearAltHover(state),
     overlays(state): ToolOverlay[] {
       if (!state.dragging) return [];
       const items = [

@@ -525,6 +525,9 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
           ui.setHover(effect.id);
           ui.setHoveredZone(effect.zone);
           break;
+        case "alt_hover":
+          ui.setAltHover(effect.id);
+          break;
         case "notice":
           toolContext.notify(effect.level, effect.text);
           break;

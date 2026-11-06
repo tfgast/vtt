@@ -96,7 +96,7 @@ export function createCellDropHandler(options: CellDropOptions): DataDropHandler
   const facesOf = (input: ReducerInput): FaceScene =>
     isFaceScene(input.scene)
       ? input.scene
-      : attachFaces(input.scene, input.views, faceState, { gm: true });
+      : attachFaces(input.scene, input.views, faceState, { gm: true, selection: input.selection });
   return (event: DataDropEvent, input: ReducerInput): Effect[] | null => {
     if (event.mime !== CELL_DRAG_MIME) return null;
     if (input.viewer.type !== "gm" || input.activeBoard === null) return null;

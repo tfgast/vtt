@@ -460,6 +460,7 @@ describe("effects and continuations", () => {
       | "previews"
       | "overlays"
       | "hover"
+      | "alt_hover"
       | "notice"
       | "set_tool"
       | "pick_file"
@@ -493,6 +494,10 @@ describe("effects and continuations", () => {
       type: "hover";
       id: ObjectId | null;
       zone: ObjectId | null;
+    }>();
+    expectTypeOf<Variant<Effect, "alt_hover">>().toEqualTypeOf<{
+      type: "alt_hover";
+      id: ObjectId | null;
     }>();
     expectTypeOf<Variant<Effect, "notice">>().toEqualTypeOf<{
       type: "notice";

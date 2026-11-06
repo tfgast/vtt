@@ -160,24 +160,35 @@ export function withFaces<TPhase, K extends ToolId>(
   const policy = options.policy ?? defaultFacePolicy;
   const gestures = options.gestures ?? [];
 
-  // The face scene, memoized per scene, viewer kind and face-state change.
+  // The face scene, memoized per scene, viewer kind, selection and face-state change.
   let faceVersion = 0;
   faceState.subscribe(() => {
     faceVersion++;
   });
-  let memo: { scene: Scene; gm: boolean; version: number; faces: FaceScene } | null = null;
+  let memo: {
+    scene: Scene;
+    gm: boolean;
+    selection: readonly ObjectId[];
+    version: number;
+    faces: FaceScene;
+  } | null = null;
   const facesOf = (input: ReducerInput): FaceScene => {
     const gm = input.viewer.type === "gm";
     if (
       memo !== null &&
       memo.scene === input.scene &&
       memo.gm === gm &&
+      memo.selection === input.selection &&
       memo.version === faceVersion
     ) {
       return memo.faces;
     }
-    const faces = attachFaces(input.scene, input.views, faceState, { gm });
-    memo = { scene: input.scene, gm, version: faceVersion, faces };
+    // The selection reaches contained objects, which the scene's outlines do not (M6-D12).
+    const faces = attachFaces(input.scene, input.views, faceState, {
+      gm,
+      selection: input.selection,
+    });
+    memo = { scene: input.scene, gm, selection: input.selection, version: faceVersion, faces };
     return faces;
   };
 

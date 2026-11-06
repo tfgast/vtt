@@ -9,7 +9,8 @@
  * (vtt-3l6.11, vtt-3l6.13); `hover` and `hoveredZone` — the interaction
  * runtime from the select tool's `hover` effect (vtt-3l6.23, vtt-3l6.7), and
  * `hoveredZone` also the object list (vtt-3l6.12); `highlight` — only
- * dependency tracing (vtt-3l6.24).
+ * dependency tracing (vtt-3l6.24); `altHover` — the interaction runtime
+ * from the select tool's `alt_hover` effect (M6-D12).
  */
 import type { Viewer } from "@vtt/protocol";
 import type { BoardId, ObjectId } from "@vtt/schema";
@@ -35,6 +36,8 @@ export interface UiState {
   readonly hover: ObjectId | null;
   readonly hoveredCell: CellAddress | null;
   readonly hoveredZone: ObjectId | null;
+  /** The object an Alt-held drag hovers, whose `when_selected` lists show (M6-D12). */
+  readonly altHover: ObjectId | null;
   readonly highlight: readonly ObjectId[];
   readonly tool: UiTool;
   readonly camera: Camera;
@@ -61,6 +64,7 @@ export interface UiStore {
   setHover(id: ObjectId | null): void;
   setHoveredCell(cell: CellAddress | null): void;
   setHoveredZone(id: ObjectId | null): void;
+  setAltHover(id: ObjectId | null): void;
   setHighlight(ids: readonly ObjectId[]): void;
   /** Activates a tool with `options`, else the options it last had, else its defaults. */
   setTool<K extends ToolId>(id: K, options?: ToolOptionsMap[K]): void;
@@ -112,6 +116,7 @@ export function createUiStore(options: UiStoreOptions): UiStore {
     hover: null,
     hoveredCell: null,
     hoveredZone: null,
+    altHover: null,
     highlight: [],
     tool: { id: "select", options: DEFAULT_TOOL_OPTIONS.select },
     camera: { ...(options.camera ?? DEFAULT_CAMERA) },
@@ -159,6 +164,9 @@ export function createUiStore(options: UiStoreOptions): UiStore {
     },
     setHoveredZone(id) {
       if (state.hoveredZone !== id) update({ hoveredZone: id });
+    },
+    setAltHover(id) {
+      if (state.altHover !== id) update({ altHover: id });
     },
     setHighlight(ids) {
       if (!sameIds(state.highlight, ids)) update({ highlight: [...ids] });

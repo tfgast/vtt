@@ -139,6 +139,8 @@ const ATTACK_CARD: WireOp = {
 };
 
 const LIST: Rect = [-3, -3, 6, 4.8];
+/** The token's when_selected list: below its radius-0.9 footprint, as the stocked token face places it. */
+const TOK_LIST: Rect = [-1.5, 0.9, 3, 1.2];
 
 /** A container at (x, y) with a contents element `list`. */
 const container = (id: string, x: number, y: number, tag: string[], list = LIST, h = 6) =>
@@ -208,6 +210,34 @@ const SEED: WireOp[] = [
   // A pouch (not a binder) at (60, -20) holding one card.
   container("pouch", 60, -20, ["pouch"]),
   entry("p0", "pouch"),
+  // A token at (80, 0) whose list below it shows only when selected (M6-D12), holding a gem.
+  {
+    type: "create_object",
+    id: "tok",
+    to: at(80, 0),
+    init: {
+      shape: { type: "circle", radius: 0.9 },
+      cells: { name: text("Tok"), visible_to: ALL, face_up: bool(true) },
+      face: {
+        elements: [
+          { type: "value", cell: "name", rect: [-0.9, -0.3, 1.8, 0.6] },
+          { type: "contents", rect: TOK_LIST, when_selected: true },
+        ],
+      },
+    },
+  },
+  entry("gem1", "tok"),
+  // A room zone at (90, 0).
+  {
+    type: "create_object",
+    id: "room",
+    to: at(90, 0),
+    init: {
+      is_zone: true,
+      shape: rectShape(2, 2),
+      cells: { name: text("Room"), visible_to: ALL, face_up: bool(true) },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -242,9 +272,10 @@ function Board(props: {
         selection: state.selection,
         previews,
       },
-      { faceState },
+      // As App.tsx's CanvasPane: the drag's Alt-hover reveals when_selected lists (M6-D12).
+      { faceState, altHover: state.altHover },
     );
-  }, [session, viewVersion, viewer, state.selection, previews, faceTick]);
+  }, [session, viewVersion, viewer, state.selection, state.altHover, previews, faceTick]);
   const selected = state.selection.length === 1 ? (state.selection[0] as ObjectId) : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: viewVersion keys the view
   const view = useMemo(
@@ -332,14 +363,16 @@ async function world() {
   const faces = (): FaceScene => {
     const view = session.boardView();
     if (view === null) throw new Error("no board view");
+    const { selection, altHover } = ui.getState();
     return buildFaceScene(
       {
         views: view.objects.values(),
         covers: [...view.covers.values()],
         board: view.board,
         viewer: session.getSnapshot().viewer,
+        selection,
       },
-      { faceState },
+      { faceState, altHover },
     );
   };
 
@@ -621,5 +654,158 @@ describe("entry drags out of a binder", () => {
     expect(w.groups().length).toBe(before);
     expect(contentsOf(w, "bnd_a")).toEqual(["tcard", "acard", "xcard"]);
     expect(contentsOf(w, "bnd_b")).toEqual(["b0", "b1", "b2"]);
+  });
+});
+
+describe("a when_selected list (vtt-nb8.35, M6-D12)", () => {
+  // In the token's list rect, below its footprint: local (-1, 1.9) of the token at (80, 0).
+  const IN_LIST: Point = [79, 1.9];
+
+  test("a zone released over an unselected token's list lands on the board; its contents are untouched", async () => {
+    const w = await world();
+    expect(
+      w
+        .faces()
+        .faces.get("tok")
+        ?.primitives.some((p) => p.kind === "contents"),
+    ).toBe(false);
+    w.drag([90, 0], [[85, 1], IN_LIST]);
+    await until(() => {
+      const pos = w.object("room")?.cells.position?.content;
+      return JSON.stringify(pos) !== JSON.stringify({ type: "list", items: [num(90), num(0)] });
+    }, "the room moved");
+    expect(w.object("room")?.board).toBe(BOARD);
+    expect(contentsOf(w, "tok")).toEqual(["gem1"]);
+  });
+
+  test("with Alt held at the drop over the token, the zone goes inside", async () => {
+    const w = await world();
+    w.drag(
+      [90, 0],
+      [
+        [85, 1],
+        [80, 0.5],
+      ],
+      [false, false, true, true],
+    );
+    await until(() => contentsOf(w, "tok").includes("room"), "the room in the token");
+    expect(contentsOf(w, "tok")).toEqual(["gem1", "room"]);
+  });
+
+  test("an entry dropped onto a selected token's list goes inside", async () => {
+    const w = await world();
+    w.click([80, 0.5]);
+    await waitFor(() => expect(w.ui.getState().selection).toEqual(["tok"]));
+    await settle();
+    w.drag(rowAt(0, TOP, 1), [[40, -10], IN_LIST]);
+    await until(() => contentsOf(w, "tok").includes("acard"), "acard in the token");
+    expect(contentsOf(w, "tok")).toEqual(["gem1", "acard"]);
+    expect(contentsOf(w, "bnd_a")).toEqual(["tcard", "xcard"]);
+  });
+
+  const tokList = (w: World) =>
+    w
+      .faces()
+      .faces.get("tok")
+      ?.primitives.some((p) => p.kind === "contents") ?? false;
+
+  test("dragging with Alt from the token's footprint onto its revealed list keeps the list and drops inside", async () => {
+    const w = await world();
+    w.fire("pointerDown", [5, 3], true);
+    w.fire("pointerMove", [40, 1], true);
+    expect(w.ui.getState().altHover).toBeNull();
+    expect(tokList(w)).toBe(false);
+    // Into the token's footprint: the list shows.
+    w.fire("pointerMove", [80, 0.2], true);
+    expect(w.ui.getState().altHover).toBe("tok");
+    expect(tokList(w)).toBe(true);
+    // Onto the revealed list, outside the footprint: it stays.
+    w.fire("pointerMove", IN_LIST, true);
+    expect(w.ui.getState().altHover).toBe("tok");
+    expect(tokList(w)).toBe(true);
+    w.fire("pointerUp", IN_LIST, true);
+    await until(() => contentsOf(w, "tok").includes("goblin1"), "the goblin in the token");
+    expect(contentsOf(w, "tok")).toEqual(["gem1", "goblin1"]);
+    expect(w.ui.getState().altHover).toBeNull();
+    // The list stays only because the dropped goblin, now inside, is selected.
+    expect(w.ui.getState().selection).toEqual(["goblin1"]);
+    act(() => w.ui.select([]));
+    expect(tokList(w)).toBe(false);
+  });
+
+  test("releasing Alt over the revealed list ends the hover: the drop lands on the board", async () => {
+    const w = await world();
+    w.fire("pointerDown", [5, 3], true);
+    w.fire("pointerMove", [80, 0.2], true);
+    expect(w.ui.getState().altHover).toBe("tok");
+    w.fire("pointerMove", IN_LIST, false);
+    expect(w.ui.getState().altHover).toBeNull();
+    w.fire("pointerUp", IN_LIST, false);
+    const near = (pos: unknown) => {
+      const items = (pos as { items?: { value: number }[] } | undefined)?.items ?? [];
+      return (
+        Math.abs((items[0]?.value ?? 0) - 79) < 1e-9 &&
+        Math.abs((items[1]?.value ?? 0) - 1.9) < 1e-9
+      );
+    };
+    await until(
+      () => near(w.object("goblin1")?.cells.position?.content),
+      "the goblin moved onto the board",
+    );
+    expect(w.object("goblin1")?.board).toBe(BOARD);
+    expect(contentsOf(w, "tok")).toEqual(["gem1"]);
+  });
+
+  test("an entry Alt-dragged from a binder row onto an unselected token, then onto its revealed list, drops inside", async () => {
+    const w = await world();
+    w.fire("pointerDown", rowAt(0, TOP, 1), true);
+    w.fire("pointerMove", [40, -10], true);
+    expect(w.ui.getState().altHover).toBeNull();
+    expect(tokList(w)).toBe(false);
+    w.fire("pointerMove", [80, 0.2], true);
+    expect(w.ui.getState().altHover).toBe("tok");
+    expect(tokList(w)).toBe(true);
+    w.fire("pointerMove", IN_LIST, true);
+    expect(w.ui.getState().altHover).toBe("tok");
+    w.fire("pointerUp", IN_LIST, true);
+    await until(() => contentsOf(w, "tok").includes("acard"), "acard in the token");
+    expect(contentsOf(w, "tok")).toEqual(["gem1", "acard"]);
+    expect(contentsOf(w, "bnd_a")).toEqual(["tcard", "xcard"]);
+    expect(w.ui.getState().altHover).toBeNull();
+  });
+
+  test("an entry drag's revealed list hides again when Alt is released, and the entry lands on the board", async () => {
+    const w = await world();
+    w.fire("pointerDown", rowAt(0, TOP, 1), true);
+    w.fire("pointerMove", [80, 0.2], true);
+    expect(tokList(w)).toBe(true);
+    w.fire("pointerMove", IN_LIST, true);
+    expect(tokList(w)).toBe(true);
+    act(() => {
+      fireEvent.keyUp(w.canvas, { key: "Alt", code: "AltLeft", altKey: false });
+    });
+    expect(w.ui.getState().altHover).toBeNull();
+    expect(tokList(w)).toBe(false);
+    w.fire("pointerUp", IN_LIST, false);
+    await until(() => w.object("acard")?.board === BOARD, "acard on the board");
+    expect(contentsOf(w, "tok")).toEqual(["gem1"]);
+  });
+
+  test("after clicking a row of a selected token's list (selecting the child), the other rows still hit", async () => {
+    const w = await world();
+    w.click([80, 0.5]);
+    await waitFor(() => expect(w.ui.getState().selection).toEqual(["tok"]));
+    // A second entry in the token's list: a card dragged from binder A.
+    w.drag(rowAt(0, TOP, 1), [[40, -10], IN_LIST]);
+    await until(() => contentsOf(w, "tok").includes("acard"), "acard in the token");
+    await settle();
+    // Rows of 0.3 from the list top at y 0.9: gem1, then acard.
+    const row = (i: number): Point => [79, 0.9 + 0.3 * i + 0.15];
+    w.click(row(0));
+    await waitFor(() => expect(w.ui.getState().selection).toEqual(["gem1"]));
+    await settle();
+    // The token is no longer selected, but its list stays drawn and hit (gem1 is inside it).
+    w.click(row(1));
+    await waitFor(() => expect(w.ui.getState().selection).toEqual(["acard"]));
   });
 });
