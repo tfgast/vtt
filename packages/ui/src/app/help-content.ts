@@ -14,7 +14,8 @@ export interface HelpGesture {
 /** The gestures, in the help's order. */
 export const HELP_GESTURES: readonly HelpGesture[] = [
   { gesture: "Space-drag or middle-drag", effect: "pan" },
-  { gesture: "Wheel", effect: "zoom (over a list that scrolls: scroll it)" },
+  { gesture: "Wheel or two-finger scroll", effect: "pan (over a list that scrolls: scroll it)" },
+  { gesture: "Ctrl/Cmd+wheel or pinch", effect: "zoom about the pointer" },
   { gesture: "Click", effect: "select" },
   { gesture: "Alt+click", effect: "cycle through the objects under the pointer" },
   { gesture: "Drag one template", effect: "drop a copy" },

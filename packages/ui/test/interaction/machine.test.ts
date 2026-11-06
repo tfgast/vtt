@@ -127,7 +127,94 @@ function closeTo(a: Point, b: Point) {
 
 // ---------------------------------------------------------------------------
 
-describe("wheel zoom", () => {
+const CTRL: Modifiers = { ...NO_MODS, ctrl: true };
+const META: Modifiers = { ...NO_MODS, meta: true };
+
+describe("wheel pan (M6-D11)", () => {
+  test.each([
+    ["a mouse wheel down", { x: 0, y: 0, zoom: 1 }, 0, 100],
+    ["a two-finger scroll right and up", { x: 3, y: -2, zoom: 2 }, 40, -25],
+    ["a horizontal scroll at zoom 0.5", { x: -5, y: 7, zoom: 0.5 }, -64, 0],
+  ] as [string, Camera, number, number][])(
+    "%s pans the camera by (deltaX, deltaY) screen pixels without reaching the tool",
+    (_n, camera, deltaX, deltaY) => {
+      const { calls, registry, state } = setup();
+      const input = makeInput({ camera });
+      const screen: Point = [123, 45];
+      const event: InteractionEvent = {
+        type: "wheel",
+        screen,
+        board: toBoard(camera, screen, input.viewport),
+        deltaX,
+        deltaY,
+        modifiers: NO_MODS,
+      };
+      const out = reduce(state, event, input, registry);
+      expect(out.effects).toHaveLength(1);
+      const next = cameraOf(out.effects);
+      expect(next.zoom).toBe(camera.zoom);
+      // The view moves with the scroll: the board point that was (deltaX, deltaY)
+      // away from the cursor is now under it.
+      const ahead: Point = [screen[0] + deltaX, screen[1] + deltaY];
+      closeTo(toBoard(next, screen, input.viewport), toBoard(camera, ahead, input.viewport));
+      expect(calls).toEqual([]);
+      expect(out.state).toEqual(state);
+    },
+  );
+
+  test("Shift or Alt alone still pans", () => {
+    const { registry, state } = setup();
+    const input = makeInput();
+    for (const modifiers of [
+      { ...NO_MODS, shift: true },
+      { ...NO_MODS, alt: true },
+    ]) {
+      const out = reduce(
+        state,
+        { type: "wheel", screen: [5, 5], board: [0, 0], deltaX: 0, deltaY: 64, modifiers },
+        input,
+        registry,
+      );
+      expect(cameraOf(out.effects)).toEqual({ x: 0, y: 1, zoom: 1 });
+    }
+  });
+
+  test("a zero wheel emits no camera effect", () => {
+    const { registry, state } = setup();
+    const out = reduce(
+      state,
+      { type: "wheel", screen: [5, 5], board: [0, 0], deltaX: 0, deltaY: 0, modifiers: NO_MODS },
+      makeInput(),
+      registry,
+    );
+    expect(out.effects).toEqual([]);
+  });
+
+  test("a tool's wheel hook keeps precedence over the pan (a list that scrolls)", () => {
+    const { calls, registry, state } = setup();
+    const base = registry.get("select") as Tool<number>;
+    const claimed: InteractionEvent[] = [];
+    const claiming = new ToolRegistry();
+    claiming.register({
+      ...base,
+      wheel(s, event) {
+        claimed.push(event);
+        return { state: s, effects: [] };
+      },
+    });
+    const out = reduce(
+      state,
+      { type: "wheel", screen: [5, 5], board: [0, 0], deltaX: 0, deltaY: 100, modifiers: NO_MODS },
+      makeInput(),
+      claiming,
+    );
+    expect(out.effects).toEqual([]);
+    expect(claimed).toHaveLength(1);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("ctrl+wheel and meta+wheel (pinch) zoom", () => {
   const cases: [name: string, camera: Camera, screen: Point, deltaY: number, factor: number][] = [
     ["zoom in at the center", { x: 0, y: 0, zoom: 1 }, [400, 300], -100, 1.1],
     ["zoom out at a corner", { x: 3, y: -2, zoom: 2 }, [10, 590], 100, 1 / 1.1],
@@ -135,9 +222,9 @@ describe("wheel zoom", () => {
     ["a zero delta leaves the camera", { x: 1, y: 1, zoom: 1 }, [200, 200], 0, 1],
   ];
 
-  test.each(cases)(
+  test.each(cases.map((c, i) => [...c, i] as const))(
     "%s: a camera effect keeping the cursor's board point",
-    (_n, camera, screen, deltaY, factor) => {
+    (_n, camera, screen, deltaY, factor, i) => {
       const { calls, registry, state } = setup();
       const input = makeInput({ camera });
       const before = toBoard(camera, screen, input.viewport);
@@ -147,7 +234,7 @@ describe("wheel zoom", () => {
         board: before,
         deltaX: 17,
         deltaY,
-        modifiers: NO_MODS,
+        modifiers: i % 2 === 0 ? CTRL : META,
       };
       const out = reduce(state, event, input, registry);
       const next = cameraOf(out.effects);
@@ -170,7 +257,7 @@ describe("wheel zoom", () => {
         board: [0, 0],
         deltaX: 0,
         deltaY: -1000,
-        modifiers: NO_MODS,
+        modifiers: CTRL,
       },
       input,
       registry,
@@ -184,7 +271,13 @@ describe("wheel zoom", () => {
     const input = Object.freeze(makeInput({ camera }));
     reduce(
       state,
-      { type: "wheel", screen: [5, 5], board: [0, 0], deltaX: 0, deltaY: 100, modifiers: NO_MODS },
+      { type: "wheel", screen: [5, 5], board: [0, 0], deltaX: 0, deltaY: 100, modifiers: CTRL },
+      input,
+      registry,
+    );
+    reduce(
+      state,
+      { type: "wheel", screen: [5, 5], board: [0, 0], deltaX: 3, deltaY: 100, modifiers: NO_MODS },
       input,
       registry,
     );
@@ -258,6 +351,19 @@ describe("pan", () => {
     const out = reduce(state, pointer("pointer_down", [5, 5], input.camera), input, registry);
     expect(out.effects).toEqual([]);
     expect(calls.map((c) => c.kind === "reduce" && c.event.type)).toEqual(["pointer_down"]);
+  });
+
+  test("Space-drag pans after a Space key_down from the window (focus outside the canvas, not in a text field)", () => {
+    const { calls, registry, state: s0 } = setup();
+    const camera: Camera = { x: 0, y: 0, zoom: 1 };
+    const input = makeInput({ camera });
+    // BoardCanvas forwards a window-level Space as an ordinary key_down outside text fields.
+    let state = reduce(s0, key("key_down", " ", "Space"), input, registry).state;
+    expect(state.space).toBe(true);
+    state = reduce(state, pointer("pointer_down", [10, 10], camera), input, registry).state;
+    const moved = reduce(state, pointer("pointer_move", [10, 42], camera), input, registry);
+    expect(cameraOf(moved.effects)).toEqual({ x: 0, y: -0.5, zoom: 1 });
+    expect(calls).toEqual([]);
   });
 
   test("releasing Space mid-drag keeps panning until the pointer is up", () => {

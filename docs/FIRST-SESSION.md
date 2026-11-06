@@ -37,6 +37,14 @@ Press `?` in the app at any time for the keys and gestures.
    bottom left, and room 3 (the guard room, the largest) is at the bottom
    right. Corridors join them.
 
+**Moving around.** Scroll with the mouse wheel or two fingers on a
+trackpad to pan; hold Space (or the middle button) and drag to pan by hand.
+Space works wherever focus is, except while you are typing in a field.
+Ctrl/Cmd+wheel or a trackpad pinch zooms about the pointer, and `+` and `-`
+zoom about the middle of the screen. Over a list that scrolls (a binder, a
+token's contents), the wheel scrolls the list instead. A board you open for
+the first time is fitted to what is on it. `?` lists every key and gesture.
+
 ### Positions
 
 Positions on the Crypt board are given as `M + [x, y]`. M is the top-left

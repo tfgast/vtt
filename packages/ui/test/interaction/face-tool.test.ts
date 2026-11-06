@@ -277,14 +277,14 @@ const dbl = (board: Point): InteractionEvent => ({
   modifiers: NO_MODS,
 });
 
-const wheelAt = (board: Point, deltaY: number) =>
+const wheelAt = (board: Point, deltaY: number, modifiers: Modifiers = NO_MODS) =>
   ({
     type: "wheel",
     screen: screenOf(board),
     board,
     deltaX: 0,
     deltaY,
-    modifiers: NO_MODS,
+    modifiers,
   }) as const;
 
 // ---------------------------------------------------------------------------
@@ -635,6 +635,20 @@ describe("the wheel and chevrons in a binder of 14 entries in an 8-row list", ()
     expect(r.wheel([200, 200], 100)).toBeNull();
   });
 
+  test("Ctrl or Meta with the wheel (a pinch) over the same list is not claimed; a plain wheel there still scrolls (M6-D11)", () => {
+    const r = rig();
+    for (const modifiers of [
+      { ...NO_MODS, ctrl: true },
+      { ...NO_MODS, meta: true },
+    ]) {
+      const out = r.faces.wheel?.(r.state, wheelAt([0, 18], 100, modifiers), input());
+      expect(out).toBeNull();
+      expect(r.faceState.scrollOffset("b", 0)).toBe(0);
+    }
+    expect(r.wheel([0, 18], 100)).toEqual([]);
+    expect(r.faceState.scrollOffset("b", 0)).toBeCloseTo(1, 9);
+  });
+
   test("scrolled to the end, the last entry's chevron expands it, reveals it whole, and its button presses", () => {
     const r = rig();
     r.wheel([0, 18], 1000);
@@ -898,7 +912,17 @@ describe("machine wheel routing", () => {
     expect(faceState.scrollOffset("b", 0)).toBeCloseTo(1, 9);
   });
 
-  test("a wheel elsewhere zooms the camera", () => {
+  test("a Ctrl+wheel over an overflowing list zooms the camera and leaves the list (M6-D11)", () => {
+    const { registry, state, faceState } = machine();
+    const ctrl = { ...NO_MODS, ctrl: true };
+    const out = reduce(state, wheelAt([0, 18], 100, ctrl), reducerInput(), registry);
+    const cams = out.effects.filter((e) => e.type === "camera");
+    expect(cams).toHaveLength(1);
+    expect(cams[0]?.type === "camera" && cams[0].camera.zoom).toBeLessThan(input().camera.zoom);
+    expect(faceState.scrollOffset("b", 0)).toBe(0);
+  });
+
+  test("a wheel elsewhere moves the camera", () => {
     const { registry, state } = machine();
     const out = reduce(state, wheelAt([0, 0], 100), reducerInput(), registry);
     expect(out.effects.filter((e) => e.type === "camera")).toHaveLength(1);

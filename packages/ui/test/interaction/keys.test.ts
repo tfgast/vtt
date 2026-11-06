@@ -1,21 +1,31 @@
 // @vitest-environment node
 /**
  * The select tool's keyboard commands (vtt-3l6.7): delete, flip, bring to
- * front, send to back, nudge. Each captures a stamp at the key press.
+ * front, send to back, nudge. Each captures a stamp at the key press. And
+ * the app's zoom keys (M6-D11): "+" and "=" zoom in, "-" zooms out, about
+ * the viewport centre.
  */
 import type { CellView, ObjectView, Viewer, WireResult, WireValue } from "@vtt/protocol";
 import type { ObjectId, Point } from "@vtt/schema";
 import {
+  appKeyActions,
   buildScene,
+  type Camera,
   type Effect,
+  KEY_BINDINGS,
+  KEY_ZOOM_FACTOR,
   type KeyDownEvent,
+  keyCommand,
   type Modifiers,
   NUDGE_STEP,
   NUDGE_STEP_LARGE,
   type ReducerInput,
   selectKeyEffects,
   selectTool,
+  type TableSession,
   type ToolInput,
+  type UiStore,
+  zoomStep,
 } from "@vtt/ui";
 import { describe, expect, test } from "vitest";
 
@@ -216,5 +226,68 @@ describe("selectKeyEffects", () => {
     const state = selectTool.init({});
     const out = selectTool.reduce(state, press("Delete"), makeInput(["a"]));
     expect(onlyWrite(out.effects).ops).toEqual([{ type: "remove", object: "a" }]);
+  });
+});
+
+describe("the zoom keys (M6-D11)", () => {
+  const press = (
+    key: string,
+    mods: Partial<Record<"ctrlKey" | "metaKey" | "altKey" | "shiftKey", boolean>> = {},
+  ) => ({
+    key,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    target: null,
+    ...mods,
+  });
+
+  test('"+" (with or without Shift) and "=" zoom in; "-" zooms out', () => {
+    expect(keyCommand(press("+", { shiftKey: true }))).toEqual({ type: "zoom", direction: "in" });
+    expect(keyCommand(press("+"))).toEqual({ type: "zoom", direction: "in" });
+    expect(keyCommand(press("="))).toEqual({ type: "zoom", direction: "in" });
+    expect(keyCommand(press("-"))).toEqual({ type: "zoom", direction: "out" });
+  });
+
+  test("they are KEY_BINDINGS rows, so the help and README list them", () => {
+    const zoom = KEY_BINDINGS.filter((b) => b.command.type === "zoom");
+    expect(zoom.map((b) => [b.keys, b.label])).toEqual([
+      ["+", "Zoom in"],
+      ["=", "Zoom in (the + key without Shift)"],
+      ["-", "Zoom out"],
+    ]);
+  });
+
+  test("Ctrl/Cmd or Alt with them is left to the browser (its own page zoom)", () => {
+    expect(keyCommand(press("=", { ctrlKey: true }))).toBeNull();
+    expect(keyCommand(press("-", { metaKey: true }))).toBeNull();
+    expect(keyCommand(press("+", { altKey: true }))).toBeNull();
+  });
+
+  test("zoomStep zooms by KEY_ZOOM_FACTOR about the viewport centre, clamped", () => {
+    const viewport = { width: 800, height: 600, dpr: 1 };
+    const camera: Camera = { x: 3, y: -2, zoom: 1 };
+    expect(KEY_ZOOM_FACTOR).toBeGreaterThan(1);
+    expect(zoomStep(camera, viewport, "in")).toEqual({ x: 3, y: -2, zoom: KEY_ZOOM_FACTOR });
+    expect(zoomStep(camera, viewport, "out").zoom).toBeCloseTo(1 / KEY_ZOOM_FACTOR, 12);
+    expect(zoomStep(camera, viewport, "out").x).toBeCloseTo(3, 12);
+    expect(zoomStep({ x: 0, y: 0, zoom: 8 }, viewport, "in").zoom).toBe(8);
+  });
+
+  test("the app's zoom action sets the camera from the store's camera and viewport", () => {
+    let camera: Camera = { x: 1, y: 1, zoom: 2 };
+    const viewport = { width: 400, height: 300, dpr: 1 };
+    const ui = {
+      getState: () => ({ camera, viewport }),
+      setCamera: (next: Camera) => {
+        camera = next;
+      },
+    } as unknown as UiStore;
+    const actions = appKeyActions({} as TableSession, ui, () => {});
+    actions.zoom?.("in");
+    expect(camera).toEqual({ x: 1, y: 1, zoom: 2 * KEY_ZOOM_FACTOR });
+    actions.zoom?.("out");
+    expect(camera.zoom).toBeCloseTo(2, 12);
   });
 });

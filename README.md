@@ -87,6 +87,9 @@ fires while you are typing in a text field.
 | `L` | Layout tool |
 | `Ctrl/Cmd+Z` | Undo |
 | `Ctrl/Cmd+S` | Save |
+| `+` | Zoom in |
+| `=` | Zoom in (the + key without Shift) |
+| `-` | Zoom out |
 | `?` | Show or hide this help |
 
 Undo reverses your own latest change, including a button you pressed while
@@ -95,7 +98,8 @@ viewing as a character; it never reverses the agent's work.
 | Gesture | Does |
 |---|---|
 | Space-drag or middle-drag | pan |
-| Wheel | zoom (over a list that scrolls: scroll it) |
+| Wheel or two-finger scroll | pan (over a list that scrolls: scroll it) |
+| Ctrl/Cmd+wheel or pinch | zoom about the pointer |
 | Click | select |
 | Alt+click | cycle through the objects under the pointer |
 | Drag one template | drop a copy |

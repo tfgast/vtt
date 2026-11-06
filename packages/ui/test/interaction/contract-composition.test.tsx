@@ -430,7 +430,7 @@ describe("contract composition", () => {
   test("a wheel event changes the stored camera", async () => {
     const c = await compose();
     act(() => {
-      fireEvent.wheel(c.canvas, { clientX: 400, clientY: 300, deltaY: -100 });
+      fireEvent.wheel(c.canvas, { clientX: 400, clientY: 300, deltaY: -100, ctrlKey: true });
     });
     expect(c.ui.getState().camera.zoom).toBeCloseTo(1.1, 9);
   });

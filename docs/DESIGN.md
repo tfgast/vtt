@@ -1326,7 +1326,11 @@ and Node for the authority. Left open on purpose: the desktop shell.
 The first version is a tool one GM uses alone for playtesting the model. It
 must prove the core model works and is pleasant:
 
-- Infinite 2D canvas with pan, zoom, and multiple boards.
+- Infinite 2D canvas with pan, zoom, and multiple boards. A plain wheel or
+  two-finger scroll pans; Ctrl/Cmd+wheel or a trackpad pinch zooms about the
+  pointer; `+` (or `=`) and `-` zoom about the viewport centre; Space-drag
+  (wherever focus is, outside a text field) or middle-drag pans. A list that
+  scrolls takes a plain wheel over it first (M6-D11).
 - Objects with image, shape, text, facing, stacking, single-parent
   containment, and template copying.
 - Cells with literals and formulas, a formula bar, manual override, per-cell
@@ -1656,3 +1660,4 @@ a separate player window, shipped game-system content.
 | 2026-11-05 | M6-D6. The MCP server sends `instructions` at `initialize`. DESIGN §5.2; PROTOCOL §11. | A bring-your-own agent should find the templates and the write rules without being told by the GM. |
 | 2026-11-05 | M6-D7. Example images (`crypt-map.png`, `goblin.png`) ship in `@vtt/fixtures/assets`, generated in-repo. | §8.4 step 3 needs a map; generated art has no licence question. |
 | 2026-11-05 | M6-D8. A group's `names` are the touched objects' plus, when the actor is a character, that character's, captured at commit (before removal if the group removes it). Gm and agent actors add nothing. Character group views filter `names` as before. Amends the operation group entry above. DESIGN §7; PROTOCOL §7.6. | The log must name the character the GM drove (M5-D1) and keep names as they were (4.8); a view-as Apply touches only the card and its target, so the header showed the character's id. |
+| 2026-11-06 | M6-D11. Navigation: a plain wheel (or two-finger scroll) pans the camera by its deltas; Ctrl or Meta with the wheel (how browsers deliver a trackpad pinch) zooms about the pointer; the active tool's `wheel` hook still comes first, so a list that scrolls takes a plain wheel over it, but never a Ctrl or Meta wheel, which zooms there too. Space is heard on the window, so Space-drag pans wherever focus is except in a text field (a Space typed there is ignored and never prevented); middle-drag is unchanged. `+` and `=` zoom in and `-` zooms out, by 1.25 about the viewport centre, as `KEY_BINDINGS` rows. Amends vtt-1xv.16's wheel zoom. DESIGN §4.6, §8.1. | Playtest 1 step 3: a trackpad has no middle button and Space was only seen with focus in the canvas, so panning was undiscoverable; the zoom keys keep zoom for a mouse wheel that now pans. |
