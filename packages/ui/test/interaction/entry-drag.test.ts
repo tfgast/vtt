@@ -28,6 +28,7 @@ import {
   type InteractionEvent,
   type Modifiers,
   pathContents,
+  SHOW_BOARD_EXTENSION,
   type Tool,
   type ToolInput,
   type ToolState,
@@ -756,5 +757,73 @@ describe("expanded rows: a press that moves on the drawn object drags its entry 
     // The board card's target editor is editable (a press); its body is the select tool's.
     const out = r.drag([0.5, 1], [[3, 3]]);
     expect(writes(out)).toMatchObject([{ ops: [{ type: "move", object: "card" }] }]);
+  });
+});
+
+describe("released over a board tab (vtt-qf5.35)", () => {
+  const CRYPT_TAB = { board: "crypt", name: "Crypt", centre: [5.2, 7.3] as Point };
+  const up = (tab: typeof CRYPT_TAB, at: Point = [12, 11]): InteractionEvent => ({
+    ...(ptr("pointer_up", at) as Extract<InteractionEvent, { type: "pointer_up" }>),
+    boardTab: tab,
+  });
+
+  test("a card entry moves out of its container onto that board at its view centre, then that board is shown", () => {
+    const r = rig();
+    r.send(ptr("pointer_down", A0), { revision: 5, interactionId: "i1" });
+    r.send(ptr("pointer_move", [10, 10]), { revision: 6, interactionId: "i2" });
+    const out = r.send(up(CRYPT_TAB), { revision: 7, interactionId: "i3", snap: true });
+    expect(writes(out)).toEqual([
+      {
+        type: "write",
+        stamp: STAMP,
+        ops: [
+          {
+            type: "move",
+            object: "a0",
+            to: { type: "board", board: "crypt", position: [5.2, 7.3] },
+          },
+        ],
+        label: "Move a0 to Crypt",
+        continuations: [
+          { type: "extension", name: SHOW_BOARD_EXTENSION, payload: { board: "crypt" } },
+        ],
+      },
+    ]);
+  });
+
+  test("a template entry spawns its copy there at the view centre, unsnapped with Snap on, selected", () => {
+    const r = rig();
+    r.send(ptr("pointer_down", TA), { revision: 5, interactionId: "i1" });
+    r.send(ptr("pointer_move", [10, 10]), { revision: 6, interactionId: "i2" });
+    const out = r.send(up(CRYPT_TAB), { revision: 7, interactionId: "i3", snap: true });
+    expect(writes(out)).toEqual([
+      {
+        type: "write",
+        stamp: STAMP,
+        ops: [
+          {
+            type: "spawn",
+            template: "ta",
+            to: { type: "board", board: "crypt", position: [5.2, 7.3] },
+          },
+        ],
+        label: "Copy ta",
+        continuations: [
+          { type: "select_created", opIndex: 0 },
+          { type: "extension", name: SHOW_BOARD_EXTENSION, payload: { board: "crypt" } },
+        ],
+      },
+    ]);
+  });
+
+  test("over the active board's own tab nothing is written", () => {
+    const r = rig();
+    r.send(ptr("pointer_down", TA), { revision: 5, interactionId: "i1" });
+    r.send(ptr("pointer_move", [10, 10]), { revision: 6, interactionId: "i2" });
+    const out = r.send(up({ board: BOARD, name: "Main", centre: [0, 0] }), {
+      revision: 7,
+      interactionId: "i3",
+    });
+    expect(writes(out)).toEqual([]);
   });
 });

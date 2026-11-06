@@ -16,7 +16,7 @@ import type { Point } from "@vtt/schema";
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef } from "react";
 import { isTextField } from "../app/keybindings";
 import type { Viewport } from "../interaction/contracts";
-import type { InteractionEvent, Modifiers } from "../interaction/events";
+import type { BoardTabDrop, InteractionEvent, Modifiers } from "../interaction/events";
 import type { ToolOverlay } from "../interaction/overlays";
 import { createCanvas2DRenderer } from "../render/canvas2d";
 import { ImageCache } from "../render/image-cache";
@@ -49,6 +49,12 @@ export interface BoardCanvasProps<S extends Scene = Scene> {
   setViewport?: (viewport: Viewport) => void;
   /** DOM children positioned absolutely, in screen coordinates, above the canvas. */
   overlay?: ReactNode;
+  /**
+   * The board tab at a client point, if any (vtt-qf5.35). Asked on every
+   * `pointer_up`, whose event then carries it as `boardTab`: the canvas
+   * captures the pointer, so a release over the tab strip still reaches it.
+   */
+  boardTabAt?: (clientX: number, clientY: number) => BoardTabDrop | null;
 }
 
 /** CSS pixels per wheel line (`deltaMode` 1). */
@@ -198,6 +204,10 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
             // Not captured.
           }
         }
+        const boardTab =
+          type === "pointer_up"
+            ? (propsRef.current.boardTabAt?.(e.clientX, e.clientY) ?? null)
+            : null;
         emit({
           type,
           pointerId: e.pointerId,
@@ -205,6 +215,7 @@ export function BoardCanvas<S extends Scene = Scene>(props: BoardCanvasProps<S>)
           button: type === "pointer_move" ? -1 : e.button,
           buttons: e.buttons,
           modifiers: modifiers(e),
+          ...(boardTab === null ? {} : { boardTab }),
         });
       };
     const onDoubleClick = (e: MouseEvent) =>

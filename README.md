@@ -118,6 +118,7 @@ viewing as a character; it never reverses the agent's work.
 | Gear | edit a template |
 | Drag a cell row from the inspector onto an object (layout mode) | show the cell on the face |
 | Delete | remove the selection |
+| Drop on a board tab | move the dragged objects to that board (one template: a copy at its view's centre) |
 | Move selection to board… | move objects between boards |
 
 ## Docs

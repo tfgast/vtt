@@ -9,8 +9,9 @@
  *   at most `BOARD_ID_RETRIES` times; a double-click renames; the context
  *   menu removes (a refusal, such as a non-empty board, is the write port's
  *   notice) and moves the selection to that board.
- * - "Move selection to board…" (the only way to move objects between boards
- *   in M4): one write with a `move` per selected object directly on the
+ * - Each tab carries `data-board-tab`, the board id, so a canvas drag
+ *   released over it is a drop on that board (board-tab-drop.ts, vtt-qf5.35).
+ * - "Move selection to board…": one write with a `move` per selected object directly on the
  *   active board, to the target board at its current position; then the
  *   target board is activated with the moved objects selected.
  * - `NoBoards`: the zero-board empty state for the canvas area.
@@ -387,6 +388,7 @@ export function BoardTabs({ write }: BoardTabsProps) {
               type="button"
               role="tab"
               aria-selected={board.id === active}
+              data-board-tab={board.id}
               onClick={() => {
                 if (board.id !== session.getSnapshot().activeBoard)
                   void ctx.ui.setActiveBoard(board.id);

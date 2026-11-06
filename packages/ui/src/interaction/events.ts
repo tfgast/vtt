@@ -5,7 +5,7 @@
  * effect ends. `screen` is CSS pixels from the canvas's top-left corner;
  * `board` is the same point in board units under the camera at the time.
  */
-import type { Point } from "@vtt/schema";
+import type { BoardId, Point } from "@vtt/schema";
 import type { WriteOutcome } from "./contracts";
 
 export interface Modifiers {
@@ -31,10 +31,28 @@ export interface PointerFields {
 
 export type PointerEventType = "pointer_down" | "pointer_move" | "pointer_up" | "pointer_cancel";
 
+/** One object type for an intersection (keeps optional keys optional). */
+type Flat<O> = { [K in keyof O]: O[K] };
+
 type Tagged<T extends string, F> = { [K in "type" | keyof F]: K extends keyof F ? F[K] : T };
 
+/**
+ * A board tab under the pointer at a release (vtt-qf5.35; DESIGN.md §4.6 On
+ * the canvas): the tab's board, its label, and the centre of that board's
+ * view (its remembered camera, else the board's default view at 0,0).
+ */
+export interface BoardTabDrop {
+  board: BoardId;
+  name: string;
+  centre: Point;
+}
+
+/**
+ * `boardTab` is set by `BoardCanvas` on a `pointer_up` released over a board
+ * tab (the tab strip is DOM chrome outside the canvas), and on no other event.
+ */
 export type PointerInteractionEvent = {
-  [T in PointerEventType]: Tagged<T, PointerFields>;
+  [T in PointerEventType]: Flat<Tagged<T, PointerFields> & { boardTab?: BoardTabDrop }>;
 }[PointerEventType];
 
 /**

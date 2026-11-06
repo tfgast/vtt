@@ -118,6 +118,11 @@ describe("the tables", () => {
         effect: "show the cell on the face",
       },
       { gesture: "Delete", effect: "remove the selection" },
+      {
+        gesture: "Drop on a board tab",
+        effect:
+          "move the dragged objects to that board (one template: a copy at its view's centre)",
+      },
       { gesture: "Move selection to board…", effect: "move objects between boards" },
     ]);
   });

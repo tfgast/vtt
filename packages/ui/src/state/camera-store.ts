@@ -30,6 +30,8 @@ export interface CameraStore {
   save(board: BoardId): void;
   /** Sets the camera remembered for `board`; false when there is none. */
   restore(board: BoardId): boolean;
+  /** The camera remembered for `board`, or null, without setting it (vtt-qf5.35). */
+  peek(board: BoardId): Camera | null;
   /** Whether `board` was shown with no remembered camera and has not been fitted yet. */
   needsFit(board: BoardId): boolean;
   /** Clears the `needsFit` mark (after the first-visit fit). */
@@ -113,18 +115,19 @@ export function createCameraStore(options: CameraStoreOptions): CameraStore {
         // Persistence is best effort.
       }
     },
-    restore(board) {
-      let camera = page.get(pageKey(board)) ?? null;
-      if (camera === null) {
-        const key = storageKey(board);
-        if (key !== null && storage !== null) {
-          try {
-            camera = parseCamera(storage.getItem(key));
-          } catch {
-            camera = null;
-          }
-        }
+    peek(board) {
+      const camera = page.get(pageKey(board)) ?? null;
+      if (camera !== null) return { ...camera };
+      const key = storageKey(board);
+      if (key === null || storage === null) return null;
+      try {
+        return parseCamera(storage.getItem(key));
+      } catch {
+        return null;
       }
+    },
+    restore(board) {
+      const camera = store.peek(board);
       if (camera === null) return false;
       ui.setCamera(camera);
       mark(board, false);

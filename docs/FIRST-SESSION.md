@@ -45,6 +45,11 @@ zoom about the middle of the screen. Over a list that scrolls (a binder, a
 token's contents), the wheel scrolls the list instead. A board you open for
 the first time is fitted to what is on it. `?` lists every key and gesture.
 
+**Between boards.** Drag objects onto another board's tab and let go to
+move them there; they keep their positions and that board opens. A
+template dragged onto a tab drops its copy in the middle of that board's
+view. "Move selection to board…" does the same move from a menu.
+
 **Snap.** The toolbar's Snap checkbox, next to Fog, is on when the table
 opens. While it is on, a faint grid of whole units is drawn under the
 objects, and an object you move or drop on the board lands with its centre
@@ -213,8 +218,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
    on the board and typing the name works too.)
 6. For rooms 2 and 4, also set `visible_to` in the inspector to
    `=if(len(contents(this).where(tag has "pc")) > 0, all, gm)`.
-7. Go to the GM board. Click the GM binder, press "Move selection to
-   board…" and choose Crypt.
+7. Go to the GM board. Drag the GM binder up onto the Crypt tab and let
+   go there. Crypt opens with the binder on it, at the same position.
 8. On Crypt, drag the GM binder to the right of the map, to about
    `M + [27, 5]`.
 
@@ -330,8 +335,8 @@ Result: ok / friction / broken — game went differently: yes / no — notes:
 
 1. On Crypt, drag the Note entry out of the GM binder to the left of the
    map, at `M + [-4, 12]`.
-2. With the note selected, press "Move selection to board…" and choose GM.
-   The GM board opens with the note on it.
+2. Drag the note up onto the GM tab and let go there. The GM board opens
+   with the note on it.
 3. Press D (the ink tool). Write "trap on the third stair" over the note.
    The walkthrough draws three strokes.
 4. Press V to go back to the select tool.
