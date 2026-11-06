@@ -458,7 +458,8 @@ The contract:
 
 Actions appear on an object's face as **buttons**. The inspector shows an
 action's steps and precondition and lets the GM edit them, exactly as it does
-for formulas.
+for formulas; while a precondition is being edited, its current value on the
+object is shown beside it.
 
 **Pressing buttons in the UI.** The UI never invokes an action on a template:
 templates are not mutated by play (4.7), so a template's buttons (and the

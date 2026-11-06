@@ -16,6 +16,9 @@
  *   Delete, Rename (an inline field, base revision captured at the click),
  *   Move up and Move down are each one `set_actions`. Client-side checks
  *   (`action-ops`) mirror `setActions`' refusals and block the write.
+ * - While the GM's editor is open, its `when` is previewed (vtt-qf5.31):
+ *   evaluated ad hoc with `evaluate {source, this}` at the session's
+ *   revision, its value shown beside the field (`ActionEditor`'s preview).
  * - "Run" (given a `runtime`) takes a stamp at the click and executes
  *   `requestInvoke(policy, view, action, stamp, {camera, views, directory})` through the
  *   runtime: the template refusal and the disabled-reason notice are the
@@ -26,15 +29,15 @@
  * Must be rendered inside a `TableProvider` (the inspector panel is one).
  */
 import type { ActionStateView, ObjectView } from "@vtt/protocol";
-import type { ActionDef } from "@vtt/schema";
-import { type CSSProperties, type KeyboardEvent, useRef, useState } from "react";
+import type { ActionDef, ObjectId } from "@vtt/schema";
+import { type CSSProperties, type KeyboardEvent, useMemo, useRef, useState } from "react";
 import { defaultFacePolicy, requestInvoke } from "../actions/invoke";
 import type { FacePolicy } from "../face/face-contracts";
 import type { InteractionStamp } from "../interaction/contracts";
 import type { InteractionRuntime } from "../interaction/runtime";
-import { useTableSession, useUiStore } from "../session/hooks";
+import { useSession, useTableSession, useUiStore } from "../session/hooks";
 import { sessionNotices } from "../session/writes";
-import { ActionEditor } from "./ActionEditor";
+import { ActionEditor, type GuardPreview } from "./ActionEditor";
 import {
   type ActionDraft,
   type ActionsResult,
@@ -153,6 +156,17 @@ function ActionsBody({ view, gm, policy = defaultFacePolicy, runtime }: ActionsL
   const port = useInspectorWrites(session);
   const [open, setOpen] = useState<Open | null>(null);
   const object = view.id;
+  const revision = useSession((s) => s.revision);
+  const viewerIsGm = useSession((s) => s.viewer.type === "gm");
+  const evaluate = useMemo(
+    () => async (source: string, target: ObjectId) =>
+      (await session.client.request("evaluate", { source, this: target })).value,
+    [session],
+  );
+  const preview: GuardPreview | undefined =
+    gm && viewerIsGm
+      ? { object, revision, evaluate, refLabel: inspectorRefLabel(session) }
+      : undefined;
   const editable = gm ? editableActions(view) : null;
   const states = new Map((view.action_states ?? []).map((s) => [s.name, s]));
   const names = view.actions.map((a) => a.name);
@@ -274,6 +288,7 @@ function ActionsBody({ view, gm, policy = defaultFacePolicy, runtime }: ActionsL
       saving={edit.saving}
       onSave={(a) => void save(edit, a)}
       onCancel={() => setOpen(null)}
+      {...(preview === undefined ? {} : { preview })}
     />
   );
 
