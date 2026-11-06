@@ -51,6 +51,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { TableHost } from "@vtt/authority";
+import { CRYPT_MAP, GOBLIN_IMAGE } from "@vtt/fixtures";
 import type { ProtocolClient, WireResult } from "@vtt/protocol";
 import type { Bounds, Cell, ObjectId, Point, Snapshot, TableObject } from "@vtt/schema";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
@@ -144,23 +145,13 @@ const MARQUEE: [Point, Point] = [
   [9.5, 5.5],
 ];
 
-// The Crypt board: the example map (2400 × 1600 px, 100 px per unit) centered on 0,0.
+// The Crypt board: the example map (`CRYPT_MAP` of `@vtt/fixtures`) centered on 0,0.
 const MAP_AT: Point = [0, 0];
-const MAP_PX = { width: 2400, height: 1600 };
-/** The rooms' pixel rectangles on the map (`CRYPT_MAP.rooms` of `@vtt/fixtures`). */
-const ROOMS_PX: [number, number, number, number][] = [
-  [100, 1100, 500, 400],
-  [700, 1100, 500, 400],
-  [1300, 900, 700, 600],
-  [100, 100, 600, 600],
-  [900, 100, 700, 600],
-  [1800, 100, 500, 600],
-];
-const ROOMS: Bounds[] = ROOMS_PX.map(([x, y, w, h]) => ({
-  minX: x / 100 - MAP_PX.width / 200,
-  minY: y / 100 - MAP_PX.height / 200,
-  maxX: (x + w) / 100 - MAP_PX.width / 200,
-  maxY: (y + h) / 100 - MAP_PX.height / 200,
+const ROOMS: Bounds[] = CRYPT_MAP.rooms.map(({ rect_px: [x, y, w, h] }) => ({
+  minX: (x - CRYPT_MAP.width_px / 2) / CRYPT_MAP.px_per_unit,
+  minY: (y - CRYPT_MAP.height_px / 2) / CRYPT_MAP.px_per_unit,
+  maxX: (x + w - CRYPT_MAP.width_px / 2) / CRYPT_MAP.px_per_unit,
+  maxY: (y + h - CRYPT_MAP.height_px / 2) / CRYPT_MAP.px_per_unit,
 }));
 const centerOf = (b: Bounds): Point => [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
 const room = (n: number) => ROOMS[n - 1] as Bounds;
@@ -378,7 +369,7 @@ describe("§8.4 prep steps 1–4 by hand, minus binders", () => {
     await settle();
 
     // The image tool imports the map (the picker is injected).
-    app.picks.push(await pngFile(CRYPT_MAP_FILE, "crypt-map.png"));
+    app.picks.push(await pngFile(CRYPT_MAP_FILE, CRYPT_MAP.file));
     chooseTool("Image");
     click(app, MAP_AT);
     ids.map = await newSelection(app, "image_", "the map image");
@@ -413,7 +404,7 @@ describe("§8.4 prep steps 1–4 by hand, minus binders", () => {
     await onBoard(app, GM_BOARD);
 
     // The goblin: an image with its cells, `ac` GM-only, the HIT badge, tag `creature`.
-    app.picks.push(await pngFile(GOBLIN_FILE, "goblin.png"));
+    app.picks.push(await pngFile(GOBLIN_FILE, GOBLIN_IMAGE.file));
     chooseTool("Image");
     click(app, GOBLIN_AT);
     const goblin = await newSelection(app, "image_", "the goblin image", [ids.map]);
