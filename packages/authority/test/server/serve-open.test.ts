@@ -5,8 +5,8 @@
  * executable or at a recording script, so no real browser opens.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,6 +90,22 @@ async function until(pred: () => boolean, what: string, ms = READY_MS): Promise<
   }
 }
 
+/**
+ * The browser stub's record, or "" while it does not exist yet. Tests wait on
+ * this reading as a complete line, never on the file merely existing: a file
+ * can exist before its contents land (open-then-write), and under a loaded
+ * full suite a read in that window saw "" (vtt-qf5.51). The stub also writes
+ * a temp file and renames it into place, so the record appears whole.
+ */
+function record(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw e;
+  }
+}
+
 async function printedHttp(p: Proc): Promise<string> {
   await Promise.race([
     until(() => p.stdout.includes("\n"), "the --print-session line"),
@@ -132,16 +148,16 @@ describe("vtt-serve --open", () => {
       const browser = join(dir, "browser.mjs");
       await writeFile(
         browser,
-        `#!${process.execPath}\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(opened)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n`,
+        `#!${process.execPath}\nimport { renameSync, writeFileSync } from "node:fs";\nconst tmp = ${JSON.stringify(opened)} + "." + process.pid + ".tmp";\nwriteFileSync(tmp, JSON.stringify(process.argv.slice(2)) + "\\n");\nrenameSync(tmp, ${JSON.stringify(opened)});\n`,
       );
       await chmod(browser, 0o755);
       const p = serve([file, "--port", "0", "--ui-dir", uiDir, "--print-session", "--open"], {
         BROWSER: browser,
       });
       const http = await printedHttp(p);
-      await until(() => existsSync(opened), "the browser script's record");
+      await until(() => record(opened).endsWith("\n"), "the browser script's record");
       await until(() => p.stderr.includes(`Open ${http}`), "the Open line");
-      expect((await readFile(opened, "utf8")).trim()).toBe(JSON.stringify([http]));
+      expect(record(opened)).toBe(`${JSON.stringify([http])}\n`);
       expect(p.stderr).not.toContain("could not open a browser");
     },
     TEST_MS,

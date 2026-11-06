@@ -11,8 +11,8 @@
  * URL instead (the same module `pnpm start` loads from the repo root).
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,7 +57,7 @@ beforeEach(async () => {
   );
   await writeFile(
     browser,
-    `#!${process.execPath}\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(opened)}, process.argv[2] + "\\n");\n`,
+    `#!${process.execPath}\nimport { renameSync, writeFileSync } from "node:fs";\nconst tmp = ${JSON.stringify(opened)} + "." + process.pid + ".tmp";\nwriteFileSync(tmp, process.argv[2] + "\\n");\nrenameSync(tmp, ${JSON.stringify(opened)});\n`,
   );
   await chmod(browser, 0o755);
 });
@@ -112,6 +112,22 @@ async function until(pred: () => boolean, what: string, ms = READY_MS): Promise<
   }
 }
 
+/**
+ * The browser stub's record, or "" while it does not exist yet. Tests wait on
+ * this reading as a complete line, never on the file merely existing: a file
+ * can exist before its contents land (open-then-write), and under a loaded
+ * full suite a read in that window saw "" (vtt-qf5.51). The stub also writes
+ * a temp file and renames it into place, so the record appears whole.
+ */
+function record(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw e;
+  }
+}
+
 async function bounded<T>(promise: Promise<T>, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -152,8 +168,8 @@ test(
     expect(s.http).toBe(`http://127.0.0.1:${port}/`);
     expect(s.table_path).toBe(join(cwd, "tables", "crypt.table.json"));
 
-    await until(() => existsSync(opened), "the browser script's record");
-    expect(await readFile(opened, "utf8")).toBe(`http://127.0.0.1:${port}/\n`);
+    await until(() => record(opened).endsWith("\n"), "the browser script's record");
+    expect(record(opened)).toBe(`http://127.0.0.1:${port}/\n`);
 
     const res = await fetch(s.http);
     expect(res.status).toBe(200);
