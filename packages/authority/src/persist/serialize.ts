@@ -1,10 +1,13 @@
 /** Serialization (DESIGN.md §7, The file; Revisions and assets). */
-import { FILE_FORMAT, SCHEMA_VERSION, type TableFile, type TableLog } from "@vtt/schema";
+import {
+  FILE_FORMAT,
+  isAbsoluteAssetPath,
+  SCHEMA_VERSION,
+  type TableFile,
+  type TableLog,
+} from "@vtt/schema";
 import type { DocumentStore } from "../store/document-store";
 import { snapshotHash } from "./canonical";
-
-/** Absolute POSIX, Windows drive and UNC paths, as the file schema refuses them. */
-const ABSOLUTE_PATH = /^(?:[/\\]|[A-Za-z]:)/;
 
 /** Asset paths that are not relative to the file's directory. */
 export class InvalidAssetPathError extends Error {
@@ -28,7 +31,7 @@ export class InvalidAssetPathError extends Error {
  * Write it with `canonicalJson`.
  */
 export function serializeTable(store: DocumentStore, assets: readonly string[]): TableFile {
-  const bad = assets.filter((p) => typeof p !== "string" || p === "" || ABSOLUTE_PATH.test(p));
+  const bad = assets.filter((p) => typeof p !== "string" || p === "" || isAbsoluteAssetPath(p));
   if (bad.length > 0) throw new InvalidAssetPathError(bad);
   const snapshot = store.toSnapshot();
   return {

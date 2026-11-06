@@ -32,10 +32,13 @@ const Count = z.int().nonnegative();
 /** Absolute POSIX, Windows drive and UNC paths. */
 const ABSOLUTE_PATH = /^(?:[/\\]|[A-Za-z]:)/;
 
+/** Whether an asset path is absolute (POSIX, Windows drive or UNC) rather than relative to the file's directory. */
+export const isAbsoluteAssetPath = (path: string): boolean => ABSOLUTE_PATH.test(path);
+
 const AssetPathSchema = z
   .string()
   .min(1)
-  .refine((p) => !ABSOLUTE_PATH.test(p), "asset paths are relative to the file's directory");
+  .refine((p) => !isAbsoluteAssetPath(p), "asset paths are relative to the file's directory");
 
 export const TableLogSchema: z.ZodType<TableLog> = z.strictObject({
   first_index: Count,

@@ -1,4 +1,11 @@
-import { FILE_FORMAT, num, SCHEMA_VERSION, type TableFile, TableFileSchema } from "@vtt/schema";
+import {
+  FILE_FORMAT,
+  isAbsoluteAssetPath,
+  num,
+  SCHEMA_VERSION,
+  type TableFile,
+  TableFileSchema,
+} from "@vtt/schema";
 import { describe, expect, test } from "vitest";
 import { fireballSnapshot, lit } from "./helpers";
 
@@ -120,5 +127,19 @@ describe("TableFileSchema", () => {
         }),
       ).success,
     ).toBe(false);
+  });
+});
+
+describe("isAbsoluteAssetPath", () => {
+  test.each([
+    ["/x", true],
+    ["\\x", true],
+    ["C:x", true],
+    ["c:/x", true],
+    ["x/y", false],
+    ["./x", false],
+    ["", false],
+  ])("%j is absolute: %s", (path, expected) => {
+    expect(isAbsoluteAssetPath(path)).toBe(expected);
   });
 });
