@@ -68,8 +68,9 @@ export interface InvokePayload {
  * The owning character of `object` (DESIGN.md §4.5 Pressing buttons in the
  * UI; M6-D15): the object itself if it is a character; else its `owner` cell
  * when that is a reference to a character; else the owning character of its
- * container, recursively; else null. Read through `views` (the GM's mirror),
- * so a missing view ends the search; a containment cycle ends it too.
+ * container, recursively; else null. Read through `views` (normally
+ * `ownerLookup`), so a missing view ends the search; a containment cycle
+ * ends it too.
  */
 export function owningCharacter(
   views: (id: ObjectId) => ObjectView | null,
@@ -99,6 +100,20 @@ export type InvokeOutcome =
   | InvokeResult
   | { status: "uncertain"; reason: string }
   | { status: "failed"; error: ProtocolError };
+
+/**
+ * The lookup owning characters are resolved through (M6-D15): the GM
+ * directory when `input` has one (structural cells, `is_character`, `owner`
+ * and `container`, of every live object on any board), else the viewer's
+ * views. It decides only who a press is attributed to and whom a given
+ * template is owned by; nothing is shown or read for the viewer from it.
+ */
+export function ownerLookup(
+  input: Pick<ReducerInput, "views" | "directory">,
+): (id: ObjectId) => ObjectView | null {
+  const { directory, views } = input;
+  return directory === undefined ? views : (id) => directory(id) ?? views(id);
+}
 
 /** The default `FacePolicy`: every object but a template may be played. */
 export const defaultFacePolicy: FacePolicy = {
@@ -133,14 +148,15 @@ function disabledReason(view: ObjectView, action: string): string | null {
  * The effects of asking to invoke `action` of `view` with `stamp` (see the
  * module comment): one notice when refused, else one `invoke` extension
  * effect. `input` supplies the camera whose centre `table` names and the
- * views the GM-view actor is resolved through (`owningCharacter`).
+ * views (and, when given, the directory) the GM-view actor is resolved
+ * through (`owningCharacter` over `ownerLookup`).
  */
 export function requestInvoke(
   policy: FacePolicy,
   view: ObjectView,
   action: string,
   stamp: InteractionStamp,
-  input: Pick<ReducerInput, "camera" | "views">,
+  input: Pick<ReducerInput, "camera" | "views" | "directory">,
 ): Effect[] {
   const allowed = policy.canInvoke(view);
   if (!allowed.ok) return [{ type: "notice", level: "info", text: allowed.reason }];
@@ -152,7 +168,9 @@ export function requestInvoke(
     table: { board: stamp.board, position: [input.camera.x, input.camera.y] },
   };
   const actor =
-    stamp.viewer.type === "character" ? stamp.viewer.id : owningCharacter(input.views, view.id);
+    stamp.viewer.type === "character"
+      ? stamp.viewer.id
+      : owningCharacter(ownerLookup(input), view.id);
   if (actor !== null) payload.actor = { type: "character", id: actor };
   return [{ type: "extension", name: INVOKE_EXTENSION, stamp, payload }];
 }

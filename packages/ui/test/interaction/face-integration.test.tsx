@@ -1598,6 +1598,67 @@ describe("GM-view presses invoke as the owning character (M6-D15)", () => {
     expect(w.groups().at(-1)?.actor).toEqual(asAldric(aldric));
   });
 
+  /**
+   * Aldric stays on the GM board (unselected, so in neither the board nor the
+   * selection view) while his binder and the GM binder are moved to board
+   * `b2`, which the session then shows: his owner is known only to the GM
+   * directory (Codex review of vtt-nb8.33).
+   */
+  async function crossBoard() {
+    const base = await aldricWorld();
+    const { w, binder } = base;
+    const onB2 = (x: number, y: number) => ({
+      type: "board" as const,
+      board: "b2",
+      position: [x, y] as [number, number],
+    });
+    const moved = await w.gm.transact(
+      [
+        { type: "move", object: binder, to: onB2(...BINDER_AT) },
+        { type: "move", object: "gm_binder", to: onB2(0, 0) },
+      ],
+      { label: "To b2" },
+    );
+    if (moved.status !== "committed") throw new Error(JSON.stringify(moved));
+    await act(() => w.session.setView("b2", GM));
+    await until(() => w.session.boardView()?.objects.has(binder) === true, "the binder on b2");
+    await until(() => w.session.directory().has(base.aldric), "Aldric in the directory");
+    await settle();
+    expect(w.session.objectView(base.aldric)).toBeNull();
+    return base;
+  }
+
+  test("across boards: a working copy in Aldric's binder on another board is pressed as Aldric", async () => {
+    const { w, aldric, binder, attackTemplate } = await crossBoard();
+    const made = await w.gm.transact(
+      [
+        {
+          type: "spawn",
+          template: attackTemplate,
+          to: { type: "container", container: binder, index: 1 },
+          as: "$copy",
+        },
+      ],
+      { label: "Working copy" },
+    );
+    if (made.status !== "committed") throw new Error(JSON.stringify(made));
+    const copy = made.bindings.$copy as ObjectId;
+    await until(() => w.session.objectView(copy)?.face !== undefined, "the copy's face");
+    act(() => w.faceState.expand(copy));
+    await settle();
+    w.click(buttonOf(w, copy, "Discard"));
+    await until(() => w.groups().at(-1)?.label === "Discard", "the Discard group");
+    expect(w.invokes().at(-1)).toMatchObject({ object: copy, actor: asAldric(aldric) });
+    expect(w.groups().at(-1)?.actor).toEqual(asAldric(aldric));
+  });
+
+  test("across boards: a template dropped on Aldric's binder on another board gets owner Aldric", async () => {
+    const { w, aldric, binder, attackTemplate } = await crossBoard();
+    const given = await drag(w, rowOf(w, "tpl_attack"), [BINDER_AT[0], BINDER_AT[1] + 3]);
+    expect(w.host.table.store.getObject(binder)?.contents).toEqual([attackTemplate, given]);
+    expect(w.stored(given, "owner")).toEqual(ref(aldric));
+  });
+
   test("a view-as press is unchanged: the viewed character, whoever owns the object", async () => {
     const { w } = await aldricWorld({ dice: [roll("1d20", 5)] });
     const made = await w.gm.transact(

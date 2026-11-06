@@ -253,6 +253,9 @@ export function createInteractionRuntime(options: InteractionRuntimeOptions): In
       camera,
       selection: [...selection],
       views: (id) => inputs.views(id),
+      ...(inputs.directory === undefined
+        ? {}
+        : { directory: (id: ObjectId) => inputs.directory?.(id) ?? null }),
       snap,
     };
   };

@@ -126,6 +126,7 @@ describe("ports (review r2 finding 3)", () => {
   test("RuntimeInputs (review r3 finding 2)", () => {
     expectTypeOf<RuntimeInputs>().toEqualTypeOf<{
       views(id: ObjectId): ObjectView | null;
+      directory?(id: ObjectId): ObjectView | null;
       scene(): Scene;
       viewport(): Viewport;
       activeBoard(): BoardId | null;
@@ -326,6 +327,7 @@ describe("tools", () => {
       camera: Camera;
       selection: ObjectId[];
       views: (id: ObjectId) => ObjectView | null;
+      directory?: (id: ObjectId) => ObjectView | null;
       snap?: boolean;
     }>();
     expectTypeOf<ToolInput>().toEqualTypeOf<ReducerInput & { interactionId: string }>();

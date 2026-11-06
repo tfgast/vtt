@@ -33,6 +33,7 @@
  */
 import type { ObjectView, WireOp } from "@vtt/protocol";
 import type { ObjectId, Point } from "@vtt/schema";
+import { ownerLookup } from "../actions/invoke";
 import type { DropTarget } from "../face/face-contracts";
 import { dropTargetAt } from "../face/face-hit";
 import type { FaceDrawing } from "../face/face-model";
@@ -144,11 +145,15 @@ export function editorCellAt(faces: FaceScene, object: ObjectId, element: number
 
 const SELECT_SPAWNED: Continuation[] = [{ type: "select_created", opIndex: 0 }];
 
-/** The character `binder`'s `owner` cell refers to, or null (M6-D15). */
+/**
+ * The character `binder`'s `owner` cell refers to, or null (M6-D15); read
+ * through `ownerLookup`, so a character on another board still counts.
+ */
 function binderOwner(input: ReducerInput, binder: ObjectId): ObjectId | null {
-  const owner = input.views(binder)?.cells.owner?.value;
+  const lookup = ownerLookup(input);
+  const owner = lookup(binder)?.cells.owner?.value;
   if (owner?.type !== "ref") return null;
-  return input.views(owner.object)?.is_character === true ? owner.object : null;
+  return lookup(owner.object)?.is_character === true ? owner.object : null;
 }
 
 /**
