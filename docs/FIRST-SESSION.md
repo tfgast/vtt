@@ -37,6 +37,16 @@ Press `?` in the app at any time for the keys and gestures.
    bottom left, and room 3 (the guard room, the largest) is at the bottom
    right. Corridors join them.
 
+**Repeat playtests.** To skip prep and start at step 7, copy the prepped
+table that ships in the repo (the state after step 6, generated from the
+walkthrough's prep by `pnpm fixtures:prepped`) together with its assets
+directory, then start the copy:
+
+```sh
+mkdir -p tables && cp -R packages/fixtures/examples/first-session.table.json* tables/
+pnpm start tables/first-session.table.json
+```
+
 **Moving around.** Scroll with the mouse wheel or two fingers on a
 trackpad to pan; hold Space (or the middle button) and drag to pan by hand.
 Space works wherever focus is, except while you are typing in a field.
