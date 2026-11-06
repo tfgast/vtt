@@ -252,7 +252,7 @@ evaluates to `#SYNTAX` (FORMULAS §2.3), which a scenario asserts as a
 ```json
 "dice": [
   { "type": "roll", "expr": "1d20", "dice": [14], "dropped": [], "total": 14 },
-  { "type": "roll", "expr": "8d6", "dice": [3, 5, 2, 6, 4, 1, 6, 1], "dropped": [], "total": 28 },
+  { "type": "roll", "expr": "8d6", "dice": [3, 5, 2, 6, 4, 1, 5, 1], "dropped": [], "total": 27 },
   { "type": "permutation", "order": [2, 0, 1] }
 ]
 ```
