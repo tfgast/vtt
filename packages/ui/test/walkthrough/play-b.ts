@@ -15,11 +15,10 @@
  * - a template entry is dragged out with `dragEntry` and the copy read from
  *   the selection (the Fireball card, the note, the trap die);
  * - the Fireball zone is dragged out of the card's list with `dragObject`
- *   (an entry drag out). Once on Crypt it lies under the map image (zones
- *   are hit after objects), so `dragObject` cannot press it: the nudge
- *   is a plain `drag` from no selection, grabbed inside the zone clear of
- *   the tokens in it and released over G1's contents list, which is hidden
- *   while G1 is unselected (M6-D12), so the zone lands on the board;
+ *   (an entry drag out), then nudged on Crypt with `dragObject` and a
+ *   `grab` offset: pressed inside the zone clear of the tokens in it and
+ *   released over G1's contents list, which is hidden while G1 is
+ *   unselected (M6-D12), so the zone lands on the board;
  * - each save row is expanded in the card's list with `expandEntry` before
  *   its Roll save is pressed;
  * - G4 is selected with `click` before Delete;
@@ -76,11 +75,12 @@ export const FIREBALL_AT: Point = [27, 22];
 export const ZONE_DROP: Point = [15.5, 11.5];
 export const ZONE_NUDGE: Point = [14.5, 12];
 /**
- * Where the nudge grabs the zone, from its anchor: pressed at M + [15.3,
- * 11], inside the zone clear of the tokens, so a plain press picks the zone
- * (M6-D10); released at M + [14.3, 11.5], clear of G1's body and over G1's
- * contents list, which an unselected G1 hides (M6-D12), so the release
- * point is the board.
+ * Where the nudge grabs the zone (`dragObject`'s `grab`, board units from
+ * its anchor): pressed at M + [15.3, 11], inside the zone clear of the
+ * tokens, where the zone is hit before the map it lies on (M6-D10);
+ * released at M + [14.3, 11.5], clear of G1's body and over G1's contents
+ * list, which an unselected G1 hides (M6-D12), so the release point is the
+ * board.
  */
 export const ZONE_GRAB: Point = [-0.2, -0.5];
 /** The trap note and its die in the tray (§8.4 step 13), relative to M. */
@@ -319,44 +319,6 @@ async function reads(
   );
 }
 
-/**
- * Drags a zone drawn over the map image on the board so its anchor lands on
- * `to`, as a plain drag: no selection held (Escape clears it), pressed at
- * `grab` (board units from its anchor, inside the zone) and released at
- * `grab` from `to`. A zone is hit before the map it lies on (DESIGN §4.6,
- * M6-D10), so the press picks the zone itself; before M6-D10 this needed an
- * Alt+click cycle first. The release point decides the drop; a token's
- * contents list there is hidden while the token is unselected (M6-D12), so
- * a release over it lands on the board.
- */
-async function nudgeZone(
-  ctx: DriverContext,
-  g: Gestures,
-  zone: ObjectId,
-  to: Point,
-  grab: Point,
-): Promise<void> {
-  await g.key("Escape");
-  if (ctx.ui.getState().selection.length !== 0) {
-    throw new Error("play B: Escape did not clear the selection before the zone nudge");
-  }
-  const [ax, ay] = (await gmPosition(ctx, zone)) as Point;
-  await g.drag([ax + grab[0], ay + grab[1]], [to[0] + grab[0], to[1] + grab[1]]);
-  await until(
-    async () => {
-      const p = await gmPosition(ctx, zone);
-      return (
-        Math.abs((p[0] ?? Number.NaN) - to[0]) < 1e-6 &&
-        Math.abs((p[1] ?? Number.NaN) - to[1]) < 1e-6
-      );
-    },
-    () => `${zone} moved to ${JSON.stringify(to)}`,
-  );
-  if (ctx.ui.getState().selection.join() !== zone) {
-    throw new Error(`play B: the plain drag did not pick ${zone}`);
-  }
-}
-
 /** The Log tab's groups, opening the tab first if it is closed. */
 async function logShown(g: Gestures): Promise<LogGroupShown[]> {
   try {
@@ -410,7 +372,7 @@ export async function runPlayB(
   await g.dragObject(fireballZone, at(ZONE_DROP));
   const zoneDroppedAt = await gmPosition(ctx, fireballZone);
   const targetsDropped = refList(await gmValue(ctx, fireballCopy, "targets"));
-  await nudgeZone(ctx, g, fireballZone, at(ZONE_NUDGE), ZONE_GRAB);
+  await g.dragObject(fireballZone, at(ZONE_NUDGE), { grab: ZONE_GRAB });
   const zoneNudgedAt = await gmPosition(ctx, fireballZone);
   const targetsNudged = refList(await gmValue(ctx, fireballCopy, "targets"));
 

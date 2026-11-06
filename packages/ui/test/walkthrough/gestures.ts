@@ -1119,6 +1119,109 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
     await committed(before, `${aimName(press)} dragged to ${describeDrop(drop)}`);
   };
 
+  /**
+   * Drags board object `id` pressed at board point `from` and released at
+   * `to` (a board drop, or any drop with `alt`). The select tool drags the
+   * selection when a selected object is anywhere in the hit list (DESIGN.md
+   * §4.6), so when `id` is the first hit at `from` the drag starts from no
+   * selection, as `dragAims` does; otherwise `id` is selected first with a
+   * click and Alt+click cycling at `from`. Either way the press must reach
+   * the select tool: on `id`'s body or value when it is first, else on no
+   * face element or a plain board body. Waits for the commit.
+   */
+  const dragFrom = async (id: ObjectId, from: Point, to: Point, alt: boolean): Promise<void> => {
+    const where = JSON.stringify(from);
+    if (ctx.ui.getState().tool.id !== "select") pressKey("v");
+    await clearSelection();
+    const lo = minZoom(resolveSpot(faces(), { kind: "board", id, use: "press" }).shows);
+    const both = union(pointBounds(from), pointBounds(to));
+    const one = pickZoom(lo, fitZoom(both, viewport()));
+    const zoom = one ?? pickZoom(lo, MAX_ZOOM);
+    if (zoom === null) throw new Error(`dragObject: no camera shows ${id} at its min_size`);
+    await setCamera(
+      one === null ? from : [(both.minX + both.maxX) / 2, (both.minY + both.maxY) / 2],
+      zoom,
+    );
+
+    const checkPress = (): void => {
+      const scene = faces();
+      const cam = camera();
+      const hits = hitsAt(scene, from, cam);
+      if (!hits.includes(id)) {
+        throw new Error(
+          `dragObject: ${id} is not in the hit list at the grab point ${where} (hits ${hits.join(", ") || "none"})`,
+        );
+      }
+      const hit = faceHitAt(scene, from, cam);
+      const ok =
+        hits[0] === id
+          ? hit?.object === id &&
+            hit.path.length === 0 &&
+            (hit.target.type === "body" || hit.target.type === "value")
+          : hit === null || (hit.path.length === 0 && hit.target.type === "body");
+      if (!ok) {
+        throw new Error(
+          `dragObject: the grab point ${where} presses ${describeHit(hit)}, not ${id} (hits ${hits.join(", ")})`,
+        );
+      }
+    };
+    checkPress();
+    if (hitsAt(faces(), from, camera())[0] !== id) {
+      tap(from);
+      await settle(20);
+      await cycleTo(id, from);
+      if (!selectedIs(id))
+        throw new Error(`dragObject: the click at ${where} did not select ${id}`);
+      checkPress();
+    }
+
+    const checkRelease = (): void => {
+      const scene = faces();
+      const drop = dropTargetAt(scene, to, camera(), [id]);
+      if (!onScreen(to, EDGE_PX / 2) || !dropMatches(drop, { kind: "point", to }, scene, alt)) {
+        throw new Error(
+          `dragObject: the release point ${JSON.stringify(to)} is not the board: it resolves to ${JSON.stringify(drop)}`,
+        );
+      }
+    };
+    const mods = { alt };
+    const before = ctx.gm.revision;
+    if (one !== null) {
+      checkRelease();
+      const [fx, fy] = ctx.toScreen(from);
+      const [tx, ty] = ctx.toScreen(to);
+      const len = Math.hypot(tx - fx, ty - fy) || 1;
+      const step = ctx.toBoard([
+        fx + ((tx - fx) / len) * DRAG_START_PX,
+        fy + ((ty - fy) / len) * DRAG_START_PX,
+      ]);
+      pointer("down", from, mods);
+      pointer("move", step, mods);
+    } else {
+      // Too far for one camera: press, pan with the drag held, then release.
+      const [px, py] = ctx.toScreen(from);
+      const v = viewport();
+      pointer("down", from, mods);
+      pointer(
+        "move",
+        ctx.toBoard([px + (px < v.width / 2 ? DRAG_START_PX : -DRAG_START_PX), py]),
+        mods,
+      );
+      await setCamera(to, zoom);
+      try {
+        checkRelease();
+      } catch (e) {
+        act(() => {
+          fireEvent.pointerCancel(canvas(), { pointerId: 1 });
+        });
+        throw e;
+      }
+    }
+    pointer("move", to, mods);
+    pointer("up", to, mods);
+    await committed(before, `${id} dragged from ${where} to ${JSON.stringify(to)}`);
+  };
+
   /** Clears the selection with Escape on the canvas (the select tool, no gesture in progress). */
   const clearSelection = async (): Promise<void> => {
     if (ctx.ui.getState().selection.length === 0) return;
@@ -1326,28 +1429,54 @@ export const createGestures: CreateGestures = (ctx: DriverContext): Gestures => 
     },
 
     async dragObject(id, to, options = {}) {
+      const { grab, ...rest } = options;
       const container = containerOf(id);
       if (container !== null) {
+        if (grab !== undefined) {
+          throw new Error(
+            `dragObject: ${id} is an entry of ${container}; grab is for board objects`,
+          );
+        }
         await dragAims(
           { kind: "entry", container, entry: id, part: "row" },
           id,
           { kind: "point", to },
-          options,
+          rest,
         );
         return;
       }
       const item = faces().items.find((i) => i.id === id);
       if (item === undefined) throw new Error(`dragObject: ${id} is not on the active board`);
-      const delta: Point = [to[0] - item.anchor[0], to[1] - item.anchor[1]];
-      await dragAims(
-        { kind: "board", id, use: "press" },
-        id,
-        { kind: "point", to },
-        {
-          ...options,
-          release: (p) => [p[0] + delta[0], p[1] + delta[1]],
-        },
-      );
+      const anchor = item.anchor;
+      const delta: Point = [to[0] - anchor[0], to[1] - anchor[1]];
+      if (grab !== undefined) {
+        const from: Point = [anchor[0] + grab[0], anchor[1] + grab[1]];
+        await dragFrom(id, from, [to[0] + grab[0], to[1] + grab[1]], rest.alt === true);
+        return;
+      }
+      await clearSelection();
+      let first = true;
+      try {
+        await reveal({ kind: "board", id, use: "press" });
+      } catch {
+        first = false;
+      }
+      if (first) {
+        await dragAims(
+          { kind: "board", id, use: "press" },
+          id,
+          { kind: "point", to },
+          { ...rest, release: (p) => [p[0] + delta[0], p[1] + delta[1]] },
+        );
+        return;
+      }
+      // Never first under the pointer: press where it is in the hit list (selected first).
+      const from = await reveal({ kind: "board", id, use: "under" }).catch(() => {
+        throw new Error(
+          `dragObject: no point of ${id} can be pressed: it is not in the hit list anywhere clear of other objects' face elements`,
+        );
+      });
+      await dragFrom(id, from, [from[0] + delta[0], from[1] + delta[1]], rest.alt === true);
     },
 
     async marquee(from, to) {
