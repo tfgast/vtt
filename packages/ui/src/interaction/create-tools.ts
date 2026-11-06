@@ -548,9 +548,44 @@ export interface ImagePhase {
 
 const ACCEPTED = new Set(IMAGE_ACCEPT.split(","));
 
+/** Whether `file` is of a type the image tool and the authority accept (`IMAGE_ACCEPT`). */
+export function isAcceptedImage(file: File): boolean {
+  return ACCEPTED.has(file.type);
+}
+
+/** The notice for a dropped file of another type. */
+export const DROP_IMAGE_NOTICE = "Drop a PNG, JPEG, WebP or GIF image.";
+
 function without<T>(record: Readonly<Record<string, T>>, key: string): Record<string, T> {
   const { [key]: _gone, ...rest } = record;
   return rest;
+}
+
+/**
+ * The effect that creates an uploaded image as an object (M4 plan Q21): one
+ * `create_object` write of a rect `width / 100 × height / 100` units
+ * anchored at `at`, named `name`, its `image` cell the asset's path, with
+ * the creation continuations; an error notice instead when the measured size
+ * is not positive and finite. Shared by the image tool and the canvas's
+ * image file drop (vtt-qf5.33).
+ */
+export function imageCreation(
+  start: CreationStart,
+  at: Point,
+  name: string,
+  asset: { path: string; width: number; height: number },
+): Effect {
+  const { width, height } = asset;
+  if (!(width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height))) {
+    return { type: "notice", level: "error", text: `The image "${name}" has no size.` };
+  }
+  const shape: Shape = {
+    type: "rect",
+    width: width / IMAGE_PX_PER_UNIT,
+    height: height / IMAGE_PX_PER_UNIT,
+  };
+  const init: ObjectInit = { shape, cells: { name: text(name), image: text(asset.path) } };
+  return createWrite(start, "image", at, init, importLabel(name));
 }
 
 /**
@@ -589,31 +624,11 @@ export function createImageTool(): Tool<ImagePhase, "image"> {
           effects: [{ type: "upload", stamp: entry.stamp, file: outcome.file }],
         };
       }
-      case "uploaded": {
-        const { width, height } = outcome;
-        const ended = withPhase(state, { pending: rest });
-        if (!(width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height))) {
-          return {
-            state: ended,
-            effects: [
-              { type: "notice", level: "error", text: `The image "${entry.name}" has no size.` },
-            ],
-          };
-        }
-        const shape: Shape = {
-          type: "rect",
-          width: width / IMAGE_PX_PER_UNIT,
-          height: height / IMAGE_PX_PER_UNIT,
-        };
-        const init: ObjectInit = {
-          shape,
-          cells: { name: text(entry.name), image: text(outcome.path) },
-        };
+      case "uploaded":
         return {
-          state: ended,
-          effects: [createWrite(entry, "image", entry.at, init, importLabel(entry.name))],
+          state: withPhase(state, { pending: rest }),
+          effects: [imageCreation(entry, entry.at, entry.name, outcome)],
         };
-      }
       case "upload_failed":
         return {
           state: withPhase(state, { pending: rest }),
@@ -676,13 +691,11 @@ export function createImageTool(): Tool<ImagePhase, "image"> {
             ? { state: withPhase(state, { press: null }), effects: [] }
             : { state, effects: [] };
         case "file_drop": {
-          const file = event.files.find((f) => ACCEPTED.has(f.type));
+          const file = event.files.find(isAcceptedImage);
           if (file === undefined) {
             return {
               state,
-              effects: [
-                { type: "notice", level: "warning", text: "Drop a PNG, JPEG, WebP or GIF image." },
-              ],
+              effects: [{ type: "notice", level: "warning", text: DROP_IMAGE_NOTICE }],
             };
           }
           const stamp = captureStamp(input);

@@ -26,7 +26,10 @@
  *   session's `whenRevision`, vtt-3l6.13's in-place editor port, the
  *   extensions `invoke` (effect), `expand_created` and `edit_created`
  *   (continuations) and the cell drop handler (vtt-1xv.27) as its data-drop
- *   handler, so a cell dropped on the canvas works whatever tool is active;
+ *   handler, so a cell dropped on the canvas works whatever tool is active,
+ *   and the image file-drop handler (vtt-qf5.33) as its file-drop handler,
+ *   so an image file dropped on an object sets its `image` and one dropped
+ *   on empty space becomes an image object, whatever tool is active;
  * - `BoardCanvas` fed with `buildFaceScene` (vtt-1xv.26) of the board view,
  *   the `UiStore`, the runtime's previews and the face state, with the
  *   runtime's overlays; the renderer draws faces with `drawFaceItem`
@@ -60,6 +63,7 @@ import { appKeyActions, bindKeybindings } from "./app/keybindings";
 import { Notices } from "./app/Notices";
 import { StatusBar } from "./app/StatusBar";
 import { Toolbar } from "./app/Toolbar";
+import { createImageFileDropHandler } from "./assets/file-drop";
 import { assetUrl, uploadAsset } from "./assets/upload";
 import {
   type BinderPolicy,
@@ -368,6 +372,7 @@ function Shell(props: AppProps & { ui: UiStore }) {
         },
       },
       dataDropHandlers: [createCellDropHandler({ faceState }), createObjectDropHandler()],
+      fileDropHandlers: [createImageFileDropHandler()],
     });
     return { policy, registry, runtime };
   });

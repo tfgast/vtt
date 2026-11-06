@@ -239,7 +239,8 @@ The goblin starts as a copy of the Token template, which already has
    `M + [-4, 8]`.
 2. Double-click its name and type `Goblin`.
 3. With the goblin selected, press Upload… on the inspector's `image` row
-   and choose `packages/fixtures/assets/goblin.png`.
+   and choose `packages/fixtures/assets/goblin.png` (or drop that file from
+   your file manager onto the goblin).
 4. In the inspector, set `ac` to `13`.
 5. Make `ac` GM-only: in the Visibility rules section, type `ac` as the
    rule's cell name, check `gm`, and press Add visibility rule.

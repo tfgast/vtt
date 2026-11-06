@@ -27,6 +27,17 @@
  * vtt-3l6.24's); leaving, blurring, clearing the focused cell and unmounting
  * clear the hover the bar set, never another component's. `requestFormulaBarFocus` (editor-port.ts) gives the input
  * keyboard focus.
+ *
+ * Completion (vtt-qf5.16, completion.ts): while a formula is being typed
+ * (focusing alone opens nothing), a list under the input suggests names for
+ * the identifier at the caret: the object's cells, functions, and after
+ * `ref.` the referenced object's cells as the viewer's view shows them. Nothing is highlighted at first; Down and
+ * Up move the highlight; Tab accepts the highlighted suggestion (else the
+ * first); Enter accepts the highlighted one, and with none highlighted
+ * commits as above; Escape closes the list (until the text or caret moves)
+ * before it reverts. A click on a suggestion accepts it; the input keeps
+ * focus throughout. Accepting replaces the identifier and puts the caret
+ * after the insert.
  */
 import type { CellView, ObjectView } from "@vtt/protocol";
 import {
@@ -35,6 +46,8 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -52,6 +65,7 @@ import {
   toInputText,
 } from "../values/input";
 import { cellInputToOps } from "../values/ops";
+import { applyCompletion, type CompletionItem, suggestCompletions } from "./completion";
 import { onFormulaBarFocusRequest } from "./editor-port";
 
 /** How long typing pauses before the input's syntax is checked. */
@@ -138,6 +152,26 @@ const INPUT_STYLE: CSSProperties = {
 const NOTE_STYLE: CSSProperties = { fontSize: "0.85em", whiteSpace: "nowrap" };
 const ERROR_STYLE: CSSProperties = { ...NOTE_STYLE, color: "#b3261e" };
 const MUTED_STYLE: CSSProperties = { color: "GrayText" };
+const FIELD_STYLE: CSSProperties = { position: "relative", flex: 1, minWidth: 0, display: "flex" };
+const LIST_STYLE: CSSProperties = {
+  position: "absolute",
+  top: "100%",
+  left: 0,
+  zIndex: 20,
+  margin: 0,
+  padding: 0,
+  minWidth: "12em",
+  background: "Canvas",
+  color: "CanvasText",
+  border: "1px solid GrayText",
+  boxShadow: "0 2px 6px rgba(0, 0, 0, 0.2)",
+};
+const OPTION_STYLE: CSSProperties = { padding: "1px 6px", cursor: "pointer", whiteSpace: "nowrap" };
+const ACTIVE_OPTION_STYLE: CSSProperties = {
+  ...OPTION_STYLE,
+  background: "Highlight",
+  color: "HighlightText",
+};
 
 export function FormulaBar({ session, ui }: FormulaBarProps) {
   const snapshot = useSyncExternalStore(
@@ -157,6 +191,17 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
   const keptOverWindowBlur = useRef(false);
   /** The `hoveredCell` this bar set, so it clears only its own. */
   const ownHover = useRef<CellAddress | null>(null);
+  /** Whether the text was typed into since the draft began: completion follows typing only. */
+  const [typing, setTyping] = useState(false);
+  /** The input's caret while it is a collapsed selection, else null (completion). */
+  const [caret, setCaret] = useState<number | null>(null);
+  /** Escape closed the suggestions; typing or moving the caret reopens them. */
+  const [dismissed, setDismissed] = useState(false);
+  /** The highlighted suggestion, valid only at the text and caret it was chosen at. */
+  const [highlight, setHighlight] = useState<{ at: string; index: number } | null>(null);
+  /** Where to put the caret after accepting a suggestion re-renders the input. */
+  const pendingCaret = useRef<number | null>(null);
+  const listId = useId();
 
   const viewer = snapshot.viewer;
   const gm = viewer.type === "gm";
@@ -168,6 +213,81 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
   const key = focused === null ? null : keyOf(focused);
   // A draft belongs to its cell, and only to an editable one.
   const draft = draftState !== null && draftState.key === key && start !== null ? draftState : null;
+
+  // -- completion
+
+  const completionAt = draft === null || caret === null ? null : `${caret}\u0000${draft.text}`;
+  const completion =
+    draft === null || caret === null || focused === null || !caps.formula || !typing
+      ? null
+      : suggestCompletions(draft.text, caret, {
+          object: focused.object,
+          cell: cellName,
+          objectView: (id) => session.objectView(id),
+        });
+  const suggestions = completion !== null && !dismissed ? completion : null;
+  const activeIndex = suggestions !== null && highlight?.at === completionAt ? highlight.index : -1;
+
+  const syncCaret = (el: HTMLTextAreaElement) => {
+    const next = el.selectionStart === el.selectionEnd ? el.selectionStart : null;
+    if (next !== caret) setDismissed(false);
+    setCaret(next);
+  };
+
+  // After accepting, the caret goes after the insert once the new text is rendered.
+  useLayoutEffect(() => {
+    const at = pendingCaret.current;
+    if (at === null || inputRef.current === null) return;
+    pendingCaret.current = null;
+    inputRef.current.setSelectionRange(at, at);
+  });
+
+  const accept = (item: CompletionItem) => {
+    if (draft === null || suggestions === null) return;
+    const next = applyCompletion(draft.text, suggestions, item);
+    const { error: _error, ...rest } = draft;
+    setDraft({ ...rest, text: next.text });
+    pendingCaret.current = next.caret;
+    setCaret(next.caret);
+  };
+
+  /** Handles a key for the open suggestion list; true when it did. */
+  const completionKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (suggestions === null || completionAt === null) return false;
+    const { items } = suggestions;
+    const plain = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+    switch (event.key) {
+      case "ArrowDown":
+      case "ArrowUp": {
+        if (!plain) return false;
+        event.preventDefault();
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        const from = activeIndex < 0 ? (step > 0 ? -1 : 0) : activeIndex;
+        setHighlight({ at: completionAt, index: (from + step + items.length) % items.length });
+        return true;
+      }
+      case "Tab": {
+        if (!plain) return false;
+        event.preventDefault();
+        const item = items[Math.max(activeIndex, 0)];
+        if (item !== undefined) accept(item);
+        return true;
+      }
+      case "Enter": {
+        const item = items[activeIndex];
+        if (!plain || item === undefined) return false;
+        event.preventDefault();
+        accept(item);
+        return true;
+      }
+      case "Escape":
+        event.preventDefault();
+        setDismissed(true);
+        return true;
+      default:
+        return false;
+    }
+  };
 
   const refLabel: RefLabel = (id) => {
     const label = session.refLabel(viewer, id);
@@ -273,6 +393,7 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
       text: start.text,
       baseRevision: session.getSnapshot().revision,
     };
+    setTyping(false);
     setDraft(next);
     return next;
   };
@@ -301,6 +422,7 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (completionKey(event)) return;
     // Shift+Enter inserts a newline (the textarea keeps the text exactly).
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -347,34 +469,68 @@ export function FormulaBar({ session, ui }: FormulaBarProps) {
   } else {
     body = (
       <>
-        <textarea
-          ref={inputRef}
-          aria-label="Formula"
-          style={INPUT_STYLE}
-          rows={Math.max(1, (draft?.text ?? start.text).split("\n").length)}
-          value={draft?.text ?? start.text}
-          spellCheck={false}
-          onFocus={() => {
-            presence.current.focused = true;
-            keptOverWindowBlur.current = false;
-            syncHover();
-            if (draft === null) beginDraft();
-          }}
-          onBlur={() => {
-            presence.current.focused = false;
-            syncHover();
-            // The window losing focus blurs the input too: keep the draft for when it returns.
-            if (!document.hasFocus()) keptOverWindowBlur.current = true;
-            else setDraft(null);
-          }}
-          onChange={(e) => {
-            const base = draft ?? beginDraft();
-            if (base === null) return;
-            const { error: _error, ...rest } = base;
-            setDraft({ ...rest, text: e.target.value });
-          }}
-          onKeyDown={onKeyDown}
-        />
+        <div style={FIELD_STYLE}>
+          <textarea
+            ref={inputRef}
+            aria-label="Formula"
+            aria-autocomplete="list"
+            aria-controls={suggestions === null ? undefined : listId}
+            aria-activedescendant={activeIndex < 0 ? undefined : `${listId}-${activeIndex}`}
+            style={INPUT_STYLE}
+            rows={Math.max(1, (draft?.text ?? start.text).split("\n").length)}
+            value={draft?.text ?? start.text}
+            spellCheck={false}
+            onFocus={() => {
+              presence.current.focused = true;
+              keptOverWindowBlur.current = false;
+              syncHover();
+              if (draft === null) beginDraft();
+            }}
+            onBlur={() => {
+              presence.current.focused = false;
+              setCaret(null);
+              setTyping(false);
+              setDismissed(false);
+              syncHover();
+              // The window losing focus blurs the input too: keep the draft for when it returns.
+              if (!document.hasFocus()) keptOverWindowBlur.current = true;
+              else setDraft(null);
+            }}
+            onChange={(e) => {
+              const base = draft ?? beginDraft();
+              if (base === null) return;
+              const { error: _error, ...rest } = base;
+              setDraft({ ...rest, text: e.target.value });
+              setTyping(true);
+              setDismissed(false);
+              syncCaret(e.target);
+            }}
+            onSelect={(e) => syncCaret(e.currentTarget)}
+            onKeyDown={onKeyDown}
+          />
+          {suggestions !== null && (
+            <div id={listId} role="listbox" aria-label="Suggestions" style={LIST_STYLE}>
+              {suggestions.items.map((item, index) => (
+                // biome-ignore lint/a11y/useKeyWithClickEvents: the input's keys drive the list
+                <div
+                  key={`${item.kind}:${item.label}`}
+                  id={`${listId}-${index}`}
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={index === activeIndex}
+                  data-kind={item.kind}
+                  style={index === activeIndex ? ACTIVE_OPTION_STYLE : OPTION_STYLE}
+                  // Keep the input focused (and its draft) while the suggestion is pressed.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => accept(item)}
+                >
+                  {item.label}
+                  {item.kind === "function" && <span style={MUTED_STYLE}>()</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           disabled={commitDisabled}
