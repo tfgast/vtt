@@ -433,6 +433,30 @@ describe("in-place editor", () => {
     expect(cellOf(session, "goblin", "temp")?.overridden).toBe(true);
   });
 
+  test("the window losing focus does not lose typed text: a changed value commits, an unparseable one stays (vtt-nb8.21)", async () => {
+    const { session, port, stamp, transacts } = await setup();
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    act(() => port.open({ stamp: stamp(), object: "goblin", cell: "temp" }));
+    let editor = await openEditor("temp");
+    const user = userEvent.setup();
+    await user.clear(editor);
+    await user.type(editor, "=max_hp +");
+    act(() => editor.blur());
+    await settle();
+    expect(editorOf("temp")?.value).toBe("=max_hp +");
+    expect(transacts()).toHaveLength(0);
+    editor = editorOf("temp") as HTMLInputElement;
+    await user.clear(editor);
+    await user.type(editor, "7");
+    act(() => editor.blur());
+    await until(
+      () => JSON.stringify(cellOf(session, "goblin", "temp")?.value) === JSON.stringify(num(7)),
+      "the override",
+    );
+    expect(transacts()).toHaveLength(1);
+    hasFocus.mockRestore();
+  });
+
   test("Escape cancels without writing", async () => {
     const { dblClick, transacts } = await setup();
     dblClick([2, 1]);

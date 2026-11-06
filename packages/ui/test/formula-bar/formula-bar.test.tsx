@@ -121,6 +121,9 @@ function focus(ui: UiStore, cell: string | null, object = "goblin"): void {
   act(() => ui.focusCell(cell === null ? null : { object, cell }));
 }
 
+/** Lets pending timers and renders settle. */
+const settle = () => act(() => new Promise((r) => setTimeout(r, 20)));
+
 const part = (name: string) => document.querySelector<HTMLElement>(`[data-part="${name}"]`);
 
 describe("formula bar", () => {
@@ -375,6 +378,68 @@ describe("formula bar", () => {
     expect(bar().value).toBe("=max_hp - damage_taken");
     expect(transacts()).toHaveLength(0);
   });
+  test("the window losing focus keeps the draft; it is there when focus returns (vtt-nb8.21)", async () => {
+    const { ui, transacts } = await setup();
+    focus(ui, "ac");
+    const user = userEvent.setup();
+    await user.click(bar());
+    await user.clear(bar());
+    await user.type(bar(), "=max_hp +");
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    act(() => bar().blur());
+    expect(document.activeElement).not.toBe(bar());
+    expect(bar().value).toBe("=max_hp +");
+    hasFocus.mockReturnValue(true);
+    act(() => {
+      window.dispatchEvent(new FocusEvent("focus"));
+      bar().focus();
+    });
+    await settle();
+    expect(document.activeElement).toBe(bar());
+    expect(bar().value).toBe("=max_hp +");
+    await user.type(bar(), " 1{Enter}");
+    await waitFor(() => expect(transacts()).toHaveLength(1));
+    expect(transacts()[0]?.ops).toEqual([
+      { type: "set_formula", object: "goblin", cell: "ac", source: "max_hp + 1" },
+    ]);
+    hasFocus.mockRestore();
+  });
+
+  test("a draft kept over a window blur is discarded when the window comes back to another element", async () => {
+    const { ui } = await setup();
+    focus(ui, "ac");
+    const user = userEvent.setup();
+    await user.click(bar());
+    await user.clear(bar());
+    await user.type(bar(), "99");
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    act(() => bar().blur());
+    expect(bar().value).toBe("99");
+    hasFocus.mockReturnValue(true);
+    act(() => {
+      window.dispatchEvent(new FocusEvent("focus"));
+    });
+    await settle();
+    expect(bar().value).toBe("13");
+    hasFocus.mockRestore();
+  });
+
+  test("a blur to another element of the page (the window keeps focus) still discards the draft", async () => {
+    const { ui, transacts } = await setup();
+    focus(ui, "ac");
+    const user = userEvent.setup();
+    await user.click(bar());
+    await user.clear(bar());
+    await user.type(bar(), "99");
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    act(() => bar().blur());
+    expect(bar().value).toBe("13");
+    act(() => bar().focus());
+    expect(bar().value).toBe("13");
+    expect(transacts()).toHaveLength(0);
+    hasFocus.mockRestore();
+  });
+
   test("a multiline formula source round-trips unchanged; Shift+Enter inserts a newline", async () => {
     const { session, ui, transacts } = await setup();
     focus(ui, "multi");
